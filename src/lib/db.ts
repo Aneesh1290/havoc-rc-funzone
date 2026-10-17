@@ -5,24 +5,37 @@ import fs from 'fs';
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
 function getDatabasePath(): string {
+  // If DATA_DIR or DB_PATH is specified:
+  // Note: During `next build` on Render, the persistent disk is NOT mounted yet!
+  // We check if the target directory can be accessed/created; if not, we fallback safely during build.
   if (process.env.DB_PATH) {
-    const dir = path.dirname(process.env.DB_PATH);
-    if (!fs.existsSync(dir)) {
-      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+    try {
+      const dir = path.dirname(process.env.DB_PATH);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      return process.env.DB_PATH;
+    } catch (e) {
+      console.warn("DB_PATH directory not accessible (likely during build), falling back to local havoc.db:", e);
+      return path.resolve(process.cwd(), 'havoc.db');
     }
-    return process.env.DB_PATH;
   }
   if (process.env.DATA_DIR) {
-    if (!fs.existsSync(process.env.DATA_DIR)) {
-      try { fs.mkdirSync(process.env.DATA_DIR, { recursive: true }); } catch (e) {}
+    try {
+      if (!fs.existsSync(process.env.DATA_DIR)) {
+        fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
+      }
+      return path.join(process.env.DATA_DIR, 'havoc.db');
+    } catch (e) {
+      console.warn("DATA_DIR not accessible (likely during build), falling back to local havoc.db:", e);
+      return path.resolve(process.cwd(), 'havoc.db');
     }
-    return path.join(process.env.DATA_DIR, 'havoc.db');
   }
   return path.resolve(process.cwd(), 'havoc.db');
 }
 
 const dbPath = getDatabasePath();
-const db = new Database(dbPath, { verbose: console.log });
+const db = new Database(dbPath, { verbose: process.env.NODE_ENV === 'development' ? console.log : undefined });
 
 // Initialize database schema
 export function initDB() {

@@ -1,6 +1,12 @@
 import React from "react";
+import { fetchTicketsAction } from "@/app/actions/tickets";
 
-export default function TicketTypePage() {
+export const revalidate = 0;
+
+export default async function TicketTypePage() {
+  const allTickets = await fetchTicketsAction();
+  const activeTickets = allTickets.filter(t => t.active === 1);
+
   return (
     <div className="min-h-screen bg-white text-black py-10 sm:py-16">
       <div className="max-w-5xl mx-auto px-4 sm:px-6">
@@ -75,130 +81,143 @@ export default function TicketTypePage() {
                 </tr>
               </thead>
               <tbody className="text-black font-sans">
-                
-                {/* Row 1: Visitor */}
-                <tr className="border-b-[2.5px] border-black">
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black">
-                    Visitor
-                  </td>
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
-                    ₹300+GST
-                  </td>
-                  <td className="py-8 px-8 align-middle">
-                    <div className="flex items-start gap-4">
-                      {/* Red circle-slash (prohibited) icon */}
-                      <div className="shrink-0 pt-0.5">
-                        <svg className="w-9 h-9 text-[#d00000]" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="3.2">
-                          <circle cx="18" cy="18" r="15" />
-                          <line x1="7" y1="7" x2="29" y2="29" />
-                        </svg>
-                      </div>
-                      <ul className="space-y-1 text-base sm:text-lg font-bold text-black leading-relaxed">
-                        <li className="flex items-center gap-2">
-                          <span className="text-xl leading-none">•</span>
-                          <span>Entry only as a companion.</span>
-                        </li>
-                        <li className="flex items-center gap-2">
-                          <span className="text-xl leading-none">•</span>
-                          <span>No play access to activities</span>
-                        </li>
-                      </ul>
-                    </div>
-                  </td>
-                </tr>
+                {activeTickets.map((ticket, index) => {
+                  const isLast = index === activeTickets.length - 1;
+                  const borderClass = isLast ? "" : "border-b-[2.5px] border-black";
+                  const cleanName = ticket.name.replace(/_/g, " ");
+                  const hasPerk = ticket.has_simulator_perk === 1;
 
-                {/* Row 2: Participant */}
-                <tr className="border-b-[2.5px] border-black">
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black">
-                    Participant
-                  </td>
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
-                    ₹1000+GST
-                  </td>
-                  <td className="py-8 px-8 align-middle">
-                    <div className="flex items-center gap-4">
-                      {/* Solid blue circle with white checkmark matching reference */}
-                      <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
-                        <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                          <polyline points="20 6 9 17 4 12" />
-                        </svg>
-                      </div>
-                      <p className="text-base sm:text-lg font-bold text-black">
-                        • Full access to all 16 RC Activities
-                      </p>
-                    </div>
-                  </td>
-                </tr>
+                  // Render specific customized benefits or fallback
+                  const customBenefits = ticket.benefits?.split("\n").map(s => s.trim()).filter(Boolean);
 
-                {/* Row 3: VIP Visitor */}
-                <tr className="border-b-[2.5px] border-black">
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black">
-                    VIP Visitor
-                  </td>
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
-                    ₹500+GST
-                  </td>
-                  <td className="py-6 px-8 align-middle">
-                    <p className="text-base sm:text-lg font-bold text-black mb-3">
-                      As Selected premium experiences:
-                    </p>
-                    <ul className="space-y-2 text-base sm:text-lg font-bold text-black ml-1">
-                      <li className="flex items-center gap-3">
-                        <span className="text-[#0040c0] text-xl">✈</span>
-                        <span>• RC Flight Simulator</span>
-                      </li>
-                      <li className="flex items-center gap-3">
-                        <span className="text-black text-xl">🚆</span>
-                        <span>• HO &amp; N Scale Model Railway Activities</span>
-                      </li>
-                      <li className="flex items-center gap-3">
-                        <span className="text-[#d00000] text-xl">🚗</span>
-                        <span>• Car Race Sim Beginner</span>
-                      </li>
-                    </ul>
-                  </td>
-                </tr>
-
-                {/* Row 4: VIP Participant */}
-                <tr>
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black">
-                    VIP<br />Participant
-                  </td>
-                  <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
-                    ₹1500+GST
-                  </td>
-                  <td className="py-8 px-8 align-middle">
-                    <div className="space-y-4">
-                      {/* Benefit Item 1 */}
-                      <div className="flex items-start gap-4">
-                        <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
-                          <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        </div>
-                        <ul className="text-base sm:text-lg font-bold text-black">
-                          <li>• Full access to all 16 RC Activities</li>
-                          <li className="mt-1.5">• Upgraded Hobby Grade RC Cars for Drift, Off-Road, Mini-Z tracks &amp; FPV RC cars.</li>
-                        </ul>
-                      </div>
-
-                      {/* Benefit Item 2 with RC vehicle thumbnail */}
-                      <div className="flex items-start gap-4 pt-1">
-                        <div className="shrink-0 w-12 h-10 flex items-center justify-center">
-                          <img 
-                            src="/rc_car.png" 
-                            alt="RC Car" 
-                            className="w-full h-full object-contain filter grayscale contrast-125" 
-                          />
-                        </div>
-                        <p className="text-sm sm:text-base font-bold text-black leading-snug">
-                          • + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-                </tr>
-
+                  return (
+                    <tr key={ticket.id} className={borderClass}>
+                      <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black capitalize">
+                        {cleanName}
+                      </td>
+                      <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
+                        ₹{ticket.price}+GST
+                      </td>
+                      <td className="py-8 px-8 align-middle">
+                        {customBenefits && customBenefits.length > 0 ? (
+                          <div className="space-y-3">
+                            {ticket.description && (
+                              <p className="text-base sm:text-lg font-bold text-black mb-2">
+                                {ticket.description}
+                              </p>
+                            )}
+                            <ul className="space-y-2 text-base sm:text-lg font-bold text-black">
+                              {customBenefits.map((b, bIdx) => (
+                                <li key={bIdx} className="flex items-start gap-3">
+                                  <div className="shrink-0 w-6 h-6 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
+                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                      <polyline points="20 6 9 17 4 12" />
+                                    </svg>
+                                  </div>
+                                  <span>{b}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ) : ticket.name.toUpperCase() === "VISITOR" ? (
+                          <div className="flex items-start gap-4">
+                            <div className="shrink-0 pt-0.5">
+                              <svg className="w-9 h-9 text-[#d00000]" viewBox="0 0 36 36" fill="none" stroke="currentColor" strokeWidth="3.2">
+                                <circle cx="18" cy="18" r="15" />
+                                <line x1="7" y1="7" x2="29" y2="29" />
+                              </svg>
+                            </div>
+                            <ul className="space-y-1 text-base sm:text-lg font-bold text-black leading-relaxed">
+                              <li className="flex items-center gap-2">
+                                <span className="text-xl leading-none">•</span>
+                                <span>Entry only as a companion.</span>
+                              </li>
+                              <li className="flex items-center gap-2">
+                                <span className="text-xl leading-none">•</span>
+                                <span>No play access to activities</span>
+                              </li>
+                            </ul>
+                          </div>
+                        ) : ticket.name.toUpperCase() === "PARTICIPANT" ? (
+                          <div className="flex items-center gap-4">
+                            <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
+                              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                            </div>
+                            <p className="text-base sm:text-lg font-bold text-black">
+                              • Full access to all 16 RC Activities
+                            </p>
+                          </div>
+                        ) : ticket.name.toUpperCase() === "VIP_VISITOR" ? (
+                          <div>
+                            <p className="text-base sm:text-lg font-bold text-black mb-3">
+                              As Selected premium experiences:
+                            </p>
+                            <ul className="space-y-2 text-base sm:text-lg font-bold text-black ml-1">
+                              <li className="flex items-center gap-3">
+                                <span className="text-[#0040c0] text-xl">✈</span>
+                                <span>• RC Flight Simulator</span>
+                              </li>
+                              <li className="flex items-center gap-3">
+                                <span className="text-black text-xl">🚆</span>
+                                <span>• HO &amp; N Scale Model Railway Activities</span>
+                              </li>
+                              <li className="flex items-center gap-3">
+                                <span className="text-[#d00000] text-xl">🚗</span>
+                                <span>• Car Race Sim Beginner</span>
+                              </li>
+                            </ul>
+                          </div>
+                        ) : ticket.name.toUpperCase() === "VIP_PARTICIPANT" ? (
+                          <div className="space-y-4">
+                            <div className="flex items-start gap-4">
+                              <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
+                                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              </div>
+                              <ul className="text-base sm:text-lg font-bold text-black">
+                                <li>• Full access to all 16 RC Activities</li>
+                                <li className="mt-1.5">• Upgraded Hobby Grade RC Cars for Drift, Off-Road, Mini-Z tracks &amp; FPV RC cars.</li>
+                              </ul>
+                            </div>
+                            <div className="flex items-start gap-4 pt-1">
+                              <div className="shrink-0 w-12 h-10 flex items-center justify-center">
+                                <img 
+                                  src="/rc_car.png" 
+                                  alt="RC Car" 
+                                  className="w-full h-full object-contain filter grayscale contrast-125" 
+                                />
+                              </div>
+                              <p className="text-sm sm:text-base font-bold text-black leading-snug">
+                                • + {ticket.perk_duration_mins || 30} minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.
+                              </p>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="space-y-2">
+                            {ticket.description && (
+                              <p className="text-base sm:text-lg font-bold text-black">
+                                {ticket.description}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-3">
+                              <div className="shrink-0 w-7 h-7 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
+                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              </div>
+                              <p className="text-base sm:text-lg font-bold text-black">
+                                • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -209,3 +228,4 @@ export default function TicketTypePage() {
     </div>
   );
 }
+

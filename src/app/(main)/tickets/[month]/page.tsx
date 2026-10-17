@@ -871,13 +871,45 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               </button>
             </div>
 
-            {/* 4 Cards Grid */}
+            {/* Pass Cards Grid (Dynamic from database passes + fallback to benefits) */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 mb-6">
-              {Object.entries(TICKET_BENEFITS).map(([key, info]) => {
+              {dbTickets.map((t) => {
+                const key = t.name.toUpperCase();
+                const defaultInfo = TICKET_BENEFITS[key];
                 const isCurrent = type.toUpperCase() === key;
+                const hasPerk = t.has_simulator_perk === 1;
+
+                // Title & Tagline
+                const title = defaultInfo?.title || t.name.replace(/_/g, " ");
+                const tagline = t.description || defaultInfo?.tagline || `1-hour entry access with reserved arena capacity.`;
+                const priceStr = `₹${t.price.toLocaleString("en-IN")} + GST`;
+
+                // Badge
+                const badge = hasPerk 
+                  ? (t.perk_title || "VIP Sim Perk") 
+                  : (defaultInfo?.badge || "Active Pass");
+                const badgeColor = hasPerk 
+                  ? "bg-orange-50 text-[#ff5a1f] border-orange-200" 
+                  : (defaultInfo?.badgeColor || "bg-blue-50 text-blue-700 border-blue-200");
+
+                // Benefits list
+                let benefitsList: string[] = [];
+                if (t.benefits && t.benefits.trim()) {
+                  benefitsList = t.benefits.split("\n").map(s => s.trim()).filter(Boolean);
+                } else if (defaultInfo?.benefits) {
+                  benefitsList = defaultInfo.benefits;
+                } else {
+                  benefitsList = [
+                    `1 Hour arena entry access`,
+                    hasPerk ? `Includes ${t.perk_duration_mins || 30}-min simulator session at Havoc Sim Podium` : `Slot capacity: ${t.capacity} players`
+                  ];
+                }
+
+                const restrictionsList = defaultInfo?.restrictions || [];
+
                 return (
                   <div
-                    key={key}
+                    key={t.id}
                     className={`rounded-2xl p-5 border-2 transition-all flex flex-col justify-between ${
                       isCurrent
                         ? "border-[#ff5a1f] bg-orange-50/20 shadow-md ring-2 ring-[#ff5a1f]/10"
@@ -886,19 +918,19 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   >
                     <div>
                       <div className="flex items-center justify-between mb-2">
-                        <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${info.badgeColor}`}>
-                          {info.badge}
+                        <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${badgeColor}`}>
+                          {badge}
                         </span>
                         <span className="text-base font-black text-[#ff5a1f]">
-                          {info.price}
+                          {priceStr}
                         </span>
                       </div>
 
                       <h4 className="text-lg font-black font-heading text-[#0d1b2a] mb-1">
-                        {info.title}
+                        {title}
                       </h4>
                       <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                        {info.tagline}
+                        {tagline}
                       </p>
 
                       <div className="space-y-2 border-t border-gray-100 pt-3">
@@ -906,13 +938,13 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                           Access &amp; Benefits:
                         </span>
                         <ul className="space-y-1.5 text-xs text-gray-700">
-                          {info.benefits.map((b, idx) => (
+                          {benefitsList.map((b, idx) => (
                             <li key={idx} className="flex items-start gap-2">
                               <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
                               <span>{b}</span>
                             </li>
                           ))}
-                          {info.restrictions?.map((r, idx) => (
+                          {restrictionsList.map((r, idx) => (
                             <li key={idx} className="flex items-start gap-2 text-red-600 font-semibold bg-red-50 p-2 rounded-lg border border-red-200/50 mt-1">
                               <span className="shrink-0">🚫</span>
                               <span>{r}</span>
@@ -926,8 +958,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                       <button
                         type="button"
                         onClick={() => {
-                          const matched = dbTickets.find(t => t.name.toUpperCase() === key);
-                          if (matched) setType(matched.name);
+                          setType(t.name);
                           setIsGuideModalOpen(false);
                         }}
                         className={`w-full py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-1.5 ${
@@ -936,7 +967,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                             : "bg-[#0d1b2a] hover:bg-[#ff5a1f] text-white"
                         }`}
                       >
-                        {isCurrent ? "✓ Currently Selected" : `Select ${info.title}`}
+                        {isCurrent ? "✓ Currently Selected" : `Select ${title}`}
                       </button>
                     </div>
                   </div>

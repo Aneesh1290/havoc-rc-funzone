@@ -283,20 +283,20 @@ export default function VipPerksPage() {
                       {perk.sort_order}
                     </td>
 
-                    {/* Status Toggle (Click to Enable or Disable/Hide) */}
+                    {/* Status Toggle (Click to Enable or Hide) */}
                     <td className="py-3 px-4 text-center">
                       <button
                         type="button"
                         onClick={() => toggleStatus(perk.id, perk.active)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm cursor-pointer ${
+                        className={`inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all border whitespace-nowrap cursor-pointer ${
                           perk.active === 1
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400"
-                            : "bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200 hover:text-gray-700"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100"
+                            : "bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200"
                         }`}
-                        title={perk.active === 1 ? "Click to Disable / Hide from booking page" : "Click to Enable / Show on booking page"}
+                        title={perk.active === 1 ? "Click to Hide simulator" : "Click to Make Active"}
                       >
-                        <span className={`w-2 h-2 rounded-full ${perk.active === 1 ? "bg-emerald-500 animate-pulse" : "bg-gray-400"}`}></span>
-                        <span>{perk.active === 1 ? "Active" : "Disabled / Hidden"}</span>
+                        <span className={`w-1.5 h-1.5 rounded-full ${perk.active === 1 ? "bg-emerald-500" : "bg-gray-400"}`}></span>
+                        <span>{perk.active === 1 ? "Active" : "Hidden"}</span>
                       </button>
                     </td>
 

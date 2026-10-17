@@ -291,6 +291,10 @@ export async function useCouponAction(code: string) {
 
 // VIP Perks Actions
 export async function fetchVipPerksAction(activeOnly = false): Promise<VipPerkRow[]> {
+  return getVipPerks(activeOnly);
+}
+
+export async function syncSimPodiumSimulatorsAction(): Promise<{ success: boolean; count?: number; error?: string }> {
   try {
     const simPodiumProducts = await getSimPodiumSimulators();
     if (simPodiumProducts.length > 0) {
@@ -301,12 +305,15 @@ export async function fetchVipPerksAction(activeOnly = false): Promise<VipPerkRo
         image: p.image_url || "/simulators/race-sim-gt.png"
       }));
       syncSimPodiumSimulators(formattedForSync);
+      revalidatePath('/admin/vip-perks');
+      revalidatePath('/tickets');
+      return { success: true, count: simPodiumProducts.length };
     }
-  } catch (err) {
+    return { success: true, count: 0 };
+  } catch (err: any) {
     console.error("Could not sync Sim Podium simulators:", err);
+    return { success: false, error: err.message || "Failed to sync" };
   }
-
-  return getVipPerks(activeOnly);
 }
 
 export async function createVipPerkAction(name: string, category: string, tagline: string, image: string, sortOrder = 0) {

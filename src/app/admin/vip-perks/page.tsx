@@ -1,13 +1,14 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Sparkles, X, Trash2, Plus, Edit2, Check, Power, Image as ImageIcon, ArrowUpDown } from "lucide-react";
+import { Sparkles, X, Trash2, Plus, Edit2, Check, Power, Image as ImageIcon, ArrowUpDown, Loader2 } from "lucide-react";
 import { 
   fetchVipPerksAction, 
   createVipPerkAction, 
   updateVipPerkAction, 
   toggleVipPerkStatusAction, 
-  deleteVipPerkAction 
+  deleteVipPerkAction,
+  syncSimPodiumSimulatorsAction
 } from "@/app/actions/tickets";
 import type { VipPerkRow } from "@/lib/db";
 
@@ -36,12 +37,30 @@ export default function VipPerksPage() {
   });
   const [deleteConfirmPerk, setDeleteConfirmPerk] = useState<VipPerkRow | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadPerks = async () => {
     setIsLoading(true);
     const data = await fetchVipPerksAction(false); // get both active and inactive
     setPerks(data);
     setIsLoading(false);
+  };
+
+  const handleSyncSimPodium = async () => {
+    setIsSyncing(true);
+    setErrorMsg(null);
+    try {
+      const res = await syncSimPodiumSimulatorsAction();
+      if (!res.success) {
+        setErrorMsg(res.error || "Failed to sync with Havoc Sim Podium");
+      }
+      await loadPerks();
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("Failed to sync with Havoc Sim Podium");
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   useEffect(() => {
@@ -150,12 +169,18 @@ export default function VipPerksPage() {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={() => loadPerks()}
-            className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm text-sm"
+            type="button"
+            disabled={isSyncing}
+            onClick={handleSyncSimPodium}
+            className="bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm text-sm disabled:opacity-50"
             title="Fetch and sync latest simulators from Havoc Sim Podium"
           >
-            <ArrowUpDown className="w-4 h-4 text-gray-500" />
-            <span>Sync with Sim Podium</span>
+            {isSyncing ? (
+              <Loader2 className="w-4 h-4 text-[#ff5a1f] animate-spin" />
+            ) : (
+              <ArrowUpDown className="w-4 h-4 text-gray-500" />
+            )}
+            <span>{isSyncing ? "Syncing..." : "Sync with Sim Podium"}</span>
           </button>
 
           <button 

@@ -283,26 +283,42 @@ export default function VipPerksPage() {
                       {perk.sort_order}
                     </td>
 
-                    {/* Status Toggle */}
+                    {/* Status Toggle (Click to Enable or Disable/Hide) */}
                     <td className="py-3 px-4 text-center">
                       <button
+                        type="button"
                         onClick={() => toggleStatus(perk.id, perk.active)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-sm cursor-pointer ${
                           perk.active === 1
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-                            : "bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"
+                            ? "bg-emerald-50 text-emerald-700 border border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400"
+                            : "bg-gray-100 text-gray-500 border border-gray-300 hover:bg-gray-200 hover:text-gray-700"
                         }`}
-                        title="Click to toggle availability on booking page"
+                        title={perk.active === 1 ? "Click to Disable / Hide from booking page" : "Click to Enable / Show on booking page"}
                       >
-                        <span className={`w-2 h-2 rounded-full ${perk.active === 1 ? "bg-emerald-500" : "bg-gray-400"}`}></span>
-                        {perk.active === 1 ? "Active" : "Disabled"}
+                        <span className={`w-2 h-2 rounded-full ${perk.active === 1 ? "bg-emerald-500 animate-pulse" : "bg-gray-400"}`}></span>
+                        <span>{perk.active === 1 ? "Active" : "Disabled / Hidden"}</span>
                       </button>
                     </td>
 
                     {/* Actions */}
                     <td className="py-3 px-4 text-right">
                       <div className="inline-flex items-center gap-2">
+                        {/* Quick Hide/Show Toggle Action Button */}
                         <button
+                          type="button"
+                          onClick={() => toggleStatus(perk.id, perk.active)}
+                          className={`p-1.5 rounded-lg transition-colors ${
+                            perk.active === 1 
+                              ? "text-emerald-600 hover:bg-emerald-50" 
+                              : "text-gray-400 hover:text-emerald-600 hover:bg-gray-100"
+                          }`}
+                          title={perk.active === 1 ? "Hide / Disable Simulator" : "Show / Enable Simulator"}
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
+
+                        <button
+                          type="button"
                           onClick={() => {
                             setErrorMsg(null);
                             setEditingPerk({ ...perk });
@@ -313,6 +329,7 @@ export default function VipPerksPage() {
                           <Edit2 className="w-4 h-4" />
                         </button>
                         <button
+                          type="button"
                           onClick={() => {
                             setErrorMsg(null);
                             setDeleteConfirmPerk(perk);

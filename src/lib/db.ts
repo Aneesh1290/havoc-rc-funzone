@@ -3,7 +3,25 @@ import path from 'path';
 import fs from 'fs';
 
 // Initialize the database connection
-const dbPath = path.resolve(process.cwd(), 'havoc.db');
+// Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
+function getDatabasePath(): string {
+  if (process.env.DB_PATH) {
+    const dir = path.dirname(process.env.DB_PATH);
+    if (!fs.existsSync(dir)) {
+      try { fs.mkdirSync(dir, { recursive: true }); } catch (e) {}
+    }
+    return process.env.DB_PATH;
+  }
+  if (process.env.DATA_DIR) {
+    if (!fs.existsSync(process.env.DATA_DIR)) {
+      try { fs.mkdirSync(process.env.DATA_DIR, { recursive: true }); } catch (e) {}
+    }
+    return path.join(process.env.DATA_DIR, 'havoc.db');
+  }
+  return path.resolve(process.cwd(), 'havoc.db');
+}
+
+const dbPath = getDatabasePath();
 const db = new Database(dbPath, { verbose: console.log });
 
 // Initialize database schema

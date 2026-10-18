@@ -11,9 +11,11 @@ import {
   fetchVipPerksAction, 
   fetchTakenSimulatorSlotsAction,
   fetchBlockedSlotsAction,
-  fetchTimeSlotsAction 
+  fetchTimeSlotsAction,
+  fetchSimPodiumSlotsAction
 } from '@/app/actions/tickets';
 import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow } from '@/lib/db';
+import type { SimPodiumSlot } from '@/lib/simulator-db';
 import { useCart } from '@/context/CartContext';
 import { Info, Check, X, Sparkles, ChevronRight, Ban } from 'lucide-react';
 
@@ -33,6 +35,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [simulators, setSimulators] = useState<VipPerkRow[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlotRow[]>([]);
   const [dbTimeSlots, setDbTimeSlots] = useState<TimeSlotRow[]>([]);
+  const [dbSimSlots, setDbSimSlots] = useState<SimPodiumSlot[]>([]);
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
@@ -118,6 +121,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     fetchTimeSlotsAction(true).then(data => {
       setDbTimeSlots(data || []);
     });
+    fetchSimPodiumSlotsAction().then(data => {
+      setDbSimSlots(data || []);
+    });
   }, []);
 
   useEffect(() => {
@@ -183,14 +189,20 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const perkTitle = selectedTicket?.perk_title || `${perkDuration}-Min Havoc Sim Podium Session`;
 
   const passEndHour = getPassEndHour(time);
+  
+  // Use dynamically loaded slots from Havoc Sim Podium database (or fallback to static base slots)
+  const activeSimSlots = dbSimSlots.length > 0 
+    ? dbSimSlots.map(s => ({ label: s.label, startHour: s.startHour }))
+    : BASE_30MIN_SIM_SLOTS;
+
   // Show 30-min simulator slots starting from or after the Funzone pass end hour.
   // If the pass is late evening (e.g. 8PM-9PM or 9PM-10PM), gracefully show the available evening simulator slots so visitors can still select their perk.
   const filteredSimSlots = time 
-    ? BASE_30MIN_SIM_SLOTS.filter(s => s.startHour >= passEndHour)
+    ? activeSimSlots.filter(s => s.startHour >= passEndHour)
     : [];
   const availableSimSlots = filteredSimSlots.length > 0 
     ? filteredSimSlots 
-    : (time ? BASE_30MIN_SIM_SLOTS.slice(-4) : BASE_30MIN_SIM_SLOTS);
+    : (time ? activeSimSlots.slice(-4) : activeSimSlots);
 
   // Selected simulators & slots per participant & session
   const [simSelections, setSimSelections] = useState<{ simName: string; slotLabel: string }[]>([

@@ -47,7 +47,9 @@ import {
   lockSimulatorSlot, 
   releaseSimulatorSlots, 
   parseSimulatorSlotAssignments,
-  getSimPodiumSimulators
+  getSimPodiumSimulators,
+  getSimPodiumSlots,
+  SimPodiumSlot
 } from "@/lib/simulator-db";
 import { formatOrderNumber } from "@/lib/order-utils";
 import { revalidatePath } from "next/cache";
@@ -60,6 +62,15 @@ export async function fetchTakenSimulatorSlotsAction(simulatorName: string, date
     return await getTakenSimulatorSlots(simulatorName, date);
   } catch (err) {
     console.error("fetchTakenSimulatorSlotsAction error:", err);
+    return [];
+  }
+}
+
+export async function fetchSimPodiumSlotsAction(): Promise<SimPodiumSlot[]> {
+  try {
+    return await getSimPodiumSlots();
+  } catch (err) {
+    console.error("fetchSimPodiumSlotsAction error:", err);
     return [];
   }
 }

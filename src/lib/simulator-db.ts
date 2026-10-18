@@ -354,3 +354,88 @@ export async function getSimPodiumSimulators(): Promise<SimPodiumProduct[]> {
   }
 }
 
+export interface SimPodiumSlot {
+  id: number;
+  time_range: string;
+  active: number;
+  sort_order: number;
+  // Normalized 30-min slot label e.g. "11AM-11:30AM"
+  label: string;
+  // Start hour decimal for ordering and pass-filtering (e.g. 11.0, 11.5, 14.0)
+  startHour: number;
+}
+
+/**
+ * Parses a Sim Podium time_range string (e.g. "11:00 AM - 11:30 AM" or "02:00 PM - 02:30 PM")
+ * into a compact label ("11AM-11:30AM") and numeric start hour (11.0 or 14.0).
+ */
+export function parseSimPodiumTimeRange(timeRange: string): { label: string; startHour: number } {
+  const parts = timeRange.split('-').map(s => s.trim());
+  if (parts.length < 2) {
+    return { label: timeRange, startHour: 0 };
+  }
+
+  // Parse start
+  const startRaw = parts[0]; // e.g. "11:00 AM" or "02:00 PM"
+  const startMatch = startRaw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  let startHour = 0;
+  let startLabel = '';
+  if (startMatch) {
+    const rawH = parseInt(startMatch[1], 10);
+    const rawM = parseInt(startMatch[2] || '0', 10);
+    const meridiem = startMatch[3].toUpperCase();
+    
+    let h24 = rawH % 12 + (meridiem === 'PM' ? 12 : 0);
+    startHour = h24 + rawM / 60;
+    startLabel = rawM > 0 ? `${rawH}:${rawM < 10 ? '0' : ''}${rawM}${meridiem}` : `${rawH}${meridiem}`;
+  }
+
+  // Parse end
+  const endRaw = parts[1]; // e.g. "11:30 AM" or "02:30 PM"
+  const endMatch = endRaw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
+  let endLabel = '';
+  if (endMatch) {
+    const rawH = parseInt(endMatch[1], 10);
+    const rawM = parseInt(endMatch[2] || '0', 10);
+    const meridiem = endMatch[3].toUpperCase();
+    endLabel = rawM > 0 ? `${rawH}:${rawM < 10 ? '0' : ''}${rawM}${meridiem}` : `${rawH}${meridiem}`;
+  }
+
+  const label = startLabel && endLabel ? `${startLabel}-${endLabel}` : timeRange;
+  return { label, startHour };
+}
+
+/**
+ * Fetches all active simulator slots from Havoc Sim Podium's PostgreSQL `slots` table
+ */
+export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
+  try {
+    const res = await simulatorPool.query<{
+      id: number;
+      time_range: string;
+      active: number;
+      sort_order: number;
+    }>(
+      `SELECT id, time_range, active, sort_order 
+       FROM slots 
+       WHERE active = 1 
+       ORDER BY sort_order ASC, id ASC`
+    );
+
+    return res.rows.map(r => {
+      const parsed = parseSimPodiumTimeRange(r.time_range);
+      return {
+        id: r.id,
+        time_range: r.time_range,
+        active: r.active,
+        sort_order: r.sort_order,
+        label: parsed.label,
+        startHour: parsed.startHour
+      };
+    });
+  } catch (err) {
+    console.error('Error fetching slots from Havoc Sim Podium database:', err);
+    return [];
+  }
+}
+

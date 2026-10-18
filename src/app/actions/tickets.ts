@@ -92,14 +92,17 @@ export async function addBookingAction(
       const orderId = formatOrderNumber(result.id, result.createdAt);
       const assignments = parseSimulatorSlotAssignments(simulatorName, simulatorSlot);
 
-      for (const item of assignments) {
+      for (let idx = 0; idx < assignments.length; idx++) {
+        const item = assignments[idx];
         if (item.simulatorName && item.slotLabel) {
+          const itemOrderId = assignments.length > 1 ? `${orderId}_${idx + 1}` : orderId;
           await lockSimulatorSlot({
             simulatorName: item.simulatorName,
             bookingDate: date,
             bookingTime: item.slotLabel,
-            sourceOrderId: orderId,
+            sourceOrderId: itemOrderId,
             customerName,
+            customerEmail,
             customerPhone,
             status: 'CONFIRMED'
           });

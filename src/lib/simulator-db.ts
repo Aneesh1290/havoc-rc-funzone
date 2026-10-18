@@ -204,7 +204,7 @@ export async function getTakenSimulatorSlots(simulatorName: string, bookingDate:
 }
 
 /**
- * Lock simulator slot(s) for a booking
+ * Lock simulator slot(s) for a booking and record the reservation in Havoc Sim Podium's bookings table
  */
 export async function lockSimulatorSlot(params: {
   simulatorName: string;
@@ -212,6 +212,7 @@ export async function lockSimulatorSlot(params: {
   bookingTime: string;
   sourceOrderId: string;
   customerName?: string;
+  customerEmail?: string;
   customerPhone?: string;
   status?: string;
 }): Promise<{ success: boolean; error?: string }> {
@@ -221,6 +222,7 @@ export async function lockSimulatorSlot(params: {
     bookingTime,
     sourceOrderId,
     customerName,
+    customerEmail,
     customerPhone,
     status = 'CONFIRMED'
   } = params;
@@ -228,6 +230,7 @@ export async function lockSimulatorSlot(params: {
   try {
     const formattedDate = formatToSimulatorDate(bookingDate);
 
+    // 1. Lock slot in simulator_slot_locks table to enforce concurrency & live availability
     await simulatorPool.query(
       `INSERT INTO simulator_slot_locks 
        (simulator_name, booking_date, booking_time, source_platform, source_order_id, customer_name, customer_phone, status, created_at)
@@ -243,6 +246,40 @@ export async function lockSimulatorSlot(params: {
        WHERE simulator_slot_locks.status = 'CANCELLED';`,
       [simulatorName, formattedDate, bookingTime, sourceOrderId, customerName || null, customerPhone || null, status]
     );
+
+    // 2. Also record an official booking entry in Havoc Sim Podium's `bookings` table
+    // so it shows up in their dashboard/admin panel alongside regular Sim Podium reservations.
+    try {
+      await simulatorPool.query(
+        `INSERT INTO bookings (
+          order_id, name, email, phone, item_name, price, booking_date, booking_time, status, created_at, instructor_id, instructor_fee, players
+        ) VALUES (
+          $1, $2, $3, $4, $5, 0, $6, $7, $8, NOW(), NULL, 0, 1
+        )
+        ON CONFLICT (order_id)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          email = EXCLUDED.email,
+          phone = EXCLUDED.phone,
+          item_name = EXCLUDED.item_name,
+          booking_date = EXCLUDED.booking_date,
+          booking_time = EXCLUDED.booking_time,
+          status = EXCLUDED.status;`,
+        [
+          sourceOrderId,
+          customerName || 'RC Fun Zone Guest',
+          customerEmail || 'support@havocrcfunzone.com',
+          customerPhone || 'N/A',
+          simulatorName,
+          formattedDate,
+          bookingTime,
+          status === 'CONFIRMED' ? 'PAID' : status
+        ]
+      );
+    } catch (bookingTableErr) {
+      console.error('Error inserting into Sim Podium bookings table:', bookingTableErr);
+    }
+
     return { success: true };
   } catch (err: any) {
     console.error('Error locking simulator slot in PostgreSQL:', err);
@@ -254,11 +291,13 @@ export async function lockSimulatorSlot(params: {
 }
 
 /**
- * Cancel or release locked slots by source order ID
+ * Cancel or release locked slots by source order ID (updates simulator_slot_locks and bookings table)
  */
 export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: number): Promise<boolean> {
   try {
     const idSuffix = bookingId ? `_${bookingId}` : (sourceOrderId.includes('_') ? `_${sourceOrderId.split('_').pop()}` : '');
+    
+    // Release in simulator_slot_locks
     await simulatorPool.query(
       `UPDATE simulator_slot_locks 
        SET status = 'CANCELLED' 
@@ -266,6 +305,15 @@ export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: n
          AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
       [sourceOrderId, idSuffix]
     );
+
+    // Also update Sim Podium's bookings table to CANCELLED
+    await simulatorPool.query(
+      `UPDATE bookings 
+       SET status = 'CANCELLED' 
+       WHERE (order_id = $1 OR ($2 != '' AND order_id LIKE '%' || $2))`,
+      [sourceOrderId, idSuffix]
+    );
+
     return true;
   } catch (err) {
     console.error('Error releasing simulator slots for order:', sourceOrderId, err);

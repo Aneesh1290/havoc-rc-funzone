@@ -292,6 +292,10 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     const dayStr = dayNum.toString().padStart(2, '0');
     const val = `${shortMonth} ${dayStr}`;
     
+    // Day of week check (0 = Sunday, 1 = Monday, ..., 6 = Saturday)
+    const thisDateObj = new Date(year, monthIndex, dayNum);
+    const isMonday = thisDateObj.getDay() === 1;
+
     let isPast = false;
     if (isPastMonth) {
       isPast = true;
@@ -300,7 +304,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     }
 
     // Check if the date is manually blocked by admin (ALL_DAY on this date, or ALL_DAY on ALL dates)
-    const isBlocked = blockedSlots.some(b => 
+    const isBlocked = isMonday || blockedSlots.some(b => 
       (b.booking_date === val || b.booking_date === 'ALL') && b.time_slot === 'ALL_DAY'
     );
     
@@ -308,7 +312,8 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       value: val,
       display: `${title.split(' ')[0]} ${dayStr}`,
       isPast,
-      isBlocked
+      isBlocked,
+      isMonday
     };
   }).filter(d => !d.isPast); // Completely hide past dates from the dropdown options once the day is done
 
@@ -380,7 +385,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                         disabled={isDisabled} 
                         className={isDisabled ? "text-gray-400 bg-gray-50" : ""}
                       >
-                        {d.display} {d.isPast ? "(Passed)" : d.isBlocked ? "(Unavailable / Closed)" : ""}
+                        {d.display} {d.isMonday ? "(Closed - Every Monday)" : d.isBlocked ? "(Unavailable / Closed)" : ""}
                       </option>
                     );
                   })}

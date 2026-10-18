@@ -151,7 +151,13 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     { label: "7PM-7:30PM", startHour: 19.0 },
     { label: "7:30PM-8PM", startHour: 19.5 },
     { label: "8PM-8:30PM", startHour: 20.0 },
-    { label: "8:30PM-9PM", startHour: 20.5 }
+    { label: "8:30PM-9PM", startHour: 20.5 },
+    { label: "9PM-9:30PM", startHour: 21.0 },
+    { label: "9:30PM-10PM", startHour: 21.5 },
+    { label: "10PM-10:30PM", startHour: 22.0 },
+    { label: "10:30PM-11PM", startHour: 22.5 },
+    { label: "11PM-11:30PM", startHour: 23.0 },
+    { label: "11:30PM-12AM", startHour: 23.5 }
   ];
 
   // Helper to get pass end hour (e.g. "11AM-12PM" or "8PM - 9PM" ends at 12:00 -> 12.0 or 21:00 -> 21.0)

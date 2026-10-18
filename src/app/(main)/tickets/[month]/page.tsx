@@ -186,6 +186,16 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     { simName: "Race Sim GT", slotLabel: "" }
   ]);
 
+  // Track expanded/collapsed participant cards (default opens Participant 1)
+  const [openParticipants, setOpenParticipants] = useState<Record<number, boolean>>({ 0: true });
+
+  const toggleParticipantCard = (index: number) => {
+    setOpenParticipants(prev => ({
+      ...prev,
+      [index]: !prev[index]
+    }));
+  };
+
   // Store taken/booked slots from PostgreSQL database: Record<simulatorName, string[]>
   const [takenSimSlots, setTakenSimSlots] = useState<Record<string, string[]>>({});
   const [loadingSimSlots, setLoadingSimSlots] = useState(false);
@@ -600,172 +610,201 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                     });
 
                     const isParticipantComplete = participantSlots.every(ps => Boolean(ps.selection.slotLabel));
+                    const isOpen = Boolean(openParticipants[participantIndex]);
 
                     return (
                       <div 
                         key={participantIndex}
-                        className="rounded-2xl border-2 border-gray-200 bg-gray-50/40 p-4 sm:p-5 space-y-5 transition-all"
+                        className={`rounded-2xl border-2 transition-all ${
+                          isOpen 
+                            ? "border-orange-200 bg-orange-50/20 shadow-sm p-4 sm:p-5 space-y-5" 
+                            : isParticipantComplete
+                              ? "border-green-200 bg-white hover:border-green-300 hover:shadow-sm p-3.5 sm:p-4"
+                              : "border-gray-200 bg-white hover:border-orange-300 hover:shadow-sm p-3.5 sm:p-4"
+                        }`}
                       >
-                        {/* Participant Header with Status Badge */}
-                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-                          <div className="flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-full bg-[#0d1b2a] text-white flex items-center justify-center text-xs font-bold">
+                        {/* Clickable Participant Header Card */}
+                        <div 
+                          onClick={() => toggleParticipantCard(participantIndex)}
+                          className={`flex items-center justify-between cursor-pointer select-none group ${isOpen ? "pb-3" : "pb-0"}`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-7 h-7 rounded-full bg-[#0d1b2a] text-white flex items-center justify-center text-xs font-bold group-hover:bg-[#ff5a1f] transition-colors">
                               {participantNumber}
                             </span>
-                            <span className="text-sm font-black text-gray-900 tracking-tight">
-                              Participant {participantNumber} {quantity > 1 ? `of ${quantity}` : ""}
-                            </span>
+                            <div>
+                              <span className="text-sm font-black text-gray-900 tracking-tight flex items-center gap-2">
+                                Participant {participantNumber} {quantity > 1 ? `of ${quantity}` : ""}
+                              </span>
+                              {!isOpen && (
+                                <p className="text-[11px] text-gray-500 font-medium">
+                                  {isParticipantComplete 
+                                    ? participantSlots.map(ps => `${ps.selection.simName} (${ps.selection.slotLabel})`).join(", ")
+                                    : "Tap to select simulator & slot"
+                                  }
+                                </p>
+                              )}
+                            </div>
                           </div>
 
-                          <div>
+                          <div className="flex items-center gap-2.5">
                             {isParticipantComplete ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200 shadow-sm">
                                 <span>✓</span> Confirmed
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-300">
-                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> Slot Pending (Required)
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-300 shadow-sm">
+                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> Slot Pending
                               </span>
                             )}
+
+                            {/* Chevron Toggle */}
+                            <div className={`w-6 h-6 rounded-full flex items-center justify-center bg-white border border-gray-200 text-gray-500 transition-transform duration-200 ${isOpen ? 'rotate-180 bg-gray-100' : ''}`}>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M19 9l-7 7-7-7" />
+                              </svg>
+                            </div>
                           </div>
                         </div>
 
-                        {/* Participant Sessions */}
-                        <div className="space-y-5">
-                          {participantSlots.map(({ globalIndex, sessionIndex, selection }) => (
-                            <div key={globalIndex} className="space-y-4">
-                              {requiredSlotsPerTicket > 1 && (
-                                <div className="flex items-center justify-between pb-1">
-                                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                                    Session {sessionIndex + 1} (30 Minutes)
-                                  </span>
-                                  <span className="text-[11px] font-bold text-[#ff5a1f]">
-                                    {selection.simName} • {selection.slotLabel || "Pending"}
-                                  </span>
-                                </div>
-                              )}
+                        {/* Collapsible Participant Sessions Body */}
+                        {isOpen && (
+                          <div className="space-y-5 pt-3 border-t border-gray-200/80 animate-in fade-in slide-in-from-top-1 duration-200">
+                            {participantSlots.map(({ globalIndex, sessionIndex, selection }) => (
+                              <div key={globalIndex} className="space-y-4">
+                                {requiredSlotsPerTicket > 1 && (
+                                  <div className="flex items-center justify-between pb-1">
+                                    <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                                      Session {sessionIndex + 1} (30 Minutes)
+                                    </span>
+                                    <span className="text-[11px] font-bold text-[#ff5a1f]">
+                                      {selection.simName} • {selection.slotLabel || "Pending"}
+                                    </span>
+                                  </div>
+                                )}
 
-                              {/* Simulator Visual Selection Grid */}
-                              <div>
-                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-                                  Select Simulator for Participant {participantNumber} {requiredSlotsPerTicket > 1 ? `(Session #${sessionIndex + 1})` : ""} *
-                                </label>
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
-                                  {simulators.map((sim) => {
-                                    const isSelected = selection.simName === sim.name;
-                                    return (
-                                      <div
-                                        key={sim.id}
-                                        onClick={() => {
-                                          setSimSelections(prev => {
-                                            const next = [...prev];
-                                            next[globalIndex] = { ...next[globalIndex], simName: sim.name };
-                                            return next;
-                                          });
-                                        }}
-                                        className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all p-2 flex flex-col justify-between group ${
-                                          isSelected 
-                                            ? "border-[#ff5a1f] bg-orange-50/40 shadow-sm ring-2 ring-[#ff5a1f]/10" 
-                                            : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
-                                        }`}
-                                      >
-                                        <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 relative mb-2 flex items-center justify-center">
-                                          <img 
-                                            src={sim.image} 
-                                            alt={sim.name} 
-                                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                          />
-                                          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
-                                            {sim.category}
-                                          </span>
-                                          {isSelected && (
-                                            <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center font-black text-xs shadow-sm">
-                                              ✓
-                                            </div>
-                                          )}
-                                        </div>
-                                        <div>
-                                          <h5 className="text-xs font-bold text-gray-900 line-clamp-1 group-hover:text-[#ff5a1f] transition-colors">{sim.name}</h5>
-                                          <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5">{sim.tagline}</p>
-                                        </div>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* 30-Min Time Slot Pill Buttons */}
-                              <div className="pt-2 border-t border-gray-200/60">
-                                <div className="flex items-center justify-between mb-2">
-                                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                    Select 30-Min Slot for Participant {participantNumber} *
+                                {/* Simulator Visual Selection Grid */}
+                                <div>
+                                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                                    Select Simulator for Participant {participantNumber} {requiredSlotsPerTicket > 1 ? `(Session #${sessionIndex + 1})` : ""} *
                                   </label>
-                                  <span className="text-[11px] text-gray-500 font-semibold">
-                                    {time ? `Available after ${time.split("-")[1] || time}` : "Select visit time slot first"}
-                                  </span>
-                                </div>
-
-                                {!time ? (
-                                  <div className="p-3 rounded-xl bg-white border border-gray-200 text-center text-xs text-gray-500 font-medium">
-                                    Please select your Funzone time slot above first to view available simulator slots.
-                                  </div>
-                                ) : availableSimSlots.length === 0 ? (
-                                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-center text-xs text-amber-800 font-medium">
-                                    No simulator slots available after your selected time slot ({time}).
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-white rounded-xl border border-gray-200/80">
-                                    {availableSimSlots.map((slot) => {
-                                      const isSelected = selection.slotLabel === slot.label;
-                                      // Disallow picking the EXACT same simulator at the exact same 30-min slot in another selection
-                                      const isTakenByAnotherParticipant = simSelections.some((s, idx) => 
-                                        idx !== globalIndex && 
-                                        s.simName === selection.simName && 
-                                        s.slotLabel === slot.label
-                                      );
-                                      const takenForThisSim = takenSimSlots[selection.simName] || [];
-                                      const isTakenInDb = takenForThisSim.includes(slot.label);
-                                      const isDisabled = isTakenByAnotherParticipant || isTakenInDb;
-
+                                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                                    {simulators.map((sim) => {
+                                      const isSelected = selection.simName === sim.name;
                                       return (
-                                        <button
-                                          key={slot.label}
-                                          type="button"
-                                          disabled={isDisabled}
+                                        <div
+                                          key={sim.id}
                                           onClick={() => {
                                             setSimSelections(prev => {
                                               const next = [...prev];
-                                              next[globalIndex] = { ...next[globalIndex], slotLabel: slot.label };
+                                              next[globalIndex] = { ...next[globalIndex], simName: sim.name };
                                               return next;
                                             });
                                           }}
-                                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                                            isSelected
-                                              ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-sm shadow-[#ff5a1f]/30 scale-[1.02]"
-                                              : isTakenInDb
-                                                ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60 line-through"
-                                                : isTakenByAnotherParticipant
-                                                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
-                                                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                                          className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all p-2 flex flex-col justify-between group ${
+                                            isSelected 
+                                              ? "border-[#ff5a1f] bg-orange-50/40 shadow-sm ring-2 ring-[#ff5a1f]/10" 
+                                              : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
                                           }`}
-                                          title={
-                                            isTakenInDb
-                                              ? "Already booked on Havoc Sim Podium"
-                                              : isTakenByAnotherParticipant
-                                                ? "Already chosen by another participant"
-                                                : undefined
-                                          }
                                         >
-                                          {slot.label}
-                                        </button>
+                                          <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 relative mb-2 flex items-center justify-center">
+                                            <img 
+                                              src={sim.image} 
+                                              alt={sim.name} 
+                                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                            />
+                                            <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
+                                              {sim.category}
+                                            </span>
+                                            {isSelected && (
+                                              <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center font-black text-xs shadow-sm">
+                                                ✓
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div>
+                                            <h5 className="text-xs font-bold text-gray-900 line-clamp-1 group-hover:text-[#ff5a1f] transition-colors">{sim.name}</h5>
+                                            <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5">{sim.tagline}</p>
+                                          </div>
+                                        </div>
                                       );
                                     })}
                                   </div>
-                                )}
+                                </div>
+
+                                {/* 30-Min Time Slot Pill Buttons */}
+                                <div className="pt-2 border-t border-gray-200/60">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                      Select 30-Min Slot for Participant {participantNumber} *
+                                    </label>
+                                    <span className="text-[11px] text-gray-500 font-semibold">
+                                      {time ? `Available after ${time.split("-")[1] || time}` : "Select visit time slot first"}
+                                    </span>
+                                  </div>
+
+                                  {!time ? (
+                                    <div className="p-3 rounded-xl bg-white border border-gray-200 text-center text-xs text-gray-500 font-medium">
+                                      Please select your Funzone time slot above first to view available simulator slots.
+                                    </div>
+                                  ) : availableSimSlots.length === 0 ? (
+                                    <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-center text-xs text-amber-800 font-medium">
+                                      No simulator slots available after your selected time slot ({time}).
+                                    </div>
+                                  ) : (
+                                    <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-white rounded-xl border border-gray-200/80">
+                                      {availableSimSlots.map((slot) => {
+                                        const isSelected = selection.slotLabel === slot.label;
+                                        // Disallow picking the EXACT same simulator at the exact same 30-min slot in another selection
+                                        const isTakenByAnotherParticipant = simSelections.some((s, idx) => 
+                                          idx !== globalIndex && 
+                                          s.simName === selection.simName && 
+                                          s.slotLabel === slot.label
+                                        );
+                                        const takenForThisSim = takenSimSlots[selection.simName] || [];
+                                        const isTakenInDb = takenForThisSim.includes(slot.label);
+                                        const isDisabled = isTakenByAnotherParticipant || isTakenInDb;
+
+                                        return (
+                                          <button
+                                            key={slot.label}
+                                            type="button"
+                                            disabled={isDisabled}
+                                            onClick={() => {
+                                              setSimSelections(prev => {
+                                                const next = [...prev];
+                                                next[globalIndex] = { ...next[globalIndex], slotLabel: slot.label };
+                                                return next;
+                                              });
+                                            }}
+                                            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                                              isSelected
+                                                ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-sm shadow-[#ff5a1f]/30 scale-[1.02]"
+                                                : isTakenInDb
+                                                  ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60 line-through"
+                                                  : isTakenByAnotherParticipant
+                                                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
+                                                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                                            }`}
+                                            title={
+                                              isTakenInDb
+                                                ? "Already booked on Havoc Sim Podium"
+                                                : isTakenByAnotherParticipant
+                                                  ? "Already chosen by another participant"
+                                                  : undefined
+                                            }
+                                          >
+                                            {slot.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     );
                   })}

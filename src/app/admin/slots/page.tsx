@@ -94,11 +94,12 @@ export default function SlotsManagementPage() {
         fetchTimeSlotsAction(false),
         fetchBlockedSlotsAction()
       ]);
-      setTimeSlots(slotsData);
+      const sortedSlots = [...slotsData].sort((a, b) => a.start_hour - b.start_hour);
+      setTimeSlots(sortedSlots);
       setBlockedList(blockedData);
 
-      if (slotsData.length > 0 && selectedSlots.length === 0) {
-        setSelectedSlots([slotsData[0].label]);
+      if (sortedSlots.length > 0 && selectedSlots.length === 0) {
+        setSelectedSlots([sortedSlots[0].label]);
       }
     } catch (e) {
       console.error(e);
@@ -265,7 +266,7 @@ export default function SlotsManagementPage() {
         setIsAddingSlot(false);
         setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0 });
         const freshSlots = await fetchTimeSlotsAction(false);
-        setTimeSlots(freshSlots);
+        setTimeSlots([...freshSlots].sort((a, b) => a.start_hour - b.start_hour));
       } else {
         setFeedback({ type: 'error', message: res.error || "Failed to create slot." });
       }
@@ -290,7 +291,7 @@ export default function SlotsManagementPage() {
         setFeedback({ type: 'success', message: `Updated slot "${editingSlot.label}" successfully.` });
         setEditingSlot(null);
         const freshSlots = await fetchTimeSlotsAction(false);
-        setTimeSlots(freshSlots);
+        setTimeSlots([...freshSlots].sort((a, b) => a.start_hour - b.start_hour));
       } else {
         setFeedback({ type: 'error', message: res.error || "Failed to update slot." });
       }

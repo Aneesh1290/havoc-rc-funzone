@@ -427,7 +427,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   disabled={!date}
                 >
                   {(dbTimeSlots.length > 0 
-                    ? dbTimeSlots.map(s => ({ label: s.label, startHour: s.start_hour }))
+                    ? [...dbTimeSlots].sort((a, b) => a.start_hour - b.start_hour).map(s => ({ label: s.label, startHour: s.start_hour }))
                     : [
                         { label: "11AM-12PM", startHour: 11 },
                         { label: "12PM-1PM", startHour: 12 },

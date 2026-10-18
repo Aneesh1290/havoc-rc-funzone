@@ -171,7 +171,8 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const selectedTicket = dbTickets.find(t => t.name === type);
   const hasSimPerk = selectedTicket ? Boolean(selectedTicket.has_simulator_perk || selectedTicket.name.toUpperCase().includes("VIP_PARTICIPANT")) : false;
   const perkDuration = selectedTicket?.perk_duration_mins || 30;
-  const requiredSlotsCount = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1; // 30m -> 1 slot, 60m -> 2 slots, etc.
+  const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1; // 30m -> 1 slot, 60m -> 2 slots, etc.
+  const totalSimSlotsNeeded = (hasSimPerk ? quantity : 0) * requiredSlotsPerTicket;
   const perkTitle = selectedTicket?.perk_title || `${perkDuration}-Min Havoc Sim Podium Session`;
 
   const passEndHour = getPassEndHour(time);
@@ -180,7 +181,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     ? BASE_30MIN_SIM_SLOTS.filter(s => s.startHour >= passEndHour)
     : BASE_30MIN_SIM_SLOTS;
 
-  // Selected simulators & slots per segment (e.g. Session 1 & Session 2 for 1-hour passes)
+  // Selected simulators & slots per participant & session
   const [simSelections, setSimSelections] = useState<{ simName: string; slotLabel: string }[]>([
     { simName: "Race Sim GT", slotLabel: "" }
   ]);
@@ -222,27 +223,30 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     };
   }, [hasSimPerk, date, simSelections.map(s => s.simName).join(',')]);
 
-  // Adjust number of sim selections when perk duration or ticket changes
+  // Adjust number of sim selections when perk duration, ticket, or quantity changes
   useEffect(() => {
-    if (hasSimPerk) {
+    if (hasSimPerk && totalSimSlotsNeeded > 0) {
       setSimSelections(prev => {
         const next = [...prev];
-        while (next.length < requiredSlotsCount) {
+        while (next.length < totalSimSlotsNeeded) {
           next.push({ simName: simulators[0]?.name || "Race Sim GT", slotLabel: "" });
         }
-        return next.slice(0, requiredSlotsCount);
+        return next.slice(0, totalSimSlotsNeeded);
       });
     }
-  }, [hasSimPerk, requiredSlotsCount, simulators]);
+  }, [hasSimPerk, totalSimSlotsNeeded, simulators]);
 
   // Automatically sync slots whenever Funzone visit time changes
   useEffect(() => {
     if (time && hasSimPerk && availableSimSlots.length > 0) {
       setSimSelections(prev => {
         return prev.map((item, idx) => {
-          // Provide distinct consecutive 30-min slots for each session that aren't taken in PostgreSQL
+          // Keep current slot if still valid, otherwise find available slot
           const takenForThis = takenSimSlots[item.simName] || [];
-          const candidate = availableSimSlots.find((s, sIdx) => sIdx >= idx && !takenForThis.includes(s.label)) || availableSimSlots[idx] || availableSimSlots[0];
+          if (item.slotLabel && availableSimSlots.some(s => s.label === item.slotLabel) && !takenForThis.includes(item.slotLabel)) {
+            return item;
+          }
+          const candidate = availableSimSlots.find((s, sIdx) => sIdx >= idx && !takenForThis.includes(s.label)) || availableSimSlots[idx % availableSimSlots.length] || availableSimSlots[0];
           return {
             ...item,
             slotLabel: candidate ? candidate.label : ""
@@ -260,10 +264,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     : 0;
   const maxAvailableCap = selectedTicket ? Math.max(0, selectedTicket.capacity - bookedForSelected) : 100;
 
-  // Check that all required simulator slots have a simulator and time slot chosen
+  // Check that all required simulator slots for EVERY participant have a simulator and time slot chosen
   const allSimsSelected = !hasSimPerk || (
-    simSelections.length === requiredSlotsCount &&
-    simSelections.every(s => s.simName && s.slotLabel)
+    simSelections.length === totalSimSlotsNeeded &&
+    simSelections.length > 0 &&
+    simSelections.every(s => Boolean(s.simName && s.slotLabel))
   );
 
   const canSubmit = type && date && time && maxAvailableCap > 0 && allSimsSelected;
@@ -549,10 +554,10 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               )}
             </div>
 
-            {/* VIP Simulator Perk Selection Box - Supports 1 or multiple 30-min sessions */}
+            {/* VIP Simulator Perk Selection Box - Organized per participant */}
             {hasSimPerk && (
               <div className="p-5 sm:p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
                   <div className="flex items-center gap-2.5">
                     <span className="w-8 h-8 rounded-full bg-[#ff5a1f]/10 text-[#ff5a1f] flex items-center justify-center font-bold text-sm">
                       ★
@@ -562,176 +567,236 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                         VIP Perk: {perkTitle}
                       </h4>
                       <p className="text-xs text-gray-500">
-                        {requiredSlotsCount > 1 
-                          ? `Total ${perkDuration} mins: Choose any simulator and slot for each of your ${requiredSlotsCount} sessions (30 mins each).`
+                        {quantity > 1 
+                          ? `${quantity} Tickets selected: Each participant gets their own 30-min simulator session. Slot selection is mandatory for each participant.`
                           : `Choose your simulator & preferred 30-min slot. Included free with your ${selectedTicket?.name.replace(/_/g, ' ')}.`
                         }
                       </p>
                     </div>
                   </div>
-                  <span className="hidden sm:inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-[#ff5a1f] border border-[#ff5a1f]/20">
-                    {requiredSlotsCount > 1 ? `${requiredSlotsCount} × 30-MIN SLOTS` : `FREE PERK (30 MINS)`}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-[#ff5a1f] border border-[#ff5a1f]/20">
+                      {quantity > 1 ? `${quantity} PARTICIPANTS` : `FREE PERK (30 MINS)`}
+                    </span>
+                    {!allSimsSelected && (
+                      <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-50 text-red-600 border border-red-200 animate-pulse">
+                        ● Selection Pending
+                      </span>
+                    )}
+                  </div>
                 </div>
 
-                {/* Iterate over each required 30-min session segment */}
+                {/* Group slots by Participant */}
                 <div className="space-y-6">
-                  {simSelections.map((selection, sessionIndex) => (
-                    <div 
-                      key={sessionIndex} 
-                      className={`p-4 rounded-xl border ${
-                        requiredSlotsCount > 1 
-                          ? "bg-gray-50/50 border-gray-200 space-y-4" 
-                          : "border-transparent p-0 space-y-4"
-                      }`}
-                    >
-                      {requiredSlotsCount > 1 && (
-                        <div className="flex items-center justify-between pb-2 border-b border-gray-200/60">
-                          <span className="text-xs font-black uppercase tracking-wider text-gray-900 flex items-center gap-1.5">
-                            <span className="w-5 h-5 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center text-[10px] font-bold">
-                              {sessionIndex + 1}
-                            </span>
-                            Session {sessionIndex + 1} (30 Minutes)
-                          </span>
-                          <span className="text-[11px] font-bold text-[#ff5a1f]">
-                            {selection.simName} • {selection.slotLabel || "Slot Pending"}
-                          </span>
-                        </div>
-                      )}
+                  {Array.from({ length: quantity }, (_, participantIndex) => {
+                    const participantNumber = participantIndex + 1;
+                    const participantSlots = Array.from({ length: requiredSlotsPerTicket }, (__, sIdx) => {
+                      const globalIndex = participantIndex * requiredSlotsPerTicket + sIdx;
+                      return {
+                        globalIndex,
+                        sessionIndex: sIdx,
+                        selection: simSelections[globalIndex] || { simName: "Race Sim GT", slotLabel: "" }
+                      };
+                    });
 
-                      {/* Simulator Visual Selection Grid */}
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2.5">
-                          {requiredSlotsCount > 1 
-                            ? `Select Simulator for Session #${sessionIndex + 1} *` 
-                            : `Select Simulator (${simulators.length} available) *`
-                          }
-                        </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 max-h-60 overflow-y-auto pr-1">
-                          {simulators.map((sim) => {
-                            const isSelected = selection.simName === sim.name;
-                            return (
-                              <div
-                                key={sim.id}
-                                onClick={() => {
-                                  setSimSelections(prev => {
-                                    const next = [...prev];
-                                    next[sessionIndex] = { ...next[sessionIndex], simName: sim.name };
-                                    return next;
-                                  });
-                                }}
-                                className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all p-2 flex flex-col justify-between group ${
-                                  isSelected 
-                                    ? "border-[#ff5a1f] bg-orange-50/40 shadow-sm ring-2 ring-[#ff5a1f]/10" 
-                                    : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
-                                }`}
-                              >
-                                <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 relative mb-2 flex items-center justify-center">
-                                  <img 
-                                    src={sim.image} 
-                                    alt={sim.name} 
-                                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                  />
-                                  <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
-                                    {sim.category}
+                    const isParticipantComplete = participantSlots.every(ps => Boolean(ps.selection.slotLabel));
+
+                    return (
+                      <div 
+                        key={participantIndex}
+                        className="rounded-2xl border-2 border-gray-200 bg-gray-50/40 p-4 sm:p-5 space-y-5 transition-all"
+                      >
+                        {/* Participant Header with Status Badge */}
+                        <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#0d1b2a] text-white flex items-center justify-center text-xs font-bold">
+                              {participantNumber}
+                            </span>
+                            <span className="text-sm font-black text-gray-900 tracking-tight">
+                              Participant {participantNumber} {quantity > 1 ? `of ${quantity}` : ""}
+                            </span>
+                          </div>
+
+                          <div>
+                            {isParticipantComplete ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
+                                <span>✓</span> Confirmed
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-300">
+                                <span className="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span> Slot Pending (Required)
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Participant Sessions */}
+                        <div className="space-y-5">
+                          {participantSlots.map(({ globalIndex, sessionIndex, selection }) => (
+                            <div key={globalIndex} className="space-y-4">
+                              {requiredSlotsPerTicket > 1 && (
+                                <div className="flex items-center justify-between pb-1">
+                                  <span className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                                    Session {sessionIndex + 1} (30 Minutes)
                                   </span>
-                                  {isSelected && (
-                                    <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center font-black text-xs shadow-sm">
-                                      ✓
-                                    </div>
-                                  )}
+                                  <span className="text-[11px] font-bold text-[#ff5a1f]">
+                                    {selection.simName} • {selection.slotLabel || "Pending"}
+                                  </span>
                                 </div>
-                                <div>
-                                  <h5 className="text-xs font-bold text-gray-900 line-clamp-1 group-hover:text-[#ff5a1f] transition-colors">{sim.name}</h5>
-                                  <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5">{sim.tagline}</p>
+                              )}
+
+                              {/* Simulator Visual Selection Grid */}
+                              <div>
+                                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
+                                  Select Simulator for Participant {participantNumber} {requiredSlotsPerTicket > 1 ? `(Session #${sessionIndex + 1})` : ""} *
+                                </label>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-56 overflow-y-auto pr-1">
+                                  {simulators.map((sim) => {
+                                    const isSelected = selection.simName === sim.name;
+                                    return (
+                                      <div
+                                        key={sim.id}
+                                        onClick={() => {
+                                          setSimSelections(prev => {
+                                            const next = [...prev];
+                                            next[globalIndex] = { ...next[globalIndex], simName: sim.name };
+                                            return next;
+                                          });
+                                        }}
+                                        className={`cursor-pointer rounded-xl overflow-hidden border-2 transition-all p-2 flex flex-col justify-between group ${
+                                          isSelected 
+                                            ? "border-[#ff5a1f] bg-orange-50/40 shadow-sm ring-2 ring-[#ff5a1f]/10" 
+                                            : "border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50/50"
+                                        }`}
+                                      >
+                                        <div className="w-full aspect-[4/3] rounded-lg overflow-hidden bg-gray-100 relative mb-2 flex items-center justify-center">
+                                          <img 
+                                            src={sim.image} 
+                                            alt={sim.name} 
+                                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                          />
+                                          <span className="absolute top-1.5 left-1.5 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-black/60 text-white backdrop-blur-sm">
+                                            {sim.category}
+                                          </span>
+                                          {isSelected && (
+                                            <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-[#ff5a1f] text-white flex items-center justify-center font-black text-xs shadow-sm">
+                                              ✓
+                                            </div>
+                                          )}
+                                        </div>
+                                        <div>
+                                          <h5 className="text-xs font-bold text-gray-900 line-clamp-1 group-hover:text-[#ff5a1f] transition-colors">{sim.name}</h5>
+                                          <p className="text-[10px] text-gray-500 line-clamp-1 mt-0.5">{sim.tagline}</p>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
-                            );
-                          })}
+
+                              {/* 30-Min Time Slot Pill Buttons */}
+                              <div className="pt-2 border-t border-gray-200/60">
+                                <div className="flex items-center justify-between mb-2">
+                                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                                    Select 30-Min Slot for Participant {participantNumber} *
+                                  </label>
+                                  <span className="text-[11px] text-gray-500 font-semibold">
+                                    {time ? `Available after ${time.split("-")[1] || time}` : "Select visit time slot first"}
+                                  </span>
+                                </div>
+
+                                {!time ? (
+                                  <div className="p-3 rounded-xl bg-white border border-gray-200 text-center text-xs text-gray-500 font-medium">
+                                    Please select your Funzone time slot above first to view available simulator slots.
+                                  </div>
+                                ) : availableSimSlots.length === 0 ? (
+                                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-center text-xs text-amber-800 font-medium">
+                                    No simulator slots available after your selected time slot ({time}).
+                                  </div>
+                                ) : (
+                                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-white rounded-xl border border-gray-200/80">
+                                    {availableSimSlots.map((slot) => {
+                                      const isSelected = selection.slotLabel === slot.label;
+                                      // Disallow picking the EXACT same simulator at the exact same 30-min slot in another selection
+                                      const isTakenByAnotherParticipant = simSelections.some((s, idx) => 
+                                        idx !== globalIndex && 
+                                        s.simName === selection.simName && 
+                                        s.slotLabel === slot.label
+                                      );
+                                      const takenForThisSim = takenSimSlots[selection.simName] || [];
+                                      const isTakenInDb = takenForThisSim.includes(slot.label);
+                                      const isDisabled = isTakenByAnotherParticipant || isTakenInDb;
+
+                                      return (
+                                        <button
+                                          key={slot.label}
+                                          type="button"
+                                          disabled={isDisabled}
+                                          onClick={() => {
+                                            setSimSelections(prev => {
+                                              const next = [...prev];
+                                              next[globalIndex] = { ...next[globalIndex], slotLabel: slot.label };
+                                              return next;
+                                            });
+                                          }}
+                                          className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                                            isSelected
+                                              ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-sm shadow-[#ff5a1f]/30 scale-[1.02]"
+                                              : isTakenInDb
+                                                ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60 line-through"
+                                                : isTakenByAnotherParticipant
+                                                  ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
+                                                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                                          }`}
+                                          title={
+                                            isTakenInDb
+                                              ? "Already booked on Havoc Sim Podium"
+                                              : isTakenByAnotherParticipant
+                                                ? "Already chosen by another participant"
+                                                : undefined
+                                          }
+                                        >
+                                          {slot.label}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
-
-                      {/* 30-Min Time Slot Pill Buttons */}
-                      <div className="pt-2 border-t border-gray-100">
-                        <div className="flex items-center justify-between mb-2">
-                          <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                            {requiredSlotsCount > 1 
-                              ? `Select 30-Min Slot for Session #${sessionIndex + 1} *`
-                              : `Select 30-Min Simulator Slot *`
-                            }
-                          </label>
-                          <span className="text-[11px] text-gray-500 font-semibold">
-                            {time ? `Available after ${time.split("-")[1] || time}` : "Select visit time slot first"}
-                          </span>
-                        </div>
-
-                        {!time ? (
-                          <div className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-center text-xs text-gray-500 font-medium">
-                            Please select your Funzone time slot above first to view available simulator slots.
-                          </div>
-                        ) : availableSimSlots.length === 0 ? (
-                          <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 text-center text-xs text-amber-800 font-medium">
-                            No simulator slots available after your selected time slot ({time}).
-                          </div>
-                        ) : (
-                          <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1">
-                            {availableSimSlots.map((slot) => {
-                              const isSelected = selection.slotLabel === slot.label;
-                              const isTakenByAnother = simSelections.some((s, idx) => idx !== sessionIndex && s.slotLabel === slot.label);
-                              const takenForThisSim = takenSimSlots[selection.simName] || [];
-                              const isTakenInDb = takenForThisSim.includes(slot.label);
-                              const isDisabled = isTakenByAnother || isTakenInDb;
-
-                              return (
-                                <button
-                                  key={slot.label}
-                                  type="button"
-                                  disabled={isDisabled}
-                                  onClick={() => {
-                                    setSimSelections(prev => {
-                                      const next = [...prev];
-                                      next[sessionIndex] = { ...next[sessionIndex], slotLabel: slot.label };
-                                      return next;
-                                    });
-                                  }}
-                                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
-                                    isSelected
-                                      ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-sm shadow-[#ff5a1f]/30 scale-[1.02]"
-                                      : isTakenInDb
-                                        ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60 line-through"
-                                        : isTakenByAnother
-                                          ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
-                                          : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
-                                  }`}
-                                  title={
-                                    isTakenInDb
-                                      ? "Already booked on Havoc Sim Podium"
-                                      : isTakenByAnother
-                                        ? "Already chosen in another session"
-                                        : undefined
-                                  }
-                                >
-                                  {slot.label}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {/* Summary Box */}
-                {time && simSelections.every(s => s.slotLabel) && (
-                  <div className="p-3 rounded-xl bg-orange-50/60 border border-orange-200/80 text-xs text-gray-700 space-y-1">
-                    <span className="font-bold text-gray-900 block">🏆 Simulator Reservation Summary:</span>
-                    {simSelections.map((s, idx) => (
-                      <div key={idx} className="flex justify-between items-center text-gray-600">
-                        <span>Slot {idx + 1}: <strong className="text-gray-900">{s.simName}</strong></span>
-                        <span className="font-bold text-[#ff5a1f]">{s.slotLabel} (30 mins)</span>
-                      </div>
-                    ))}
+                {time && simSelections.length > 0 && (
+                  <div className="p-3.5 rounded-xl bg-orange-50/60 border border-orange-200/80 text-xs text-gray-700 space-y-1.5">
+                    <span className="font-bold text-gray-900 block flex items-center justify-between">
+                      <span>🏆 Simulator Reservations Summary:</span>
+                      {allSimsSelected ? (
+                        <span className="text-green-600 font-bold">✓ All Slots Confirmed</span>
+                      ) : (
+                        <span className="text-red-500 font-bold">Pending selections required</span>
+                      )}
+                    </span>
+                    {Array.from({ length: quantity }, (_, pIdx) => {
+                      const pNum = pIdx + 1;
+                      const pSelections = simSelections.slice(pIdx * requiredSlotsPerTicket, (pIdx + 1) * requiredSlotsPerTicket);
+                      return (
+                        <div key={pIdx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center text-gray-600 border-t border-orange-100 pt-1">
+                          <span>Participant {pNum}: {pSelections.map(s => s.simName).join(" & ")}</span>
+                          <span className="font-bold text-[#ff5a1f]">
+                            {pSelections.every(s => s.slotLabel) 
+                              ? pSelections.map(s => s.slotLabel).join(" • ")
+                              : <span className="text-red-500 font-semibold">Slot Pending</span>
+                            }
+                          </span>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -769,16 +834,22 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               <button 
                 onClick={() => {
                   if (selectedTicket) {
-                    // Cleanly format simulator names (e.g. "RC Flying Sim" or "RC Flying Sim & Race Sim F1")
-                    const uniqueSims = Array.from(new Set(simSelections.map(s => s.simName)));
-                    const combinedSimNames = uniqueSims.length === 1 
-                      ? uniqueSims[0] 
-                      : simSelections.map((s, i) => `#${i+1}: ${s.simName}`).join(" | ");
+                    // Cleanly format simulator names and slots per participant
+                    const combinedSimNames = simSelections.length === 1 
+                      ? simSelections[0].simName 
+                      : simSelections.map((s, i) => {
+                          const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+                          return quantity > 1 ? `#${i+1} (P${pNum}): ${s.simName}` : `#${i+1}: ${s.simName}`;
+                        }).join(" | ");
 
-                    // Cleanly format simulator slots without redundant repeated session names
-                    const combinedSimSlots = requiredSlotsCount > 1
-                      ? simSelections.map((s, i) => `#${i+1} (${s.simName}): ${s.slotLabel}`).join(" • ")
-                      : simSelections[0]?.slotLabel || "";
+                    const combinedSimSlots = simSelections.length === 1
+                      ? simSelections[0].slotLabel
+                      : simSelections.map((s, i) => {
+                          const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+                          return quantity > 1 
+                            ? `#${i+1} (P${pNum} - ${s.simName}): ${s.slotLabel}` 
+                            : `#${i+1} (${s.simName}): ${s.slotLabel}`;
+                        }).join(" • ");
 
                     addItem({
                       id: Math.random().toString(36).substring(7),
@@ -800,7 +871,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                     : 'bg-[#ff5a1f] hover:bg-[#e04812] text-white shadow-lg shadow-[#ff5a1f]/20 hover:-translate-y-0.5'
                 }`}
               >
-                Add to Cart
+                {!allSimsSelected ? "Select All Participant Slots" : "Add to Cart"}
               </button>
             </div>
 

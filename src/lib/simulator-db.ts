@@ -86,19 +86,20 @@ export function parseSimulatorSlotAssignments(simNameStr?: string, simSlotStr?: 
   if (simNameStr && (simNameStr.includes('#1:') || (simSlotStr && simSlotStr.includes('#1')))) {
     const results: Array<{ simulatorName: string; slotLabel: string }> = [];
     
-    // Extract sim names: "#1: Race Sim GT | #2: RC Flying Sim" or single sim name
+    // Extract sim names: "#1 (P1): Race Sim GT | #2 (P2): RC Flying Sim", "#1: Race Sim GT", etc.
     const names: string[] = [];
-    if (simNameStr.includes('#1:')) {
+    if (simNameStr.includes('#1:') || simNameStr.includes('#1')) {
       const nameSegments = simNameStr.split('|').map(s => s.trim());
       for (const seg of nameSegments) {
-        const clean = seg.replace(/^#\d+:\s*/, '').trim();
+        // Strip out "#1 (Participant 1): " or "#1: " prefixes
+        const clean = seg.replace(/^#\d+(?:\s*\([^)]*\))?:\s*/, '').trim();
         if (clean) names.push(clean);
       }
     } else {
       names.push(simNameStr.trim());
     }
 
-    // Extract slot labels: "(#1 (Race Sim GT): 12PM-12:30PM • #2 (RC Flying Sim): 12:30PM-1PM)" or "(#1: 12PM-12:30PM • #2: 12:30PM-1PM)"
+    // Extract slot labels: "(#1 (P1 - Race Sim GT): 12PM-12:30PM • #2 (P2 - RC Flying Sim): 12:30PM-1PM)"
     const slots: string[] = [];
     if (simSlotStr) {
       const slotSegments = simSlotStr.replace(/[()]/g, '').split('•').map(s => s.trim());

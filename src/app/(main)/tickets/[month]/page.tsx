@@ -154,15 +154,16 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     { label: "8:30PM-9PM", startHour: 20.5 }
   ];
 
-  // Helper to get pass end hour (e.g. "11AM-12PM" ends at 12:00 -> 12.0)
+  // Helper to get pass end hour (e.g. "11AM-12PM" or "8PM - 9PM" ends at 12:00 -> 12.0 or 21:00 -> 21.0)
   const getPassEndHour = (passSlot: string): number => {
     if (!passSlot) return 0;
     const parts = passSlot.split("-");
     if (parts.length < 2) return 0;
     const end = parts[1].trim().toUpperCase();
-    let isPM = end.includes("PM");
-    let clean = end.replace("AM", "").replace("PM", "");
+    const isPM = end.includes("PM");
+    const clean = end.replace(/AM|PM/g, "").trim();
     let h = parseInt(clean, 10);
+    if (isNaN(h)) return 0;
     if (isPM && h !== 12) h += 12;
     if (!isPM && h === 12) h = 0;
     return h;
@@ -176,10 +177,14 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const perkTitle = selectedTicket?.perk_title || `${perkDuration}-Min Havoc Sim Podium Session`;
 
   const passEndHour = getPassEndHour(time);
-  // Sim slots must strictly be after the Funzone pass duration ends
-  const availableSimSlots = time 
+  // Show 30-min simulator slots starting from or after the Funzone pass end hour.
+  // If the pass is late evening (e.g. 8PM-9PM or 9PM-10PM), gracefully show the available evening simulator slots so visitors can still select their perk.
+  const filteredSimSlots = time 
     ? BASE_30MIN_SIM_SLOTS.filter(s => s.startHour >= passEndHour)
-    : BASE_30MIN_SIM_SLOTS;
+    : [];
+  const availableSimSlots = filteredSimSlots.length > 0 
+    ? filteredSimSlots 
+    : (time ? BASE_30MIN_SIM_SLOTS.slice(-4) : BASE_30MIN_SIM_SLOTS);
 
   // Selected simulators & slots per participant & session
   const [simSelections, setSimSelections] = useState<{ simName: string; slotLabel: string }[]>([
@@ -426,6 +431,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   onChange={(e) => setTime(e.target.value)}
                   disabled={!date}
                 >
+                  <option value="" disabled>Select Time Slot</option>
                   {(dbTimeSlots.length > 0 
                     ? [...dbTimeSlots].sort((a, b) => a.start_hour - b.start_hour).map(s => ({ label: s.label, startHour: s.start_hour }))
                     : [

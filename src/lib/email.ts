@@ -182,45 +182,65 @@ export async function sendBookingConfirmationEmail(
 
     const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || "havochobbysim@gmail.com";
 
-    // 1. Send confirmation to the customer with BCC to admin so the admin always receives a copy
+    // 1. Send confirmation to the customer
     const info = await transporter.sendMail({
       from: fromAddress,
       to: params.customerEmail,
-      bcc: adminEmail,
       subject: `Booking Confirmed: ${params.orderId} - Havoc RC Fun Zone`,
       html: htmlContent,
     });
 
     console.log("Customer confirmation email sent successfully:", info.messageId);
 
-    // 2. If a simulator slot is booked, also send a dedicated Admin Alert to havochobbysim@gmail.com
-    if (params.simulatorName && params.simulatorSlot) {
-      try {
-        await transporter.sendMail({
-          from: fromAddress,
-          to: adminEmail,
-          subject: `🚨 SIMULATOR PERK RESERVED: ${params.simulatorName} (${params.simulatorSlot}) - ${params.orderId}`,
-          html: `
-            <div style="font-family: sans-serif; padding: 20px; background: #FFF7ED; border: 2px solid #EA580C; border-radius: 12px; max-width: 600px;">
-              <h2 style="color: #9A3412; margin-top: 0;">🏎️ New Simulator Booking via RC Fun Zone</h2>
-              <p>A participant has reserved a 30-min simulator slot perk through RC Fun Zone.</p>
-              <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
-                <tr><td style="padding: 6px; font-weight: bold;">Order ID:</td><td style="padding: 6px;">${params.orderId}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Customer:</td><td style="padding: 6px;">${params.customerName} (${params.customerPhone || 'N/A'})</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Email:</td><td style="padding: 6px;">${params.customerEmail}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Simulator:</td><td style="padding: 6px; color: #EA580C; font-weight: bold;">${params.simulatorName}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Slot Time:</td><td style="padding: 6px; font-weight: bold;">${params.simulatorSlot}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Funzone Visit Date:</td><td style="padding: 6px;">${params.date}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Funzone Slot:</td><td style="padding: 6px;">${params.timeSlot}</td></tr>
-                <tr><td style="padding: 6px; font-weight: bold;">Total Amount:</td><td style="padding: 6px;">₹${params.totalAmount}</td></tr>
-              </table>
-            </div>
-          `
-        });
-        console.log("Admin simulator notification email sent to", adminEmail);
-      } catch (adminErr) {
-        console.error("Error sending admin alert email:", adminErr);
+    // 2. Send Admin Alert matching the exact Havoc System format to havochobbysim@gmail.com
+    try {
+      const itemsCount = params.quantity || 1;
+      const formattedTotal = Number(params.totalAmount).toFixed(2);
+      
+      // Build Experiences lines
+      let experiencesText = `- ${params.ticketName} | ${params.date} at ${params.timeSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | ₹${params.totalAmount}`;
+      let experiencesHtml = `<div>- ${params.ticketName} | ${params.date} at ${params.timeSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | ₹${params.totalAmount}</div>`;
+      
+      if (params.simulatorName && params.simulatorSlot) {
+        experiencesText += `\n- ${params.simulatorName} | ${params.date} at ${params.simulatorSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | Simulator Perk (Included)`;
+        experiencesHtml += `<div style="margin-top: 4px; color: #EA580C; font-weight: 600;">- ${params.simulatorName} | ${params.date} at ${params.simulatorSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | Simulator Perk (Included)</div>`;
       }
+
+      const adminSubject = `New Booking Alert: ${params.orderId} - ${params.customerName} (${itemsCount} ${itemsCount > 1 ? 'items' : 'item'})`;
+      
+      const adminPlain = `A new order has been booked.\n\nOrder ID: ${params.orderId}\nCustomer Name: ${params.customerName}\nCustomer Email: ${params.customerEmail}\nTotal Amount: ₹${formattedTotal}\n\nExperiences (${itemsCount}):\n${experiencesText}\n\nPlease check the admin dashboard for details.`;
+
+      const adminHtml = `
+        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 14px; color: #1E293B; line-height: 1.6;">
+          <p style="margin: 0 0 16px 0;">A new order has been booked.</p>
+          
+          <p style="margin: 0 0 16px 0;">
+            Order ID: <strong>${params.orderId}</strong><br>
+            Customer Name: ${params.customerName}<br>
+            Customer Email: <a href="mailto:${params.customerEmail}" style="color: #2563EB;">${params.customerEmail}</a><br>
+            Total Amount: ₹${formattedTotal}
+          </p>
+
+          <p style="margin: 0 0 16px 0;">
+            Experiences (${itemsCount}):<br>
+            ${experiencesHtml}
+          </p>
+
+          <p style="margin: 0;">Please check the admin dashboard for details.</p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: `"Havoc System" <${fromEmail}>`,
+        to: adminEmail,
+        subject: adminSubject,
+        text: adminPlain,
+        html: adminHtml,
+      });
+
+      console.log("Havoc System admin booking alert sent to", adminEmail);
+    } catch (adminErr) {
+      console.error("Error sending admin alert email:", adminErr);
     }
 
     return { success: true };

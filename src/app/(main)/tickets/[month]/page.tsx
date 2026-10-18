@@ -5,10 +5,16 @@ import Link from 'next/link';
 
 // Need to unwrap the params promise for Next.js 15+ in Client Components
 import { use } from 'react';
-import { fetchTicketsAction, fetchBookedQuantitiesAction, fetchVipPerksAction, fetchTakenSimulatorSlotsAction } from '@/app/actions/tickets';
-import type { TicketRow, VipPerkRow } from '@/lib/db';
+import { 
+  fetchTicketsAction, 
+  fetchBookedQuantitiesAction, 
+  fetchVipPerksAction, 
+  fetchTakenSimulatorSlotsAction,
+  fetchBlockedSlotsAction 
+} from '@/app/actions/tickets';
+import type { TicketRow, VipPerkRow, BlockedSlotRow } from '@/lib/db';
 import { useCart } from '@/context/CartContext';
-import { Info, Check, X, Sparkles, ChevronRight } from 'lucide-react';
+import { Info, Check, X, Sparkles, ChevronRight, Ban } from 'lucide-react';
 
 export default function BookingProductPage({ params }: { params: Promise<{ month: string }> }) {
   const unwrappedParams = use(params);
@@ -24,6 +30,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [dbTickets, setDbTickets] = useState<TicketRow[]>([]);
   const [bookedQuantities, setBookedQuantities] = useState<{ticket_id: number, total_booked: number}[]>([]);
   const [simulators, setSimulators] = useState<VipPerkRow[]>([]);
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlotRow[]>([]);
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
@@ -102,6 +109,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       if (data.length > 0) {
         setSimSelections(prev => prev.map(s => ({ ...s, simName: s.simName || data[0].name })));
       }
+    });
+    fetchBlockedSlotsAction().then(data => {
+      setBlockedSlots(data || []);
     });
   }, []);
 
@@ -280,6 +290,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const availableDates = Array.from({ length: daysInMonth }, (_, i) => {
     const dayNum = i + 1;
     const dayStr = dayNum.toString().padStart(2, '0');
+    const val = `${shortMonth} ${dayStr}`;
     
     let isPast = false;
     if (isPastMonth) {
@@ -287,11 +298,17 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     } else if (isCurrentMonth && dayNum < currentDay) {
       isPast = true;
     }
+
+    // Check if the date is manually blocked by admin (ALL_DAY on this date, or ALL_DAY on ALL dates)
+    const isBlocked = blockedSlots.some(b => 
+      (b.booking_date === val || b.booking_date === 'ALL') && b.time_slot === 'ALL_DAY'
+    );
     
     return {
-      value: `${shortMonth} ${dayStr}`,
+      value: val,
       display: `${title.split(' ')[0]} ${dayStr}`,
-      isPast
+      isPast,
+      isBlocked
     };
   });
 
@@ -348,14 +365,25 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                 <select 
                   className="w-full bg-white text-gray-900 font-bold p-3.5 pr-10 rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] appearance-none transition-all shadow-sm disabled:bg-gray-100"
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
+                  onChange={(e) => {
+                    setDate(e.target.value);
+                    setTime(""); // Reset time when date changes
+                  }}
                 >
                   <option value="" disabled>Select</option>
-                  {availableDates.map(d => (
-                    <option key={d.value} value={d.value} disabled={d.isPast} className={d.isPast ? "text-gray-400" : ""}>
-                      {d.display} {d.isPast ? "(Passed)" : ""}
-                    </option>
-                  ))}
+                  {availableDates.map(d => {
+                    const isDisabled = d.isPast || d.isBlocked;
+                    return (
+                      <option 
+                        key={d.value} 
+                        value={d.value} 
+                        disabled={isDisabled} 
+                        className={isDisabled ? "text-gray-400 bg-gray-50" : ""}
+                      >
+                        {d.display} {d.isPast ? "(Passed)" : d.isBlocked ? "(Unavailable / Closed)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-400">
                   <svg className="h-4 w-4 fill-current" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>
@@ -398,10 +426,23 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                         isPastSlot = true; // We are 30+ minutes into this specific slot
                       }
                     }
+
+                    // Check if slot is blocked by admin
+                    const isBlockedSlot = blockedSlots.some(b => 
+                      (b.booking_date === date || b.booking_date === 'ALL') && 
+                      (b.time_slot === slot.label || b.time_slot === 'ALL_DAY')
+                    );
+                    
+                    const isDisabled = isPastSlot || isBlockedSlot;
                     
                     return (
-                      <option key={slot.label} value={slot.label} disabled={isPastSlot} className={isPastSlot ? "text-gray-400" : ""}>
-                        {slot.label} {isPastSlot ? "(Passed)" : ""}
+                      <option 
+                        key={slot.label} 
+                        value={slot.label} 
+                        disabled={isDisabled} 
+                        className={isDisabled ? "text-gray-400 bg-gray-50" : ""}
+                      >
+                        {slot.label} {isPastSlot ? "(Passed)" : isBlockedSlot ? "(Unavailable)" : ""}
                       </option>
                     );
                   })}

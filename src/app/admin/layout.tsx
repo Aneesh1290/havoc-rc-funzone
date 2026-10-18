@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock } from "lucide-react";
 import { logoutAction } from "../login/actions";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -85,6 +85,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
           <Link href="/admin/vip-perks" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/vip-perks' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
             <Sparkles className={`w-5 h-5 ${pathname === '/admin/vip-perks' ? 'text-[#ff5a1f]' : ''}`} />
             VIP Perks (Sims)
+          </Link>
+          <Link href="/admin/slots" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/slots' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+            <Clock className={`w-5 h-5 ${pathname === '/admin/slots' ? 'text-[#ff5a1f]' : ''}`} />
+            Slots &amp; Dates
           </Link>
           <Link href="/admin/coupons" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/coupons' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
             <Tag className={`w-5 h-5 ${pathname === '/admin/coupons' ? 'text-[#ff5a1f]' : ''}`} />

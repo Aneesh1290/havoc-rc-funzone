@@ -29,7 +29,12 @@ import {
   toggleVipPerkStatus,
   deleteVipPerk,
   syncSimPodiumSimulators,
-  VipPerkRow
+  VipPerkRow,
+  BlockedSlotRow,
+  getBlockedSlots,
+  getBlockedSlotsForDate,
+  blockSlotOrDate,
+  unblockSlot
 } from "@/lib/db";
 import { 
   getTakenSimulatorSlots, 
@@ -357,3 +362,37 @@ export async function deleteVipPerkAction(id: number) {
     return { success: false, error: "Failed to delete simulator/perk" };
   }
 }
+
+// Blocked Slots / Dates Server Actions
+export async function fetchBlockedSlotsAction(): Promise<BlockedSlotRow[]> {
+  return getBlockedSlots();
+}
+
+export async function fetchBlockedSlotsForDateAction(date: string): Promise<BlockedSlotRow[]> {
+  return getBlockedSlotsForDate(date);
+}
+
+export async function blockSlotOrDateAction(date: string, timeSlot: string, reason?: string) {
+  try {
+    blockSlotOrDate(date, timeSlot, reason);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("blockSlotOrDateAction error:", error);
+    return { success: false, error: error.message || "Failed to block slot/date" };
+  }
+}
+
+export async function unblockSlotAction(id: number) {
+  try {
+    unblockSlot(id);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("unblockSlotAction error:", error);
+    return { success: false, error: error.message || "Failed to unblock slot" };
+  }
+}
+

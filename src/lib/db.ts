@@ -93,6 +93,15 @@ export function initDB() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS blocked_slots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      booking_date TEXT NOT NULL, -- e.g. 'Oct 18' or 'ALL'
+      time_slot TEXT NOT NULL,    -- e.g. '11AM-12PM' or 'ALL_DAY'
+      reason TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unique_block UNIQUE (booking_date, time_slot)
+    );
   `);
   
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_name TEXT'); } catch (e) {}
@@ -463,5 +472,63 @@ export function syncSimPodiumSimulators(sims: Array<{ name: string; category: st
       insert.run(sim.name.trim(), sim.category.trim(), sim.tagline.trim(), sim.image.trim(), order++);
     }
   }
+}
+
+// Blocked Slots & Dates Management
+export interface BlockedSlotRow {
+  id: number;
+  booking_date: string;
+  time_slot: string;
+  reason?: string | null;
+  created_at?: string;
+}
+
+export function getBlockedSlots(): BlockedSlotRow[] {
+  return db.prepare('SELECT * FROM blocked_slots ORDER BY id DESC').all() as BlockedSlotRow[];
+}
+
+export function getBlockedSlotsForDate(date: string): BlockedSlotRow[] {
+  return db.prepare(`
+    SELECT * FROM blocked_slots 
+    WHERE booking_date = ? OR booking_date = 'ALL'
+  `).all(date.trim()) as BlockedSlotRow[];
+}
+
+export function isDateOrSlotBlocked(date: string, timeSlot?: string): boolean {
+  if (timeSlot) {
+    const res = db.prepare(`
+      SELECT COUNT(*) as count FROM blocked_slots
+      WHERE (booking_date = ? OR booking_date = 'ALL')
+        AND (time_slot = ? OR time_slot = 'ALL_DAY')
+    `).get(date.trim(), timeSlot.trim()) as { count: number };
+    return res.count > 0;
+  } else {
+    // Check if entire date is blocked
+    const res = db.prepare(`
+      SELECT COUNT(*) as count FROM blocked_slots
+      WHERE (booking_date = ? OR booking_date = 'ALL')
+        AND time_slot = 'ALL_DAY'
+    `).get(date.trim()) as { count: number };
+    return res.count > 0;
+  }
+}
+
+export function blockSlotOrDate(bookingDate: string, timeSlot: string, reason?: string) {
+  return db.prepare(`
+    INSERT INTO blocked_slots (booking_date, time_slot, reason)
+    VALUES (?, ?, ?)
+    ON CONFLICT(booking_date, time_slot) DO UPDATE SET reason = excluded.reason
+  `).run(bookingDate.trim(), timeSlot.trim(), reason?.trim() || null);
+}
+
+export function unblockSlot(id: number) {
+  return db.prepare('DELETE FROM blocked_slots WHERE id = ?').run(id);
+}
+
+export function unblockSpecificSlot(bookingDate: string, timeSlot: string) {
+  return db.prepare(`
+    DELETE FROM blocked_slots 
+    WHERE booking_date = ? AND time_slot = ?
+  `).run(bookingDate.trim(), timeSlot.trim());
 }
 

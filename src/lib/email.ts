@@ -168,7 +168,7 @@ export async function sendBookingConfirmationEmail(
         <div style="background: #F8FAFC; border-top: 1px solid #E2E8F0; padding: 20px 24px; text-align: center; font-size: 12px; color: #94A3B8;">
           <p style="margin: 0 0 6px 0;">Need help or have questions? Contact us:</p>
           <p style="margin: 0; font-weight: 600; color: #64748B;">
-            📞 +91 8618796251 &nbsp;|&nbsp; ✉️ support@havocrcfunzone.com
+            📞 +91 8618796251 &nbsp;|&nbsp; ✉️ havochobbysim@gmail.com
           </p>
           <p style="margin: 12px 0 0 0; font-size: 11px; color: #CBD5E1;">
             © ${new Date().getFullYear()} Havoc RC Fun Zone & Havoc Sim Podium. All rights reserved.
@@ -180,14 +180,49 @@ export async function sendBookingConfirmationEmail(
     </html>
     `;
 
+    const adminEmail = process.env.ADMIN_NOTIFICATION_EMAIL || "havochobbysim@gmail.com";
+
+    // 1. Send confirmation to the customer with BCC to admin so the admin always receives a copy
     const info = await transporter.sendMail({
       from: fromAddress,
       to: params.customerEmail,
+      bcc: adminEmail,
       subject: `Booking Confirmed: ${params.orderId} - Havoc RC Fun Zone`,
       html: htmlContent,
     });
 
-    console.log("Confirmation email sent successfully:", info.messageId);
+    console.log("Customer confirmation email sent successfully:", info.messageId);
+
+    // 2. If a simulator slot is booked, also send a dedicated Admin Alert to havochobbysim@gmail.com
+    if (params.simulatorName && params.simulatorSlot) {
+      try {
+        await transporter.sendMail({
+          from: fromAddress,
+          to: adminEmail,
+          subject: `🚨 SIMULATOR PERK RESERVED: ${params.simulatorName} (${params.simulatorSlot}) - ${params.orderId}`,
+          html: `
+            <div style="font-family: sans-serif; padding: 20px; background: #FFF7ED; border: 2px solid #EA580C; border-radius: 12px; max-width: 600px;">
+              <h2 style="color: #9A3412; margin-top: 0;">🏎️ New Simulator Booking via RC Fun Zone</h2>
+              <p>A participant has reserved a 30-min simulator slot perk through RC Fun Zone.</p>
+              <table style="width: 100%; border-collapse: collapse; margin-top: 12px;">
+                <tr><td style="padding: 6px; font-weight: bold;">Order ID:</td><td style="padding: 6px;">${params.orderId}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Customer:</td><td style="padding: 6px;">${params.customerName} (${params.customerPhone || 'N/A'})</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Email:</td><td style="padding: 6px;">${params.customerEmail}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Simulator:</td><td style="padding: 6px; color: #EA580C; font-weight: bold;">${params.simulatorName}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Slot Time:</td><td style="padding: 6px; font-weight: bold;">${params.simulatorSlot}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Funzone Visit Date:</td><td style="padding: 6px;">${params.date}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Funzone Slot:</td><td style="padding: 6px;">${params.timeSlot}</td></tr>
+                <tr><td style="padding: 6px; font-weight: bold;">Total Amount:</td><td style="padding: 6px;">₹${params.totalAmount}</td></tr>
+              </table>
+            </div>
+          `
+        });
+        console.log("Admin simulator notification email sent to", adminEmail);
+      } catch (adminErr) {
+        console.error("Error sending admin alert email:", adminErr);
+      }
+    }
+
     return { success: true };
   } catch (err: any) {
     console.error("Error sending booking confirmation email via Nodemailer:", err);

@@ -46,7 +46,7 @@ export default function BlockedSlotsPage() {
   // Form states
   const [blockType, setBlockType] = useState<'specific_slot' | 'entire_day' | 'slot_all_dates'>('specific_slot');
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedSlot, setSelectedSlot] = useState(ALL_TIME_SLOTS[0]);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([ALL_TIME_SLOTS[0]]);
   const [reason, setReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -89,37 +89,111 @@ export default function BlockedSlotsPage() {
     loadBlockedSlots();
   }, []);
 
+  const toggleSlotSelection = (slot: string) => {
+    if (blockType === 'slot_all_dates') {
+      // In recurring mode, single select is clearest
+      setSelectedSlots([slot]);
+      return;
+    }
+
+    setSelectedSlots(prev => {
+      if (prev.includes(slot)) {
+        if (prev.length === 1) return prev; // Keep at least one
+        return prev.filter(s => s !== slot);
+      } else {
+        return [...prev, slot];
+      }
+    });
+  };
+
+  const selectAllSlots = () => {
+    setSelectedSlots([...ALL_TIME_SLOTS]);
+  };
+
+  const clearToFirstSlot = () => {
+    setSelectedSlots([ALL_TIME_SLOTS[0]]);
+  };
+
   const handleBlockSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
     setFeedback(null);
 
     let targetDate = selectedDate;
-    let targetSlot = selectedSlot;
 
     if (blockType === 'entire_day') {
-      targetSlot = 'ALL_DAY';
-    } else if (blockType === 'slot_all_dates') {
-      targetDate = 'ALL';
+      if (!targetDate) {
+        setFeedback({ type: 'error', message: "Please select a date." });
+        setIsSubmitting(false);
+        return;
+      }
+      try {
+        const res = await blockSlotOrDateAction(targetDate, 'ALL_DAY', reason);
+        if (res.success) {
+          setFeedback({ 
+            type: 'success', 
+            message: `Successfully blocked entire day for: ${targetDate}` 
+          });
+          setReason("");
+          await loadBlockedSlots();
+        } else {
+          setFeedback({ type: 'error', message: res.error || "Failed to block date." });
+        }
+      } catch (err: any) {
+        setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
     }
 
+    if (blockType === 'slot_all_dates') {
+      const slotToBlock = selectedSlots[0] || ALL_TIME_SLOTS[0];
+      try {
+        const res = await blockSlotOrDateAction('ALL', slotToBlock, reason);
+        if (res.success) {
+          setFeedback({ 
+            type: 'success', 
+            message: `Successfully blocked ${slotToBlock} across all dates.` 
+          });
+          setReason("");
+          await loadBlockedSlots();
+        } else {
+          setFeedback({ type: 'error', message: res.error || "Failed to block slot." });
+        }
+      } catch (err: any) {
+        setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
+    // specific_slot mode (can have multiple slots selected)
     if (!targetDate) {
       setFeedback({ type: 'error', message: "Please select a date." });
       setIsSubmitting(false);
       return;
     }
 
+    if (selectedSlots.length === 0) {
+      setFeedback({ type: 'error', message: "Please select at least one time slot." });
+      setIsSubmitting(false);
+      return;
+    }
+
     try {
-      const res = await blockSlotOrDateAction(targetDate, targetSlot, reason);
+      const { blockMultipleSlotsAction } = await import("@/app/actions/tickets");
+      const res = await blockMultipleSlotsAction(targetDate, selectedSlots, reason);
       if (res.success) {
         setFeedback({ 
           type: 'success', 
-          message: `Successfully blocked: ${targetDate} • ${targetSlot === 'ALL_DAY' ? 'Entire Day' : targetSlot}` 
+          message: `Successfully blocked ${selectedSlots.length} slot${selectedSlots.length > 1 ? 's' : ''} on ${targetDate} (${selectedSlots.join(', ')})` 
         });
         setReason("");
         await loadBlockedSlots();
       } else {
-        setFeedback({ type: 'error', message: res.error || "Failed to block slot." });
+        setFeedback({ type: 'error', message: res.error || "Failed to block slots." });
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
@@ -293,24 +367,77 @@ export default function BlockedSlotsPage() {
                 </div>
               )}
 
-              {/* Slot Input */}
+              {/* Slot Input / Multi-select */}
               {blockType !== 'entire_day' && (
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                    Select Time Slot *
-                  </label>
-                  <select
-                    value={selectedSlot}
-                    onChange={(e) => setSelectedSlot(e.target.value)}
-                    required
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  >
-                    {ALL_TIME_SLOTS.map((slot) => (
-                      <option key={slot} value={slot}>
-                        {slot}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
+                      {blockType === 'specific_slot' ? "Select Time Slot(s) *" : "Select Time Slot *"}
+                    </label>
+                    {blockType === 'specific_slot' && (
+                      <div className="flex items-center gap-2 text-xs">
+                        <button 
+                          type="button" 
+                          onClick={selectAllSlots}
+                          className="font-bold text-[#ff5a1f] hover:underline"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-gray-300">•</span>
+                        <button 
+                          type="button" 
+                          onClick={clearToFirstSlot}
+                          className="text-gray-500 hover:text-gray-700 hover:underline"
+                        >
+                          Reset
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {blockType === 'specific_slot' ? (
+                    <div className="grid grid-cols-3 gap-2 bg-gray-50/80 p-3 rounded-2xl border border-gray-200">
+                      {ALL_TIME_SLOTS.map((slot) => {
+                        const isSelected = selectedSlots.includes(slot);
+                        return (
+                          <button
+                            key={slot}
+                            type="button"
+                            onClick={() => toggleSlotSelection(slot)}
+                            className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center flex flex-col items-center justify-center gap-1 ${
+                              isSelected
+                                ? 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-500/20'
+                                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <span>{slot}</span>
+                            <span className={`text-[9px] font-semibold uppercase ${isSelected ? 'text-white/90' : 'text-gray-400'}`}>
+                              {isSelected ? "Selected" : "Available"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <select
+                      value={selectedSlots[0] || ALL_TIME_SLOTS[0]}
+                      onChange={(e) => setSelectedSlots([e.target.value])}
+                      required
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    >
+                      {ALL_TIME_SLOTS.map((slot) => (
+                        <option key={slot} value={slot}>
+                          {slot}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+
+                  {blockType === 'specific_slot' && (
+                    <p className="text-[11px] text-gray-500 mt-2 font-medium">
+                      💡 Click on slots to toggle them. You have selected <strong className="text-red-600 font-bold">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''}</strong> to block together.
+                    </p>
+                  )}
                 </div>
               )}
 

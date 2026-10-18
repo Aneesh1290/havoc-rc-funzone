@@ -384,6 +384,20 @@ export async function blockSlotOrDateAction(date: string, timeSlot: string, reas
   }
 }
 
+export async function blockMultipleSlotsAction(date: string, timeSlots: string[], reason?: string) {
+  try {
+    for (const slot of timeSlots) {
+      blockSlotOrDate(date, slot, reason);
+    }
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true, count: timeSlots.length };
+  } catch (error: any) {
+    console.error("blockMultipleSlotsAction error:", error);
+    return { success: false, error: error.message || "Failed to block slots" };
+  }
+}
+
 export async function unblockSlotAction(id: number) {
   try {
     unblockSlot(id);

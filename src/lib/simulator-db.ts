@@ -1,8 +1,10 @@
 import { Pool } from 'pg';
 
-const SIMULATOR_DATABASE_URL = 
-  process.env.SIMULATOR_DATABASE_URL || 
-  'postgresql://slots_db_yqvv_user:REDACTED_PASSWORD@dpg-db941hft5n8s73e7qt1g-a.singapore-postgres.render.com/slots_db_yqvv';
+const SIMULATOR_DATABASE_URL = process.env.SIMULATOR_DATABASE_URL;
+
+if (!SIMULATOR_DATABASE_URL) {
+  console.warn("WARNING: SIMULATOR_DATABASE_URL is not set in environment variables.");
+}
 
 // Global singleton pool for Next.js to prevent connection exhaustion in dev/serverless
 declare global {

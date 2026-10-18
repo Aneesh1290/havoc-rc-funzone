@@ -61,7 +61,7 @@ export default function OrderDetailPage() {
     );
   }
 
-  const orderCode = formatOrderNumber(booking.id, booking.created_at);
+  const orderCode = formatOrderNumber(booking.id, booking.created_at, booking.payment_status);
   const isPaid = (booking.payment_status || "Paid").toLowerCase() === "paid";
   const isFulfilled = (booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
 

@@ -123,7 +123,7 @@ export default function CheckoutPage() {
           item.simulatorSlot
         );
         if (res && res.id) {
-          generatedOrderCodes.push(formatOrderNumber(res.id, res.createdAt));
+          generatedOrderCodes.push(formatOrderNumber(res.id, res.createdAt, 'Unpaid'));
         }
       }
       

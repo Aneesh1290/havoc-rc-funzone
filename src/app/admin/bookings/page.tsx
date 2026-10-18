@@ -126,7 +126,7 @@ export default function BookingsPage() {
   // Filter bookings
   const filteredBookings = bookings.filter((b) => {
     const q = searchQuery.toLowerCase();
-    const orderNum = formatOrderNumber(b.id, b.created_at).toLowerCase();
+    const orderNum = formatOrderNumber(b.id, b.created_at, b.payment_status).toLowerCase();
     const customer = (b.customer_name || "").toLowerCase();
     const email = (b.customer_email || "").toLowerCase();
     const phone = (b.customer_phone || "").toLowerCase();
@@ -595,7 +595,7 @@ export default function BookingsPage() {
               ) : (
                 filteredBookings.map((b) => {
                   const isSelected = selectedIds.includes(b.id);
-                  const orderCode = formatOrderNumber(b.id, b.created_at);
+                  const orderCode = formatOrderNumber(b.id, b.created_at, b.payment_status);
                   const isPaid = (b.payment_status || "Paid").toLowerCase() === "paid";
                   const isFulfilled = (b.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
                   const rawAmount = Number(b.total_amount || 0);

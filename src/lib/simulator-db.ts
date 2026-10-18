@@ -255,13 +255,15 @@ export async function lockSimulatorSlot(params: {
 /**
  * Cancel or release locked slots by source order ID
  */
-export async function releaseSimulatorSlots(sourceOrderId: string): Promise<boolean> {
+export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: number): Promise<boolean> {
   try {
+    const idSuffix = bookingId ? `_${bookingId}` : (sourceOrderId.includes('_') ? `_${sourceOrderId.split('_').pop()}` : '');
     await simulatorPool.query(
       `UPDATE simulator_slot_locks 
        SET status = 'CANCELLED' 
-       WHERE source_order_id = $1 AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
-      [sourceOrderId]
+       WHERE (source_order_id = $1 OR ($2 != '' AND source_order_id LIKE '%' || $2))
+         AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+      [sourceOrderId, idSuffix]
     );
     return true;
   } catch (err) {

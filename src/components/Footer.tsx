@@ -40,12 +40,13 @@ export default function Footer() {
               
               {/* Support column */}
               <div>
-                <h4 className="font-bold text-white mb-4 sm:mb-5 uppercase tracking-wider text-xs sm:text-sm">Support</h4>
+                <h4 className="font-bold text-white mb-4 sm:mb-5 uppercase tracking-wider text-xs sm:text-sm">Support &amp; Legal</h4>
                 <ul className="space-y-2.5 sm:space-y-3 text-[14px] sm:text-[15px] text-gray-300">
-                  <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy</Link></li>
+                  <li><Link href="/privacy" className="hover:text-white transition-colors">Privacy Policy</Link></li>
+                  <li><Link href="/terms" className="hover:text-white transition-colors">Terms &amp; Conditions</Link></li>
+                  <li><Link href="/refund" className="hover:text-white transition-colors">Refund &amp; Cancellation</Link></li>
+                  <li><Link href="/shipping" className="hover:text-white transition-colors">Shipping &amp; Delivery</Link></li>
                   <li><Link href="/accessibility" className="hover:text-white transition-colors">Accessibility</Link></li>
-                  <li><Link href="/terms" className="hover:text-white transition-colors">Terms</Link></li>
-                  <li><Link href="/refund" className="hover:text-white transition-colors">Refund</Link></li>
                 </ul>
               </div>
             </div>
@@ -70,12 +71,61 @@ export default function Footer() {
                 <li className="text-gray-400 text-xs sm:text-sm leading-relaxed pt-1">
                   No. 90, Sabharwal Residency Building, 4th Floor, KH Double Road, Above KFC Shantinagar KH, Bengaluru 560027
                 </li>
+                <li className="pt-2">
+                  <div className="flex items-center gap-3">
+                    <a 
+                      href="https://instagram.com/havocrcfunzone" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="w-8 h-8 rounded-full bg-white/10 hover:bg-[#ff5a1f] flex items-center justify-center text-xs font-bold transition-all text-white"
+                      title="Follow on Instagram"
+                    >
+                      IG
+                    </a>
+                    <a 
+                      href="https://facebook.com/havocrcfunzone" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="w-8 h-8 rounded-full bg-white/10 hover:bg-[#ff5a1f] flex items-center justify-center text-xs font-bold transition-all text-white"
+                      title="Follow on Facebook"
+                    >
+                      FB
+                    </a>
+                    <a 
+                      href="https://wa.me/918951336255" 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="w-8 h-8 rounded-full bg-white/10 hover:bg-emerald-600 flex items-center justify-center text-xs font-bold transition-all text-white"
+                      title="Chat on WhatsApp"
+                    >
+                      WA
+                    </a>
+                  </div>
+                </li>
               </ul>
             </div>
           </div>
         </div>
+
+        {/* Payment Badges & Security Bar */}
+        <div className="border-t border-gray-800/80 pt-6 pb-6 flex flex-col md:flex-row justify-between items-center gap-4 text-xs text-gray-400">
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            <span className="text-gray-400 font-semibold mr-1">We Accept:</span>
+            <span className="bg-white text-blue-900 font-black px-2 py-0.5 rounded text-[10px] tracking-wider">VISA</span>
+            <span className="bg-white text-red-600 font-bold px-2 py-0.5 rounded text-[10px]">Mastercard</span>
+            <span className="bg-white text-orange-600 font-bold px-2 py-0.5 rounded text-[10px]">RuPay</span>
+            <span className="bg-white text-blue-600 font-bold px-2 py-0.5 rounded text-[10px]">AMEX</span>
+            <span className="bg-white text-slate-800 font-bold px-2 py-0.5 rounded text-[10px]">Diners</span>
+            <span className="bg-white text-emerald-700 font-black px-2 py-0.5 rounded text-[10px]">UPI</span>
+            <span className="bg-white text-gray-700 font-bold px-2 py-0.5 rounded text-[10px]">Net Banking</span>
+          </div>
+          <div className="flex items-center gap-2 text-emerald-400 font-medium">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span>256-bit SSL Secure Checkout | ICICI Bank Orange Gateway</span>
+          </div>
+        </div>
         
-        <div className="border-t border-gray-800 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="border-t border-gray-800 pt-6 flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-gray-500 text-center md:text-left">
             &copy; {new Date().getFullYear()} Havoc RC Funzone. All rights reserved.
           </p>

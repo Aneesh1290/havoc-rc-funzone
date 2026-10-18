@@ -1,7 +1,7 @@
 "use client";
 
 import { useCart } from "@/context/CartContext";
-import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check } from "lucide-react";
+import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { addBookingAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
@@ -426,16 +426,25 @@ export default function CheckoutPage() {
                     target="_blank"
                     className="font-bold text-[#0d1b2a] underline decoration-[#ff5a1f]/40 hover:text-[#ff5a1f] hover:decoration-[#ff5a1f] transition-colors"
                   >
-                    Terms & Conditions
+                    Terms &amp; Conditions
                   </Link>
-                  <span> and </span>
+                  <span>, </span>
                   <Link 
                     href="/refund" 
                     onClick={(e) => e.stopPropagation()} 
                     target="_blank"
                     className="font-bold text-[#0d1b2a] underline decoration-[#ff5a1f]/40 hover:text-[#ff5a1f] hover:decoration-[#ff5a1f] transition-colors"
                   >
-                    Refund & Cancellation Policy
+                    Refund Policy
+                  </Link>
+                  <span> and </span>
+                  <Link 
+                    href="/shipping" 
+                    onClick={(e) => e.stopPropagation()} 
+                    target="_blank"
+                    className="font-bold text-[#0d1b2a] underline decoration-[#ff5a1f]/40 hover:text-[#ff5a1f] hover:decoration-[#ff5a1f] transition-colors"
+                  >
+                    Shipping Policy
                   </Link>
                   <span>.</span>
                 </div>
@@ -555,20 +564,19 @@ export default function CheckoutPage() {
               </div>
 
               <div className="mt-8 pt-8 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-400 font-medium mb-3 uppercase tracking-wider">Supported Payment Methods (At Desk)</p>
-                <div className="flex items-center justify-center gap-3 opacity-60 grayscale hover:grayscale-0 transition-all duration-300">
-                  <div className="bg-white border border-gray-200 px-3 py-1.5 rounded-md flex items-center justify-center">
-                    <span className="font-black text-[10px] text-blue-800 italic">VISA</span>
-                  </div>
-                  <div className="bg-white border border-gray-200 px-3 py-1.5 rounded-md flex items-center justify-center">
-                    <span className="font-bold text-[10px] text-red-600">Mastercard</span>
-                  </div>
-                  <div className="bg-white border border-gray-200 px-3 py-1.5 rounded-md flex items-center justify-center">
-                    <span className="font-bold text-[10px] text-orange-600">RuPay</span>
-                  </div>
-                  <div className="bg-white border border-gray-200 px-3 py-1.5 rounded-md flex items-center justify-center">
-                    <span className="font-black text-[10px] text-green-700">UPI</span>
-                  </div>
+                <div className="flex items-center justify-center gap-2 mb-3 text-xs text-emerald-700 font-bold bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-100 inline-flex">
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>256-Bit SSL Encrypted | ICICI Orange Gateway</span>
+                </div>
+                <p className="text-[11px] text-gray-400 font-semibold mb-3 uppercase tracking-wider">Accepted Payment Options</p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-black text-blue-900 tracking-wider shadow-sm">VISA</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-bold text-red-600 shadow-sm">Mastercard</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-bold text-orange-600 shadow-sm">RuPay</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-bold text-blue-600 shadow-sm">AMEX</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-bold text-slate-700 shadow-sm">Diners</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-black text-emerald-700 shadow-sm">UPI</span>
+                  <span className="bg-white border border-gray-200 px-2.5 py-1 rounded text-[11px] font-semibold text-gray-700 shadow-sm">Net Banking</span>
                 </div>
               </div>
             </div>

@@ -564,6 +564,34 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               )}
             </div>
 
+            {/* Quantity */}
+            <div className="space-y-2">
+              <label className="block text-sm font-bold text-gray-700">Quantity *</label>
+              <div className="flex border border-gray-300 w-32 rounded-xl overflow-hidden bg-white shadow-sm">
+                <button 
+                  className={`w-10 h-11 flex items-center justify-center font-bold transition-colors ${maxAvailableCap === 0 ? 'text-gray-300 cursor-not-allowed bg-gray-50' : 'text-gray-600 hover:text-[#ff5a1f] hover:bg-gray-50'}`}
+                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                  disabled={maxAvailableCap === 0}
+                >-</button>
+                <div className="flex-1 h-11 flex items-center justify-center text-gray-900 font-bold border-l border-r border-gray-200">
+                  {maxAvailableCap === 0 ? 0 : quantity}
+                </div>
+                <button 
+                  className={`w-10 h-11 flex items-center justify-center font-bold transition-colors ${selectedTicket && quantity >= maxAvailableCap ? 'text-gray-300 cursor-not-allowed bg-gray-50' : 'text-gray-600 hover:text-[#ff5a1f] hover:bg-gray-50'}`}
+                  onClick={() => {
+                    if (quantity < maxAvailableCap) setQuantity(quantity + 1);
+                  }}
+                  disabled={selectedTicket && quantity >= maxAvailableCap}
+                >+</button>
+              </div>
+              {selectedTicket && maxAvailableCap === 0 && (
+                <p className="text-xs text-red-500 font-bold mt-1">This ticket is fully booked for this time slot.</p>
+              )}
+              {selectedTicket && maxAvailableCap > 0 && quantity >= maxAvailableCap && (
+                <p className="text-xs text-[#ff5a1f] font-medium mt-1">Only {maxAvailableCap} tickets left for this time slot.</p>
+              )}
+            </div>
+
             {/* VIP Simulator Perk Selection Box - Organized per participant */}
             {hasSimPerk && (
               <div className="p-5 sm:p-6 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
@@ -840,34 +868,6 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                 )}
               </div>
             )}
-
-            {/* Quantity */}
-            <div className="space-y-2 mt-8">
-              <label className="block text-sm font-bold text-gray-700">Quantity *</label>
-              <div className="flex border border-gray-300 w-32 rounded-xl overflow-hidden bg-white shadow-sm">
-                <button 
-                  className={`w-10 h-11 flex items-center justify-center font-bold transition-colors ${maxAvailableCap === 0 ? 'text-gray-300 cursor-not-allowed bg-gray-50' : 'text-gray-600 hover:text-[#ff5a1f] hover:bg-gray-50'}`}
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  disabled={maxAvailableCap === 0}
-                >-</button>
-                <div className="flex-1 h-11 flex items-center justify-center text-gray-900 font-bold border-l border-r border-gray-200">
-                  {maxAvailableCap === 0 ? 0 : quantity}
-                </div>
-                <button 
-                  className={`w-10 h-11 flex items-center justify-center font-bold transition-colors ${selectedTicket && quantity >= maxAvailableCap ? 'text-gray-300 cursor-not-allowed bg-gray-50' : 'text-gray-600 hover:text-[#ff5a1f] hover:bg-gray-50'}`}
-                  onClick={() => {
-                    if (quantity < maxAvailableCap) setQuantity(quantity + 1);
-                  }}
-                  disabled={selectedTicket && quantity >= maxAvailableCap}
-                >+</button>
-              </div>
-              {selectedTicket && maxAvailableCap === 0 && (
-                <p className="text-xs text-red-500 font-bold mt-1">This ticket is fully booked for this time slot.</p>
-              )}
-              {selectedTicket && maxAvailableCap > 0 && quantity >= maxAvailableCap && (
-                <p className="text-xs text-[#ff5a1f] font-medium mt-1">Only {maxAvailableCap} tickets left for this time slot.</p>
-              )}
-            </div>
 
             <div className="pt-6">
               <button 

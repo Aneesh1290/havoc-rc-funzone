@@ -52,6 +52,7 @@ import {
   SimPodiumSlot
 } from "@/lib/simulator-db";
 import { formatOrderNumber } from "@/lib/order-utils";
+import { sendBookingConfirmationEmail } from "@/lib/email";
 import { revalidatePath } from "next/cache";
 
 // Ensure DB is initialized
@@ -121,6 +122,36 @@ export async function addBookingAction(
       }
     } catch (pgErr) {
       console.error("Failed to sync lock to PostgreSQL simulator_slot_locks:", pgErr);
+    }
+  }
+
+  // Send Email Confirmation via Gmail SMTP
+  if (result?.id && customerEmail) {
+    try {
+      const orderId = formatOrderNumber(result.id, result.createdAt);
+      const allTickets = getTickets();
+      const ticketObj = allTickets.find(t => t.id === ticketId);
+      const ticketName = ticketObj?.name || 'RC Fun Zone Pass';
+
+      // Send asynchronously without blocking the user response
+      sendBookingConfirmationEmail({
+        orderId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        ticketName,
+        quantity,
+        date,
+        timeSlot,
+        totalAmount,
+        simulatorName,
+        simulatorSlot,
+        paymentStatus: 'Unpaid'
+      }).catch(err => {
+        console.error("Async confirmation email error:", err);
+      });
+    } catch (emailErr) {
+      console.error("Failed to trigger confirmation email:", emailErr);
     }
   }
 

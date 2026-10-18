@@ -10,9 +10,10 @@ import {
   fetchBookedQuantitiesAction, 
   fetchVipPerksAction, 
   fetchTakenSimulatorSlotsAction,
-  fetchBlockedSlotsAction 
+  fetchBlockedSlotsAction,
+  fetchTimeSlotsAction 
 } from '@/app/actions/tickets';
-import type { TicketRow, VipPerkRow, BlockedSlotRow } from '@/lib/db';
+import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow } from '@/lib/db';
 import { useCart } from '@/context/CartContext';
 import { Info, Check, X, Sparkles, ChevronRight, Ban } from 'lucide-react';
 
@@ -31,6 +32,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [bookedQuantities, setBookedQuantities] = useState<{ticket_id: number, total_booked: number}[]>([]);
   const [simulators, setSimulators] = useState<VipPerkRow[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlotRow[]>([]);
+  const [dbTimeSlots, setDbTimeSlots] = useState<TimeSlotRow[]>([]);
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
@@ -112,6 +114,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     });
     fetchBlockedSlotsAction().then(data => {
       setBlockedSlots(data || []);
+    });
+    fetchTimeSlotsAction(true).then(data => {
+      setDbTimeSlots(data || []);
     });
   }, []);
 
@@ -406,18 +411,20 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   onChange={(e) => setTime(e.target.value)}
                   disabled={!date}
                 >
-                  <option value="" disabled>Select</option>
-                  {[
-                    { label: "11AM-12PM", startHour: 11 },
-                    { label: "12PM-1PM", startHour: 12 },
-                    { label: "1PM-2PM", startHour: 13 },
-                    { label: "2PM-3PM", startHour: 14 },
-                    { label: "3PM-4PM", startHour: 15 },
-                    { label: "4PM-5PM", startHour: 16 },
-                    { label: "5PM-6PM", startHour: 17 },
-                    { label: "6PM-7PM", startHour: 18 },
-                    { label: "7PM-8PM", startHour: 19 },
-                  ]
+                  {(dbTimeSlots.length > 0 
+                    ? dbTimeSlots.map(s => ({ label: s.label, startHour: s.start_hour }))
+                    : [
+                        { label: "11AM-12PM", startHour: 11 },
+                        { label: "12PM-1PM", startHour: 12 },
+                        { label: "1PM-2PM", startHour: 13 },
+                        { label: "2PM-3PM", startHour: 14 },
+                        { label: "3PM-4PM", startHour: 15 },
+                        { label: "4PM-5PM", startHour: 16 },
+                        { label: "5PM-6PM", startHour: 17 },
+                        { label: "6PM-7PM", startHour: 18 },
+                        { label: "7PM-8PM", startHour: 19 },
+                      ]
+                  )
                   .filter(slot => {
                     // If today is selected, hide slots that have already passed
                     const isTodaySelected = isCurrentMonth && date === `${shortMonth} ${currentDay.toString().padStart(2, '0')}`;

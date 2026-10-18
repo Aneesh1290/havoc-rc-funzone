@@ -11,42 +11,55 @@ import {
   Plus, 
   ShieldAlert, 
   RefreshCw,
-  Search
+  Search,
+  Settings,
+  Edit2,
+  X,
+  Power
 } from "lucide-react";
 import { 
   fetchBlockedSlotsAction, 
   blockSlotOrDateAction, 
-  unblockSlotAction 
+  blockMultipleSlotsAction,
+  unblockSlotAction,
+  fetchTimeSlotsAction,
+  createTimeSlotAction,
+  updateTimeSlotAction,
+  toggleTimeSlotStatusAction,
+  deleteTimeSlotAction
 } from "@/app/actions/tickets";
-import type { BlockedSlotRow } from "@/lib/db";
-
-const ALL_TIME_SLOTS = [
-  "11AM-12PM",
-  "12PM-1PM",
-  "1PM-2PM",
-  "2PM-3PM",
-  "3PM-4PM",
-  "4PM-5PM",
-  "5PM-6PM",
-  "6PM-7PM",
-  "7PM-8PM"
-];
+import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
-export default function BlockedSlotsPage() {
+export default function SlotsManagementPage() {
+  const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots'>('block_slots');
+
+  // Time Slots State
+  const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
+  const [isLoadingSlots, setIsLoadingSlots] = useState(true);
+  const [isAddingSlot, setIsAddingSlot] = useState(false);
+  const [editingSlot, setEditingSlot] = useState<TimeSlotRow | null>(null);
+  const [newSlotForm, setNewSlotForm] = useState({
+    label: "",
+    startHour: 11.0,
+    endHour: 12.0,
+    sortOrder: 0
+  });
+
+  // Blocked Slots State
   const [blockedList, setBlockedList] = useState<BlockedSlotRow[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingBlocked, setIsLoadingBlocked] = useState(true);
+  const [isSubmittingBlock, setIsSubmittingBlock] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  // Form states
+  // Form states for Block
   const [blockType, setBlockType] = useState<'specific_slot' | 'entire_day' | 'slot_all_dates'>('specific_slot');
   const [selectedDate, setSelectedDate] = useState("");
-  const [selectedSlots, setSelectedSlots] = useState<string[]>([ALL_TIME_SLOTS[0]]);
+  const [selectedSlots, setSelectedSlots] = useState<string[]>([]);
   const [reason, setReason] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -73,32 +86,44 @@ export default function BlockedSlotsPage() {
     }
   }, []);
 
-  const loadBlockedSlots = async () => {
-    setIsLoading(true);
+  const loadAllData = async () => {
+    setIsLoadingSlots(true);
+    setIsLoadingBlocked(true);
     try {
-      const data = await fetchBlockedSlotsAction();
-      setBlockedList(data);
+      const [slotsData, blockedData] = await Promise.all([
+        fetchTimeSlotsAction(false),
+        fetchBlockedSlotsAction()
+      ]);
+      setTimeSlots(slotsData);
+      setBlockedList(blockedData);
+
+      if (slotsData.length > 0 && selectedSlots.length === 0) {
+        setSelectedSlots([slotsData[0].label]);
+      }
     } catch (e) {
       console.error(e);
     } finally {
-      setIsLoading(false);
+      setIsLoadingSlots(false);
+      setIsLoadingBlocked(false);
     }
   };
 
   useEffect(() => {
-    loadBlockedSlots();
+    loadAllData();
   }, []);
+
+  // Multi-Slot Selection helpers
+  const allActiveSlotLabels = timeSlots.filter(s => s.active === 1).map(s => s.label);
 
   const toggleSlotSelection = (slot: string) => {
     if (blockType === 'slot_all_dates') {
-      // In recurring mode, single select is clearest
       setSelectedSlots([slot]);
       return;
     }
 
     setSelectedSlots(prev => {
       if (prev.includes(slot)) {
-        if (prev.length === 1) return prev; // Keep at least one
+        if (prev.length === 1) return prev;
         return prev.filter(s => s !== slot);
       } else {
         return [...prev, slot];
@@ -107,16 +132,17 @@ export default function BlockedSlotsPage() {
   };
 
   const selectAllSlots = () => {
-    setSelectedSlots([...ALL_TIME_SLOTS]);
+    setSelectedSlots([...allActiveSlotLabels]);
   };
 
   const clearToFirstSlot = () => {
-    setSelectedSlots([ALL_TIME_SLOTS[0]]);
+    setSelectedSlots(allActiveSlotLabels.length > 0 ? [allActiveSlotLabels[0]] : []);
   };
 
+  // Block Submission
   const handleBlockSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
+    setIsSubmittingBlock(true);
     setFeedback(null);
 
     let targetDate = selectedDate;
@@ -124,7 +150,7 @@ export default function BlockedSlotsPage() {
     if (blockType === 'entire_day') {
       if (!targetDate) {
         setFeedback({ type: 'error', message: "Please select a date." });
-        setIsSubmitting(false);
+        setIsSubmittingBlock(false);
         return;
       }
       try {
@@ -135,20 +161,21 @@ export default function BlockedSlotsPage() {
             message: `Successfully blocked entire day for: ${targetDate}` 
           });
           setReason("");
-          await loadBlockedSlots();
+          const freshBlocked = await fetchBlockedSlotsAction();
+          setBlockedList(freshBlocked);
         } else {
           setFeedback({ type: 'error', message: res.error || "Failed to block date." });
         }
       } catch (err: any) {
         setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
       } finally {
-        setIsSubmitting(false);
+        setIsSubmittingBlock(false);
       }
       return;
     }
 
     if (blockType === 'slot_all_dates') {
-      const slotToBlock = selectedSlots[0] || ALL_TIME_SLOTS[0];
+      const slotToBlock = selectedSlots[0] || (timeSlots[0]?.label ?? "11AM-12PM");
       try {
         const res = await blockSlotOrDateAction('ALL', slotToBlock, reason);
         if (res.success) {
@@ -157,33 +184,33 @@ export default function BlockedSlotsPage() {
             message: `Successfully blocked ${slotToBlock} across all dates.` 
           });
           setReason("");
-          await loadBlockedSlots();
+          const freshBlocked = await fetchBlockedSlotsAction();
+          setBlockedList(freshBlocked);
         } else {
           setFeedback({ type: 'error', message: res.error || "Failed to block slot." });
         }
       } catch (err: any) {
         setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
       } finally {
-        setIsSubmitting(false);
+        setIsSubmittingBlock(false);
       }
       return;
     }
 
-    // specific_slot mode (can have multiple slots selected)
+    // specific_slot mode
     if (!targetDate) {
       setFeedback({ type: 'error', message: "Please select a date." });
-      setIsSubmitting(false);
+      setIsSubmittingBlock(false);
       return;
     }
 
     if (selectedSlots.length === 0) {
       setFeedback({ type: 'error', message: "Please select at least one time slot." });
-      setIsSubmitting(false);
+      setIsSubmittingBlock(false);
       return;
     }
 
     try {
-      const { blockMultipleSlotsAction } = await import("@/app/actions/tickets");
       const res = await blockMultipleSlotsAction(targetDate, selectedSlots, reason);
       if (res.success) {
         setFeedback({ 
@@ -191,14 +218,15 @@ export default function BlockedSlotsPage() {
           message: `Successfully blocked ${selectedSlots.length} slot${selectedSlots.length > 1 ? 's' : ''} on ${targetDate} (${selectedSlots.join(', ')})` 
         });
         setReason("");
-        await loadBlockedSlots();
+        const freshBlocked = await fetchBlockedSlotsAction();
+        setBlockedList(freshBlocked);
       } else {
         setFeedback({ type: 'error', message: res.error || "Failed to block slots." });
       }
     } catch (err: any) {
       setFeedback({ type: 'error', message: err.message || "An unexpected error occurred." });
     } finally {
-      setIsSubmitting(false);
+      setIsSubmittingBlock(false);
     }
   };
 
@@ -220,7 +248,90 @@ export default function BlockedSlotsPage() {
     }
   };
 
-  const filteredList = blockedList.filter(item => {
+  // Time Slot Management Handlers
+  const handleCreateSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newSlotForm.label.trim()) return;
+
+    try {
+      const res = await createTimeSlotAction(
+        newSlotForm.label.trim(),
+        Number(newSlotForm.startHour),
+        Number(newSlotForm.endHour),
+        Number(newSlotForm.sortOrder)
+      );
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Created slot "${newSlotForm.label}" successfully.` });
+        setIsAddingSlot(false);
+        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0 });
+        const freshSlots = await fetchTimeSlotsAction(false);
+        setTimeSlots(freshSlots);
+      } else {
+        setFeedback({ type: 'error', message: res.error || "Failed to create slot." });
+      }
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e.message || "Error creating slot." });
+    }
+  };
+
+  const handleUpdateSlot = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSlot) return;
+
+    try {
+      const res = await updateTimeSlotAction(
+        editingSlot.id,
+        editingSlot.label.trim(),
+        Number(editingSlot.start_hour),
+        Number(editingSlot.end_hour),
+        Number(editingSlot.sort_order)
+      );
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Updated slot "${editingSlot.label}" successfully.` });
+        setEditingSlot(null);
+        const freshSlots = await fetchTimeSlotsAction(false);
+        setTimeSlots(freshSlots);
+      } else {
+        setFeedback({ type: 'error', message: res.error || "Failed to update slot." });
+      }
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e.message || "Error updating slot." });
+    }
+  };
+
+  const handleToggleSlotStatus = async (slot: TimeSlotRow) => {
+    const newActive = slot.active === 1 ? false : true;
+    try {
+      await toggleTimeSlotStatusAction(slot.id, newActive);
+      setTimeSlots(prev => prev.map(s => s.id === slot.id ? { ...s, active: newActive ? 1 : 0 } : s));
+      setFeedback({ 
+        type: 'success', 
+        message: `Slot "${slot.label}" is now ${newActive ? 'Active' : 'Disabled globally'}.` 
+      });
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e.message || "Failed to toggle slot." });
+    }
+  };
+
+  const handleDeleteSlot = async (slot: TimeSlotRow) => {
+    if (!confirm(`Are you sure you want to permanently delete slot "${slot.label}"?`)) {
+      return;
+    }
+
+    try {
+      const res = await deleteTimeSlotAction(slot.id);
+      if (res.success) {
+        setFeedback({ type: 'success', message: `Deleted slot "${slot.label}".` });
+        setTimeSlots(prev => prev.filter(s => s.id !== slot.id));
+      } else {
+        setFeedback({ type: 'error', message: res.error || "Failed to delete slot." });
+      }
+    } catch (e: any) {
+      setFeedback({ type: 'error', message: e.message || "Error deleting slot." });
+    }
+  };
+
+  const filteredBlockedList = blockedList.filter(item => {
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -239,21 +350,48 @@ export default function BlockedSlotsPage() {
             Booking Engine Controls
           </div>
           <h1 className="text-3xl font-heading font-black text-gray-900 flex items-center gap-3">
-            <Ban className="w-8 h-8 text-red-500" />
-            Disable Slots &amp; Dates
+            <Clock className="w-8 h-8 text-[#ff5a1f]" />
+            Slots &amp; Dates Management
           </h1>
           <p className="text-gray-500 text-sm mt-1">
-            Manually lock dates or specific hourly slots for maintenance, track private events, or VIP arena buyouts.
+            Configure hourly operating slots, add new slot times, or temporarily block dates &amp; slots.
           </p>
         </div>
 
         <button 
-          onClick={loadBlockedSlots} 
-          disabled={isLoading}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-bold shadow-sm transition-colors"
+          onClick={loadAllData} 
+          disabled={isLoadingSlots || isLoadingBlocked}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 text-sm font-bold shadow-sm transition-colors self-start sm:self-auto"
         >
-          <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin text-[#ff5a1f]' : ''}`} />
+          <RefreshCw className={`w-4 h-4 ${(isLoadingSlots || isLoadingBlocked) ? 'animate-spin text-[#ff5a1f]' : ''}`} />
           Refresh
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-2 border-b border-gray-200 pb-1">
+        <button
+          onClick={() => setActiveTab('block_slots')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'block_slots'
+              ? 'bg-[#0d1b2a] text-white shadow-md'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Ban className="w-4 h-4 text-red-400" />
+          Block Dates &amp; Slots ({blockedList.length})
+        </button>
+
+        <button
+          onClick={() => setActiveTab('manage_slots')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'manage_slots'
+              ? 'bg-[#0d1b2a] text-white shadow-md'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Settings className="w-4 h-4 text-[#ff5a1f]" />
+          Configure Hourly Slots ({timeSlots.length})
         </button>
       </div>
 
@@ -272,295 +410,546 @@ export default function BlockedSlotsPage() {
         </div>
       )}
 
-      {/* Main Grid: Form on Left, List on Right */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Column: Block Form */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
-            <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
-              <ShieldAlert className="w-5 h-5 text-[#ff5a1f]" />
-              <h2 className="text-lg font-bold text-gray-900">Block / Disable Slot</h2>
-            </div>
-
-            <form onSubmit={handleBlockSubmit} className="space-y-5">
-              {/* Scope Selector */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                  What would you like to block?
-                </label>
-                <div className="grid grid-cols-1 gap-2">
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    blockType === 'specific_slot' 
-                      ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}>
-                    <input 
-                      type="radio" 
-                      name="blockType" 
-                      checked={blockType === 'specific_slot'}
-                      onChange={() => setBlockType('specific_slot')}
-                      className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
-                    />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">Specific Slot on Specific Date</div>
-                      <div className="text-xs text-gray-500">e.g. Oct 18 from 3PM-4PM only</div>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    blockType === 'entire_day' 
-                      ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}>
-                    <input 
-                      type="radio" 
-                      name="blockType" 
-                      checked={blockType === 'entire_day'}
-                      onChange={() => setBlockType('entire_day')}
-                      className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
-                    />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">Entire Day (Close Funzone Date)</div>
-                      <div className="text-xs text-gray-500">Locks all 9 hourly slots for that day</div>
-                    </div>
-                  </label>
-
-                  <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
-                    blockType === 'slot_all_dates' 
-                      ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}>
-                    <input 
-                      type="radio" 
-                      name="blockType" 
-                      checked={blockType === 'slot_all_dates'}
-                      onChange={() => setBlockType('slot_all_dates')}
-                      className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
-                    />
-                    <div>
-                      <div className="text-sm font-bold text-gray-900">Recurring Slot Across All Dates</div>
-                      <div className="text-xs text-gray-500">e.g. permanently block 11AM-12PM for arena setup</div>
-                    </div>
-                  </label>
-                </div>
+      {/* TAB 1: BLOCK DATES & SLOTS */}
+      {activeTab === 'block_slots' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Left Column: Block Form */}
+          <div className="lg:col-span-5 space-y-6">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
+              <div className="flex items-center gap-2.5 pb-4 border-b border-gray-100">
+                <ShieldAlert className="w-5 h-5 text-[#ff5a1f]" />
+                <h2 className="text-lg font-bold text-gray-900">Block / Disable Slot</h2>
               </div>
 
-              {/* Date Input */}
-              {blockType !== 'slot_all_dates' && (
+              <form onSubmit={handleBlockSubmit} className="space-y-5">
+                {/* Scope Selector */}
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                    Select Date *
+                    What would you like to block?
                   </label>
-                  <select
-                    value={selectedDate}
-                    onChange={(e) => setSelectedDate(e.target.value)}
-                    required
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  >
-                    <option value="" disabled>Choose a date</option>
-                    {quickDates.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-
-              {/* Slot Input / Multi-select */}
-              {blockType !== 'entire_day' && (
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
-                      {blockType === 'specific_slot' ? "Select Time Slot(s) *" : "Select Time Slot *"}
-                    </label>
-                    {blockType === 'specific_slot' && (
-                      <div className="flex items-center gap-2 text-xs">
-                        <button 
-                          type="button" 
-                          onClick={selectAllSlots}
-                          className="font-bold text-[#ff5a1f] hover:underline"
-                        >
-                          Select All
-                        </button>
-                        <span className="text-gray-300">•</span>
-                        <button 
-                          type="button" 
-                          onClick={clearToFirstSlot}
-                          className="text-gray-500 hover:text-gray-700 hover:underline"
-                        >
-                          Reset
-                        </button>
+                  <div className="grid grid-cols-1 gap-2">
+                    <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      blockType === 'specific_slot' 
+                        ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}>
+                      <input 
+                        type="radio" 
+                        name="blockType" 
+                        checked={blockType === 'specific_slot'}
+                        onChange={() => setBlockType('specific_slot')}
+                        className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Specific Slot(s) on Date</div>
+                        <div className="text-xs text-gray-500">Pick any combination of hourly slots</div>
                       </div>
-                    )}
-                  </div>
+                    </label>
 
-                  {blockType === 'specific_slot' ? (
-                    <div className="grid grid-cols-3 gap-2 bg-gray-50/80 p-3 rounded-2xl border border-gray-200">
-                      {ALL_TIME_SLOTS.map((slot) => {
-                        const isSelected = selectedSlots.includes(slot);
-                        return (
-                          <button
-                            key={slot}
-                            type="button"
-                            onClick={() => toggleSlotSelection(slot)}
-                            className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center flex flex-col items-center justify-center gap-1 ${
-                              isSelected
-                                ? 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-500/20'
-                                : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            <span>{slot}</span>
-                            <span className={`text-[9px] font-semibold uppercase ${isSelected ? 'text-white/90' : 'text-gray-400'}`}>
-                              {isSelected ? "Selected" : "Available"}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : (
+                    <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      blockType === 'entire_day' 
+                        ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}>
+                      <input 
+                        type="radio" 
+                        name="blockType" 
+                        checked={blockType === 'entire_day'}
+                        onChange={() => setBlockType('entire_day')}
+                        className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Entire Day (Close Funzone Date)</div>
+                        <div className="text-xs text-gray-500">Locks all slots for that entire date</div>
+                      </div>
+                    </label>
+
+                    <label className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                      blockType === 'slot_all_dates' 
+                        ? 'border-[#ff5a1f] bg-[#ff5a1f]/5 ring-1 ring-[#ff5a1f]' 
+                        : 'border-gray-200 hover:bg-gray-50'
+                    }`}>
+                      <input 
+                        type="radio" 
+                        name="blockType" 
+                        checked={blockType === 'slot_all_dates'}
+                        onChange={() => setBlockType('slot_all_dates')}
+                        className="mt-1 text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                      />
+                      <div>
+                        <div className="text-sm font-bold text-gray-900">Recurring Slot Across All Dates</div>
+                        <div className="text-xs text-gray-500">Block a specific hour permanently</div>
+                      </div>
+                    </label>
+                  </div>
+                </div>
+
+                {/* Date Input */}
+                {blockType !== 'slot_all_dates' && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                      Select Date *
+                    </label>
                     <select
-                      value={selectedSlots[0] || ALL_TIME_SLOTS[0]}
-                      onChange={(e) => setSelectedSlots([e.target.value])}
+                      value={selectedDate}
+                      onChange={(e) => setSelectedDate(e.target.value)}
                       required
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                     >
-                      {ALL_TIME_SLOTS.map((slot) => (
-                        <option key={slot} value={slot}>
-                          {slot}
+                      <option value="" disabled>Choose a date</option>
+                      {quickDates.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
                         </option>
                       ))}
                     </select>
-                  )}
+                  </div>
+                )}
 
-                  {blockType === 'specific_slot' && (
-                    <p className="text-[11px] text-gray-500 mt-2 font-medium">
-                      💡 Click on slots to toggle them. You have selected <strong className="text-red-600 font-bold">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''}</strong> to block together.
-                    </p>
-                  )}
+                {/* Slot Multi-Select Grid */}
+                {blockType !== 'entire_day' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
+                        {blockType === 'specific_slot' ? "Select Time Slot(s) *" : "Select Time Slot *"}
+                      </label>
+                      {blockType === 'specific_slot' && allActiveSlotLabels.length > 0 && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <button 
+                            type="button" 
+                            onClick={selectAllSlots}
+                            className="font-bold text-[#ff5a1f] hover:underline"
+                          >
+                            Select All
+                          </button>
+                          <span className="text-gray-300">•</span>
+                          <button 
+                            type="button" 
+                            onClick={clearToFirstSlot}
+                            className="text-gray-500 hover:text-gray-700 hover:underline"
+                          >
+                            Reset
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {blockType === 'specific_slot' ? (
+                      <div className="grid grid-cols-3 gap-2 bg-gray-50/80 p-3 rounded-2xl border border-gray-200 max-h-[220px] overflow-y-auto">
+                        {allActiveSlotLabels.map((slot) => {
+                          const isSelected = selectedSlots.includes(slot);
+                          return (
+                            <button
+                              key={slot}
+                              type="button"
+                              onClick={() => toggleSlotSelection(slot)}
+                              className={`p-2.5 rounded-xl text-xs font-bold transition-all border text-center flex flex-col items-center justify-center gap-1 ${
+                                isSelected
+                                  ? 'bg-red-600 text-white border-red-600 shadow-sm shadow-red-500/20'
+                                  : 'bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                              }`}
+                            >
+                              <span>{slot}</span>
+                              <span className={`text-[9px] font-semibold uppercase ${isSelected ? 'text-white/90' : 'text-gray-400'}`}>
+                                {isSelected ? "Selected" : "Available"}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <select
+                        value={selectedSlots[0] || (timeSlots[0]?.label ?? "")}
+                        onChange={(e) => setSelectedSlots([e.target.value])}
+                        required
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                      >
+                        {allActiveSlotLabels.map((slot) => (
+                          <option key={slot} value={slot}>
+                            {slot}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+
+                    {blockType === 'specific_slot' && (
+                      <p className="text-[11px] text-gray-500 mt-2 font-medium">
+                        💡 Click on slots to toggle them. You have selected <strong className="text-red-600 font-bold">{selectedSlots.length} slot{selectedSlots.length > 1 ? 's' : ''}</strong> to block together.
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {/* Reason Note */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
+                    Reason / Note (Optional)
+                  </label>
+                  <input 
+                    type="text"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                    placeholder="e.g. Track cleaning, Private corporate event, Maintenance"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmittingBlock}
+                  className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
+                >
+                  <Ban className="w-4 h-4" />
+                  {isSubmittingBlock ? "BLOCKING..." : "CONFIRM & BLOCK SLOT(S)"}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* Right Column: Currently Blocked Slots List */}
+          <div className="lg:col-span-7 space-y-6">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">
+                    Currently Blocked Slots ({filteredBlockedList.length})
+                  </h2>
+                  <p className="text-xs text-gray-500">
+                    These slots or dates will display as &ldquo;(Unavailable)&rdquo; on the public booking page.
+                  </p>
+                </div>
+
+                <div className="relative w-full sm:w-56">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
+                  <input 
+                    type="text"
+                    placeholder="Filter by date or slot..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  />
+                </div>
+              </div>
+
+              {isLoadingBlocked ? (
+                <div className="py-16 text-center text-gray-400">
+                  <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-[#ff5a1f]" />
+                  <p className="text-sm">Loading blocked dates and slots...</p>
+                </div>
+              ) : filteredBlockedList.length === 0 ? (
+                <div className="py-16 text-center text-gray-400 border border-dashed border-gray-200 rounded-2xl">
+                  <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                  <p className="text-base font-bold text-gray-700">No Blocked Slots Found</p>
+                  <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
+                    All operating slots are currently open for customer booking. Use the form on the left to disable slots anytime.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                  {filteredBlockedList.map((item) => {
+                    const isAllDay = item.time_slot === 'ALL_DAY';
+                    const isAllDates = item.booking_date === 'ALL';
+
+                    return (
+                      <div 
+                        key={item.id}
+                        className="p-4 rounded-2xl bg-gray-50 border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-gray-300 transition-all"
+                      >
+                        <div className="flex items-start gap-3">
+                          <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
+                            {isAllDay ? <Calendar className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-black text-gray-900 text-sm">
+                                {isAllDates ? "ALL DATES (Recurring)" : item.booking_date}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                                isAllDay 
+                                  ? 'bg-red-600 text-white' 
+                                  : 'bg-red-100 text-red-700'
+                              }`}>
+                                {isAllDay ? 'ENTIRE DAY BLOCKED' : item.time_slot}
+                              </span>
+                            </div>
+                            {item.reason && (
+                              <p className="text-xs text-gray-600 mt-1 italic">
+                                &ldquo;{item.reason}&rdquo;
+                              </p>
+                            )}
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              Blocked on {new Date(item.created_at || Date.now()).toLocaleDateString()}
+                            </p>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => handleUnblock(item.id, `${item.booking_date} - ${item.time_slot}`)}
+                          className="px-3 py-1.5 rounded-xl border border-gray-300 hover:border-red-500 hover:bg-red-50 text-gray-700 hover:text-red-600 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 self-end sm:self-center"
+                          title="Unblock slot"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          Unblock
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-
-              {/* Reason / Internal Note */}
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">
-                  Reason / Note (Optional)
-                </label>
-                <input 
-                  type="text"
-                  value={reason}
-                  onChange={(e) => setReason(e.target.value)}
-                  placeholder="e.g. Track cleaning, Private corporate event, Pit maintenance"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="w-full py-3.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed text-sm"
-              >
-                <Ban className="w-4 h-4" />
-                {isSubmitting ? "BLOCKING..." : "CONFIRM & BLOCK SLOT"}
-              </button>
-            </form>
+            </div>
           </div>
         </div>
+      )}
 
-        {/* Right Column: Currently Blocked Slots */}
-        <div className="lg:col-span-7 space-y-6">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
-              <div>
-                <h2 className="text-lg font-bold text-gray-900">
-                  Currently Blocked Slots ({filteredList.length})
-                </h2>
-                <p className="text-xs text-gray-500">
-                  These slots or dates will display as &ldquo;(Unavailable)&rdquo; on the public booking page.
-                </p>
-              </div>
-
-              <div className="relative w-full sm:w-56">
-                <Search className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-                <input 
-                  type="text"
-                  placeholder="Filter by date or slot..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                />
-              </div>
+      {/* TAB 2: MANAGE GLOBAL HOURLY SLOTS */}
+      {activeTab === 'manage_slots' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-100">
+            <div>
+              <h2 className="text-xl font-black font-heading text-gray-900">
+                Operating Time Slots ({timeSlots.length})
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                These are the baseline hourly time slots that appear on the booking product page for each open date.
+              </p>
             </div>
 
-            {isLoading ? (
-              <div className="py-16 text-center text-gray-400">
-                <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-2 text-[#ff5a1f]" />
-                <p className="text-sm">Loading blocked dates and slots...</p>
+            <button
+              onClick={() => setIsAddingSlot(true)}
+              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#ff5a1f] hover:bg-[#e04812] text-white text-xs font-bold shadow-md transition-all self-start sm:self-auto"
+            >
+              <Plus className="w-4 h-4" />
+              Add New Slot
+            </button>
+          </div>
+
+          {/* Add New Slot Modal / Inline Form */}
+          {isAddingSlot && (
+            <div className="p-6 bg-orange-50/60 border border-orange-200 rounded-2xl animate-in fade-in duration-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-[#ff5a1f]" />
+                  Create New Operating Slot
+                </h3>
+                <button onClick={() => setIsAddingSlot(false)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            ) : filteredList.length === 0 ? (
-              <div className="py-16 text-center text-gray-400 border border-dashed border-gray-200 rounded-2xl">
-                <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
-                <p className="text-base font-bold text-gray-700">No Blocked Slots Found</p>
-                <p className="text-xs text-gray-400 mt-1 max-w-sm mx-auto">
-                  All dates and times are currently open for normal public reservations. Use the form on the left to disable any slot when needed.
-                </p>
+
+              <form onSubmit={handleCreateSlot} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    Slot Label *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newSlotForm.label}
+                    onChange={(e) => setNewSlotForm({ ...newSlotForm, label: e.target.value })}
+                    placeholder="e.g. 8PM-9PM or 10AM-11AM"
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    Start Hour (24h) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    value={newSlotForm.startHour}
+                    onChange={(e) => setNewSlotForm({ ...newSlotForm, startHour: parseFloat(e.target.value) || 0 })}
+                    placeholder="e.g. 20 (for 8PM)"
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    End Hour (24h) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    value={newSlotForm.endHour}
+                    onChange={(e) => setNewSlotForm({ ...newSlotForm, endHour: parseFloat(e.target.value) || 0 })}
+                    placeholder="e.g. 21 (for 9PM)"
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-2 px-4 rounded-xl font-bold text-xs shadow transition-all"
+                  >
+                    Save Slot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsAddingSlot(false)}
+                    className="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Edit Slot Modal */}
+          {editingSlot && (
+            <div className="p-6 bg-blue-50/60 border border-blue-200 rounded-2xl animate-in fade-in duration-200">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                  <Edit2 className="w-4 h-4 text-blue-600" />
+                  Edit Operating Slot #{editingSlot.id}
+                </h3>
+                <button onClick={() => setEditingSlot(null)} className="text-gray-400 hover:text-gray-600">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            ) : (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
-                {filteredList.map((item) => {
-                  const isAllDay = item.time_slot === 'ALL_DAY';
-                  const isAllDates = item.booking_date === 'ALL';
+
+              <form onSubmit={handleUpdateSlot} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    Slot Label *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editingSlot.label}
+                    onChange={(e) => setEditingSlot({ ...editingSlot, label: e.target.value })}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    Start Hour (24h) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    value={editingSlot.start_hour}
+                    onChange={(e) => setEditingSlot({ ...editingSlot, start_hour: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                    End Hour (24h) *
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    required
+                    value={editingSlot.end_hour}
+                    onChange={(e) => setEditingSlot({ ...editingSlot, end_hour: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-xl font-bold text-xs shadow transition-all"
+                  >
+                    Update Slot
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingSlot(null)}
+                    className="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* Time Slots Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="bg-gray-50 text-gray-600 font-bold uppercase text-[11px] tracking-wider border-y border-gray-200">
+                <tr>
+                  <th className="py-3 px-4">Order</th>
+                  <th className="py-3 px-4">Slot Display Name</th>
+                  <th className="py-3 px-4">Start Hour</th>
+                  <th className="py-3 px-4">End Hour</th>
+                  <th className="py-3 px-4">Status</th>
+                  <th className="py-3 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 bg-white">
+                {timeSlots.map((slot, index) => {
+                  const isActive = slot.active === 1;
 
                   return (
-                    <div 
-                      key={item.id}
-                      className="p-4 rounded-2xl bg-gray-50 border border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:border-gray-300 transition-all"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 flex items-center justify-center shrink-0">
-                          {isAllDay ? <Calendar className="w-5 h-5" /> : <Clock className="w-5 h-5" />}
+                    <tr key={slot.id} className="hover:bg-gray-50/80 transition-colors">
+                      <td className="py-3.5 px-4 font-bold text-gray-400 text-xs">
+                        #{index + 1}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <span className="font-bold text-gray-900 text-sm">
+                          {slot.label}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-4 text-gray-600 text-xs font-medium">
+                        {slot.start_hour}:00 ({slot.start_hour >= 12 ? `${slot.start_hour === 12 ? 12 : slot.start_hour - 12}PM` : `${slot.start_hour}AM`})
+                      </td>
+                      <td className="py-3.5 px-4 text-gray-600 text-xs font-medium">
+                        {slot.end_hour}:00 ({slot.end_hour >= 12 ? `${slot.end_hour === 12 ? 12 : slot.end_hour - 12}PM` : `${slot.end_hour}AM`})
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleSlotStatus(slot)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold transition-all ${
+                            isActive
+                              ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          }`}
+                        >
+                          <Power className="w-3 h-3" />
+                          {isActive ? 'Active' : 'Disabled'}
+                        </button>
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="inline-flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingSlot(slot)}
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-blue-600 hover:border-blue-300 transition-all"
+                            title="Edit slot"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteSlot(slot)}
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-red-600 hover:border-red-300 transition-all"
+                            title="Delete slot"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-black text-gray-900 text-sm">
-                              {isAllDates ? "ALL DATES (Recurring)" : item.booking_date}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
-                              isAllDay 
-                                ? 'bg-red-600 text-white' 
-                                : 'bg-red-100 text-red-700'
-                            }`}>
-                              {isAllDay ? 'ENTIRE DAY BLOCKED' : item.time_slot}
-                            </span>
-                          </div>
-                          {item.reason && (
-                            <p className="text-xs text-gray-600 mt-1 italic">
-                              &ldquo;{item.reason}&rdquo;
-                            </p>
-                          )}
-                          <p className="text-[10px] text-gray-400 mt-0.5">
-                            Blocked on {new Date(item.created_at || Date.now()).toLocaleDateString()}
-                          </p>
-                        </div>
-                      </div>
-
-                      <button
-                        type="button"
-                        onClick={() => handleUnblock(item.id, `${item.booking_date} - ${item.time_slot}`)}
-                        className="px-3 py-1.5 rounded-xl border border-gray-300 hover:border-red-500 hover:bg-red-50 text-gray-700 hover:text-red-600 text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 self-end sm:self-center"
-                        title="Unblock slot"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        Unblock
-                      </button>
-                    </div>
+                      </td>
+                    </tr>
                   );
                 })}
-              </div>
-            )}
+              </tbody>
+            </table>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

@@ -34,7 +34,13 @@ import {
   getBlockedSlots,
   getBlockedSlotsForDate,
   blockSlotOrDate,
-  unblockSlot
+  unblockSlot,
+  TimeSlotRow,
+  getTimeSlots,
+  createTimeSlot,
+  updateTimeSlot,
+  toggleTimeSlotStatus,
+  deleteTimeSlot
 } from "@/lib/db";
 import { 
   getTakenSimulatorSlots, 
@@ -409,4 +415,58 @@ export async function unblockSlotAction(id: number) {
     return { success: false, error: error.message || "Failed to unblock slot" };
   }
 }
+
+// Global Time Slot Management Actions
+export async function fetchTimeSlotsAction(activeOnly = false): Promise<TimeSlotRow[]> {
+  return getTimeSlots(activeOnly);
+}
+
+export async function createTimeSlotAction(label: string, startHour: number, endHour: number, sortOrder = 0) {
+  try {
+    createTimeSlot(label, startHour, endHour, sortOrder);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("createTimeSlotAction error:", error);
+    return { success: false, error: error.message || "Failed to create time slot" };
+  }
+}
+
+export async function updateTimeSlotAction(id: number, label: string, startHour: number, endHour: number, sortOrder = 0) {
+  try {
+    updateTimeSlot(id, label, startHour, endHour, sortOrder);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("updateTimeSlotAction error:", error);
+    return { success: false, error: error.message || "Failed to update time slot" };
+  }
+}
+
+export async function toggleTimeSlotStatusAction(id: number, active: boolean) {
+  try {
+    toggleTimeSlotStatus(id, active);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("toggleTimeSlotStatusAction error:", error);
+    return { success: false, error: error.message || "Failed to toggle status" };
+  }
+}
+
+export async function deleteTimeSlotAction(id: number) {
+  try {
+    deleteTimeSlot(id);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("deleteTimeSlotAction error:", error);
+    return { success: false, error: error.message || "Failed to delete slot" };
+  }
+}
+
 

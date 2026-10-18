@@ -102,6 +102,16 @@ export function initDB() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT unique_block UNIQUE (booking_date, time_slot)
     );
+
+    CREATE TABLE IF NOT EXISTS time_slots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      label TEXT NOT NULL UNIQUE,     -- e.g. '11AM-12PM'
+      start_hour REAL NOT NULL,       -- e.g. 11.0 (for ordering and past-time checks)
+      end_hour REAL NOT NULL,         -- e.g. 12.0
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_name TEXT'); } catch (e) {}
@@ -171,6 +181,26 @@ export function initDB() {
     ];
     for (const sim of defaultSims) {
       insertPerk.run(sim.name, sim.category, sim.tagline, sim.image, sim.order);
+    }
+  }
+
+  // Seed default 9 hourly time slots if table is empty
+  const slotCount = db.prepare('SELECT COUNT(*) as count FROM time_slots').get() as { count: number };
+  if (slotCount.count === 0) {
+    const insertSlot = db.prepare('INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order) VALUES (?, ?, ?, 1, ?)');
+    const defaultSlots = [
+      { label: "11AM-12PM", start: 11.0, end: 12.0, order: 1 },
+      { label: "12PM-1PM",  start: 12.0, end: 13.0, order: 2 },
+      { label: "1PM-2PM",   start: 13.0, end: 14.0, order: 3 },
+      { label: "2PM-3PM",   start: 14.0, end: 15.0, order: 4 },
+      { label: "3PM-4PM",   start: 15.0, end: 16.0, order: 5 },
+      { label: "4PM-5PM",   start: 16.0, end: 17.0, order: 6 },
+      { label: "5PM-6PM",   start: 17.0, end: 18.0, order: 7 },
+      { label: "6PM-7PM",   start: 18.0, end: 19.0, order: 8 },
+      { label: "7PM-8PM",   start: 19.0, end: 20.0, order: 9 },
+    ];
+    for (const s of defaultSlots) {
+      insertSlot.run(s.label, s.start, s.end, s.order);
     }
   }
 }
@@ -531,4 +561,46 @@ export function unblockSpecificSlot(bookingDate: string, timeSlot: string) {
     WHERE booking_date = ? AND time_slot = ?
   `).run(bookingDate.trim(), timeSlot.trim());
 }
+
+// Time Slots Database Methods
+export interface TimeSlotRow {
+  id: number;
+  label: string;
+  start_hour: number;
+  end_hour: number;
+  active: number;
+  sort_order: number;
+  created_at?: string;
+}
+
+export function getTimeSlots(activeOnly = false): TimeSlotRow[] {
+  if (activeOnly) {
+    return db.prepare('SELECT * FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC').all() as TimeSlotRow[];
+  }
+  return db.prepare('SELECT * FROM time_slots ORDER BY sort_order ASC, start_hour ASC').all() as TimeSlotRow[];
+}
+
+export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0) {
+  return db.prepare(`
+    INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order)
+    VALUES (?, ?, ?, 1, ?)
+  `).run(label.trim(), startHour, endHour, sortOrder);
+}
+
+export function updateTimeSlot(id: number, label: string, startHour: number, endHour: number, sortOrder = 0) {
+  return db.prepare(`
+    UPDATE time_slots 
+    SET label = ?, start_hour = ?, end_hour = ?, sort_order = ?
+    WHERE id = ?
+  `).run(label.trim(), startHour, endHour, sortOrder, id);
+}
+
+export function toggleTimeSlotStatus(id: number, active: boolean) {
+  return db.prepare('UPDATE time_slots SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+}
+
+export function deleteTimeSlot(id: number) {
+  return db.prepare('DELETE FROM time_slots WHERE id = ?').run(id);
+}
+
 

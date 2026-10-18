@@ -310,7 +310,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       isPast,
       isBlocked
     };
-  });
+  }).filter(d => !d.isPast); // Completely hide past dates from the dropdown options once the day is done
 
   return (
     <div className="min-h-[calc(100vh-80px)] bg-[#f8f9fa] text-[#0d1b2a] py-12">
@@ -412,37 +412,33 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                     { label: "5PM-6PM", startHour: 17 },
                     { label: "6PM-7PM", startHour: 18 },
                     { label: "7PM-8PM", startHour: 19 },
-                  ].map(slot => {
-                    // Check if the selected date is today
+                  ]
+                  .filter(slot => {
+                    // If today is selected, hide slots that have already passed
                     const isTodaySelected = isCurrentMonth && date === `${shortMonth} ${currentDay.toString().padStart(2, '0')}`;
-                    const currentHour = now.getHours();
-                    const currentMinute = now.getMinutes();
-                    
-                    let isPastSlot = false;
                     if (isTodaySelected) {
-                      if (currentHour > slot.startHour) {
-                        isPastSlot = true; // The hour has already fully passed
-                      } else if (currentHour === slot.startHour && currentMinute >= 30) {
-                        isPastSlot = true; // We are 30+ minutes into this specific slot
-                      }
+                      const currentHour = now.getHours();
+                      const currentMinute = now.getMinutes();
+                      if (currentHour > slot.startHour) return false;
+                      if (currentHour === slot.startHour && currentMinute >= 30) return false;
                     }
-
+                    return true;
+                  })
+                  .map(slot => {
                     // Check if slot is blocked by admin
                     const isBlockedSlot = blockedSlots.some(b => 
                       (b.booking_date === date || b.booking_date === 'ALL') && 
                       (b.time_slot === slot.label || b.time_slot === 'ALL_DAY')
                     );
                     
-                    const isDisabled = isPastSlot || isBlockedSlot;
-                    
                     return (
                       <option 
                         key={slot.label} 
                         value={slot.label} 
-                        disabled={isDisabled} 
-                        className={isDisabled ? "text-gray-400 bg-gray-50" : ""}
+                        disabled={isBlockedSlot} 
+                        className={isBlockedSlot ? "text-gray-400 bg-gray-50" : ""}
                       >
-                        {slot.label} {isPastSlot ? "(Passed)" : isBlockedSlot ? "(Unavailable)" : ""}
+                        {slot.label} {isBlockedSlot ? "(Unavailable)" : ""}
                       </option>
                     );
                   })}

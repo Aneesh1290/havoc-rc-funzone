@@ -203,6 +203,20 @@ export function initDB() {
       insertSlot.run(s.label, s.start, s.end, s.order);
     }
   }
+
+  // If bookings table was cleared or only has 1 record, ensure sequence matches max(id)
+  try {
+    const bookingStats = db.prepare('SELECT COUNT(*) as count, MAX(id) as max_id FROM bookings').get() as { count: number; max_id: number | null };
+    if (bookingStats.count === 0) {
+      db.prepare("DELETE FROM sqlite_sequence WHERE name = 'bookings'").run();
+    } else if (bookingStats.count === 1 && bookingStats.max_id && bookingStats.max_id > 1) {
+      // If there's only 1 booking left from testing, normalize it to id 1
+      db.prepare('UPDATE bookings SET id = 1 WHERE id = ?').run(bookingStats.max_id);
+      db.prepare("UPDATE sqlite_sequence SET seq = 1 WHERE name = 'bookings'").run();
+    }
+  } catch (e) {
+    // sqlite_sequence may not exist yet if no table with autoincrement was touched
+  }
 }
 
 export interface TicketRow {

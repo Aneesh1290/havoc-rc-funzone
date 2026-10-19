@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { getSlotWristbandColor } from "./slotColors";
+import { parseSimPerkDisplay } from "@/components/SimPerkBadgeList";
 
 export interface BookingConfirmationEmailParams {
   orderId: string;
@@ -66,24 +67,37 @@ export async function sendBookingConfirmationEmail(
     const paymentLabel = isPaid ? "Paid Online" : "Pay at Desk (Cash / UPI / Card)";
     const paymentBadgeColor = isPaid ? "#10B981" : "#F59E0B";
 
-    // Format simulator perk block if present
-    const simBlockHtml = params.simulatorName && params.simulatorSlot ? `
-      <div style="margin-top: 20px; padding: 16px; background: linear-gradient(135deg, #FFF7ED 0%, #FFEDD5 100%); border: 1px solid #FED7AA; border-radius: 12px;">
-        <div style="display: flex; align-items: center; margin-bottom: 8px;">
-          <span style="font-size: 16px; margin-right: 8px;">🏎️</span>
-          <strong style="color: #9A3412; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">Attached Havoc Sim Podium Perk</strong>
+    // Format simulator perk block systematically if present
+    const simSlots = parseSimPerkDisplay(params.simulatorName, params.simulatorSlot);
+    const simBlockHtml = simSlots.length > 0 ? `
+      <div style="margin-top: 20px; padding: 16px; background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 12px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #FFEDD5; padding-bottom: 8px;">
+          <div style="display: flex; align-items: center;">
+            <span style="font-size: 16px; margin-right: 8px;">🏎️</span>
+            <strong style="color: #9A3412; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Attached Havoc Sim Podium Perk</strong>
+          </div>
+          <span style="font-size: 11px; font-weight: 700; color: #EA580C; background: #FFEDD5; padding: 2px 8px; border-radius: 9999px;">
+            ${simSlots.length} ${simSlots.length > 1 ? 'Sessions' : 'Session'} (30m each)
+          </span>
         </div>
-        <table style="width: 100%; border-collapse: collapse; font-size: 13px; color: #431407;">
-          <tr>
-            <td style="padding: 4px 0; font-weight: 600;">Simulator:</td>
-            <td style="padding: 4px 0; text-align: right; color: #EA580C; font-weight: 700;">${params.simulatorName}</td>
-          </tr>
-          <tr>
-            <td style="padding: 4px 0; font-weight: 600;">Sim Slot Timing:</td>
-            <td style="padding: 4px 0; text-align: right; font-weight: 700;">${params.simulatorSlot}</td>
-          </tr>
+        <table style="width: 100%; border-collapse: separate; border-spacing: 0 6px; font-size: 12px;">
+          ${simSlots.map((item) => `
+            <tr>
+              <td style="background: #FFFFFF; padding: 8px 12px; border-radius: 8px 0 0 8px; border: 1px solid #FFEDD5; border-right: none; color: #1E293B; font-weight: 700;">
+                <span style="display: inline-block; background: #0F172A; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; margin-right: 6px;">
+                  ${item.participantNum ? `P${item.participantNum}` : `#${item.sessionNum}`}
+                </span>
+                ${item.simulatorName}
+              </td>
+              <td style="background: #FFFFFF; padding: 8px 12px; border-radius: 0 8px 8px 0; border: 1px solid #FFEDD5; border-left: none; text-align: right;">
+                <span style="background: #FFF7ED; color: #EA580C; border: 1px solid #FED7AA; font-weight: 800; font-size: 11px; padding: 3px 8px; border-radius: 6px; display: inline-block;">
+                  ${item.slotLabel}
+                </span>
+              </td>
+            </tr>
+          `).join('')}
         </table>
-        <p style="margin: 8px 0 0 0; font-size: 11px; color: #7C2D12;">
+        <p style="margin: 10px 0 0 0; font-size: 11px; color: #9A3412; line-height: 1.4;">
           * Reserved at the Havoc Sim Podium arena. Please report 5 minutes prior to your simulator slot.
         </p>
       </div>

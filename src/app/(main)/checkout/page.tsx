@@ -195,19 +195,17 @@ export default function CheckoutPage() {
                 <div className="font-bold text-[#0d1b2a] text-base md:text-lg mb-1">
                   {item.name} {item.quantity > 1 ? `(×${item.quantity})` : ""}
                 </div>
-                <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2">
+                <div className="text-xs text-gray-500 flex items-center gap-2">
                   <span>{item.date}</span>
                   <span>•</span>
                   <span>{item.timeSlot}</span>
-                  {item.simulatorName && (
-                    <>
-                      <span>•</span>
-                      <span className="text-[#ff5a1f] font-bold">
-                        {item.simulatorName} {item.simulatorSlot ? `(${item.simulatorSlot})` : ""}
-                      </span>
-                    </>
-                  )}
                 </div>
+                {item.simulatorName && (
+                  <SimPerkBadgeList 
+                    simNameStr={item.simulatorName} 
+                    simSlotStr={item.simulatorSlot} 
+                  />
+                )}
               </div>
             ))}
           </div>

@@ -641,7 +641,7 @@ export default function BookingsPage() {
                         {b.time_slot && (
                           <div className="mt-1 flex items-center gap-1.5">
                             {(() => {
-                              const band = getSlotWristbandColor(b.time_slot);
+                              const band = getSlotWristbandColor(b.time_slot, b.slot_color, b.slot_color_name);
                               return (
                                 <span
                                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-extrabold border"

@@ -275,7 +275,7 @@ export default function OrderDetailPage() {
                     <span>Select Time Slot:</span>
                     <strong className="text-gray-900 font-bold">{booking.time_slot}</strong>
                     {booking.time_slot && (() => {
-                      const band = getSlotWristbandColor(booking.time_slot);
+                      const band = getSlotWristbandColor(booking.time_slot, booking.slot_color, booking.slot_color_name);
                       return (
                         <span 
                           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"

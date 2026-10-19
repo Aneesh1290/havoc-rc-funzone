@@ -294,9 +294,11 @@ export function getAllBookings() {
     SELECT 
       b.id, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
-      COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price
+      COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
     ORDER BY b.id DESC
   `).all();
 }
@@ -306,9 +308,11 @@ export function getBookingById(id: number) {
     SELECT 
       b.id, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
-      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
     WHERE b.id = ?
   `).get(id);
 }

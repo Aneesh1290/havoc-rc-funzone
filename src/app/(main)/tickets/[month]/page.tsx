@@ -13,7 +13,8 @@ import {
   fetchBlockedSlotsAction,
   fetchTimeSlotsAction,
   fetchSimPodiumSlotsAction,
-  fetchSiteSettingAction
+  fetchSiteSettingAction,
+  fetchOpenedSpecificDatesAction
 } from '@/app/actions/tickets';
 import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow } from '@/lib/db';
 import type { SimPodiumSlot } from '@/lib/simulator-db';
@@ -38,8 +39,10 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [dbTimeSlots, setDbTimeSlots] = useState<TimeSlotRow[]>([]);
   const [dbSimSlots, setDbSimSlots] = useState<SimPodiumSlot[]>([]);
   const [isMondayOpen, setIsMondayOpen] = useState(false);
+  const [openedSpecificDates, setOpenedSpecificDates] = useState<string[]>([]);
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+
 
   const TICKET_BENEFITS: Record<string, {
     title: string;
@@ -125,6 +128,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     });
     fetchSiteSettingAction('monday_open', '0').then(val => {
       setIsMondayOpen(val === '1' || val.toLowerCase() === 'true');
+    });
+    fetchOpenedSpecificDatesAction().then(dates => {
+      setOpenedSpecificDates(dates || []);
     });
   }, []);
 
@@ -343,12 +349,15 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       isPast = true;
     }
 
+    // Check if this date has been specifically opened by admin (e.g. single Monday holiday)
+    const isExplicitlyOpened = openedSpecificDates.includes(val);
+
     // Check if the date is manually blocked by admin (ALL_DAY on this date, or ALL_DAY on ALL dates)
     const isDayBlockedByAdmin = blockedSlots.some(b => 
       (b.booking_date === val || b.booking_date === 'ALL') && b.time_slot === 'ALL_DAY'
     );
-    // Closed on Monday unless explicitly enabled by admin in site settings
-    const isClosedMonday = isMonday && !isMondayOpen;
+    // Closed on Monday unless all Mondays are enabled OR this specific date is explicitly opened
+    const isClosedMonday = isMonday && !isMondayOpen && !isExplicitlyOpened;
     const isBlocked = isClosedMonday || isDayBlockedByAdmin;
     
     return {
@@ -357,7 +366,8 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       isPast,
       isBlocked,
       isClosedMonday,
-      isMonday
+      isMonday,
+      isExplicitlyOpened
     };
   }).filter(d => !d.isPast); // Completely hide past dates from the dropdown options once the day is done
 
@@ -429,7 +439,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                         disabled={isDisabled} 
                         className={isDisabled ? "text-gray-400 bg-gray-50" : ""}
                       >
-                        {d.display} {d.isClosedMonday ? "(Closed - Every Monday)" : d.isBlocked ? "(Unavailable / Closed)" : ""}
+                        {d.display} {d.isExplicitlyOpened && d.isMonday ? "(Special Open - Monday)" : d.isClosedMonday ? "(Closed - Every Monday)" : d.isBlocked ? "(Unavailable / Closed)" : ""}
                       </option>
                     );
                   })}

@@ -540,7 +540,7 @@ export async function deleteTimeSlotAction(id: number) {
   }
 }
 
-// Site Settings Actions (e.g. monday_open)
+// Site Settings Actions (e.g. monday_open, opened_specific_dates)
 export async function fetchSiteSettingAction(key: string, defaultValue = ""): Promise<string> {
   return getSiteSetting(key, defaultValue);
 }
@@ -556,5 +556,42 @@ export async function updateSiteSettingAction(key: string, value: string, descri
     return { success: false, error: error.message || "Failed to update setting" };
   }
 }
+
+export async function fetchOpenedSpecificDatesAction(): Promise<string[]> {
+  try {
+    const raw = getSiteSetting('opened_specific_dates', '[]');
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    return [];
+  }
+}
+
+export async function toggleOpenedSpecificDateAction(dateStr: string, shouldOpen: boolean) {
+  try {
+    const raw = getSiteSetting('opened_specific_dates', '[]');
+    let current: string[] = [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) current = parsed;
+    } catch {}
+
+    let updated: string[];
+    if (shouldOpen) {
+      updated = Array.from(new Set([...current, dateStr]));
+    } else {
+      updated = current.filter(d => d !== dateStr);
+    }
+
+    setSiteSetting('opened_specific_dates', JSON.stringify(updated), 'List of specifically opened dates (e.g. holiday Mondays)');
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true, dates: updated };
+  } catch (error: any) {
+    console.error("toggleOpenedSpecificDateAction error:", error);
+    return { success: false, error: error.message || "Failed to update date" };
+  }
+}
+
 
 

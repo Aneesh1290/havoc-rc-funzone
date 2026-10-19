@@ -17,7 +17,8 @@ import {
   X,
   Power,
   Palette,
-  Hash
+  Hash,
+  Check
 } from "lucide-react";
 import { 
   fetchBlockedSlotsAction, 
@@ -30,7 +31,9 @@ import {
   toggleTimeSlotStatusAction,
   deleteTimeSlotAction,
   fetchSiteSettingAction,
-  updateSiteSettingAction
+  updateSiteSettingAction,
+  fetchOpenedSpecificDatesAction,
+  toggleOpenedSpecificDateAction
 } from "@/app/actions/tickets";
 import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "@/lib/slotColors";
@@ -67,6 +70,9 @@ export default function SlotsManagementPage() {
   // Monday Open / Closed Site Setting
   const [isMondayOpen, setIsMondayOpen] = useState(false);
   const [isTogglingMonday, setIsTogglingMonday] = useState(false);
+  const [openedSpecificDates, setOpenedSpecificDates] = useState<string[]>([]);
+  const [selectedSpecificMonday, setSelectedSpecificMonday] = useState("");
+  const [isUpdatingSpecificDate, setIsUpdatingSpecificDate] = useState(false);
 
   // Form states for Block
   const [blockType, setBlockType] = useState<'specific_slot' | 'entire_day' | 'slot_all_dates'>('specific_slot');
@@ -76,25 +82,32 @@ export default function SlotsManagementPage() {
   const [searchQuery, setSearchQuery] = useState("");
 
   // Quick Date Generator: Today + Next 60 days
-  const [quickDates, setQuickDates] = useState<{ label: string; value: string }[]>([]);
+  const [quickDates, setQuickDates] = useState<{ label: string; value: string; isMonday: boolean }[]>([]);
 
   useEffect(() => {
-    const list: { label: string; value: string }[] = [];
+    const list: { label: string; value: string; isMonday: boolean }[] = [];
     const now = new Date();
     for (let i = 0; i < 60; i++) {
       const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
       const mStr = MONTH_NAMES[d.getMonth()];
       const dayStr = d.getDate().toString().padStart(2, '0');
       const val = `${mStr} ${dayStr}`;
+      const isMon = d.getDay() === 1;
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       list.push({
         value: val,
-        label: `${val} (${dayName})`
+        label: `${val} (${dayName})`,
+        isMonday: isMon
       });
     }
     setQuickDates(list);
     if (list.length > 0 && !selectedDate) {
       setSelectedDate(list[0].value);
+    }
+    // Set default specific Monday dropdown to next upcoming Monday
+    const nextMon = list.find(item => item.isMonday);
+    if (nextMon) {
+      setSelectedSpecificMonday(nextMon.value);
     }
   }, []);
 
@@ -102,15 +115,17 @@ export default function SlotsManagementPage() {
     setIsLoadingSlots(true);
     setIsLoadingBlocked(true);
     try {
-      const [slotsData, blockedData, mondayVal] = await Promise.all([
+      const [slotsData, blockedData, mondayVal, openedDatesList] = await Promise.all([
         fetchTimeSlotsAction(false),
         fetchBlockedSlotsAction(),
-        fetchSiteSettingAction('monday_open', '0')
+        fetchSiteSettingAction('monday_open', '0'),
+        fetchOpenedSpecificDatesAction()
       ]);
       const sortedSlots = [...slotsData].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour));
       setTimeSlots(sortedSlots);
       setBlockedList(blockedData);
       setIsMondayOpen(mondayVal === '1' || mondayVal.toLowerCase() === 'true');
+      setOpenedSpecificDates(openedDatesList || []);
 
       if (sortedSlots.length > 0 && selectedSlots.length === 0) {
         setSelectedSlots([sortedSlots[0].label]);
@@ -431,71 +446,162 @@ export default function SlotsManagementPage() {
         </div>
       )}
 
-      {/* Monday Operations Quick Toggle Card */}
-      <div className={`p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${
+      {/* Monday Operations Control Card (Global Toggle + Specific Date Overrides) */}
+      <div className={`p-5 rounded-2xl border transition-all space-y-4 shadow-xs ${
         isMondayOpen 
-          ? 'bg-emerald-50/80 border-emerald-200' 
-          : 'bg-amber-50/80 border-amber-200'
+          ? 'bg-emerald-50/70 border-emerald-200' 
+          : 'bg-white border-gray-200'
       }`}>
-        <div className="flex items-start sm:items-center gap-3">
-          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-            isMondayOpen ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
-          }`}>
-            <Calendar className="w-5 h-5" />
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-bold text-gray-900">
-                Monday Operations: {isMondayOpen ? "OPEN & ACCEPTING BOOKINGS" : "CLOSED (DEFAULT)"}
-              </h3>
-              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                isMondayOpen 
-                  ? 'bg-emerald-200 text-emerald-800' 
-                  : 'bg-amber-200 text-amber-900'
-              }`}>
-                {isMondayOpen ? "Open" : "Closed"}
-              </span>
+        {/* Top Bar: Global Switch */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-gray-200/80">
+          <div className="flex items-start sm:items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+              isMondayOpen ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+            }`}>
+              <Calendar className="w-5 h-5" />
             </div>
-            <p className="text-xs text-gray-600 mt-0.5">
-              {isMondayOpen 
-                ? "Mondays are active. Visitors can select and book any available hourly slots on Mondays."
-                : "Mondays are currently locked. Turn this ON to allow bookings on upcoming Mondays."
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Global Monday Status: {isMondayOpen ? "ALL MONDAYS OPEN" : "CLOSED BY DEFAULT"}
+                </h3>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                  isMondayOpen 
+                    ? 'bg-emerald-100 text-emerald-800' 
+                    : 'bg-amber-100 text-amber-900'
+                }`}>
+                  {isMondayOpen ? "All Open" : "Closed By Default"}
+                </span>
+              </div>
+              <p className="text-xs text-gray-600 mt-0.5">
+                {isMondayOpen 
+                  ? "Every Monday is currently open for online ticket and simulator bookings."
+                  : "Mondays are closed by default across the calendar unless specifically unlocked below."
+                }
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={isTogglingMonday}
+            onClick={async () => {
+              const nextVal = !isMondayOpen;
+              setIsTogglingMonday(true);
+              const res = await updateSiteSettingAction('monday_open', nextVal ? '1' : '0');
+              setIsTogglingMonday(false);
+              if (res.success) {
+                setIsMondayOpen(nextVal);
+                setFeedback({ 
+                  type: 'success', 
+                  message: nextVal ? "All Mondays are now OPEN for bookings!" : "Mondays are now CLOSED by default." 
+                });
+              } else {
+                setFeedback({ type: 'error', message: res.error || "Failed to update Monday status" });
               }
+            }}
+            className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 ${
+              isMondayOpen 
+                ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+                : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+            }`}
+          >
+            <Power className="w-3.5 h-3.5" />
+            {isTogglingMonday 
+              ? "Updating..." 
+              : isMondayOpen 
+                ? "Switch All Mondays to CLOSED" 
+                : "Open ALL Mondays"}
+          </button>
+        </div>
+
+        {/* Sub-section: Open a Specific Monday */}
+        <div className="pt-1 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <h4 className="text-xs font-black uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+              <span>🎯 Open Specific Single Monday</span>
+              <span className="text-[10px] font-medium text-gray-500 lowercase">(for public holidays or special events)</span>
+            </h4>
+            <p className="text-xs text-gray-500">
+              Need to unlock only one specific Monday without opening all Mondays? Select the date and click Open.
             </p>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <select
+              value={selectedSpecificMonday}
+              onChange={(e) => setSelectedSpecificMonday(e.target.value)}
+              className="bg-gray-50 border border-gray-200 text-gray-900 text-xs font-semibold rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+            >
+              {quickDates.filter(d => d.isMonday).map(d => (
+                <option key={d.value} value={d.value}>
+                  {d.label} {openedSpecificDates.includes(d.value) ? "✓ (Already Open)" : ""}
+                </option>
+              ))}
+            </select>
+
+            <button
+              type="button"
+              disabled={isUpdatingSpecificDate || !selectedSpecificMonday || openedSpecificDates.includes(selectedSpecificMonday)}
+              onClick={async () => {
+                if (!selectedSpecificMonday) return;
+                setIsUpdatingSpecificDate(true);
+                const res = await toggleOpenedSpecificDateAction(selectedSpecificMonday, true);
+                setIsUpdatingSpecificDate(false);
+                if (res.success && res.dates) {
+                  setOpenedSpecificDates(res.dates);
+                  setFeedback({
+                    type: 'success',
+                    message: `Successfully opened Monday: ${selectedSpecificMonday} for bookings!`
+                  });
+                } else {
+                  setFeedback({ type: 'error', message: res.error || "Failed to open date" });
+                }
+              }}
+              className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all shadow-xs shrink-0 flex items-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5" />
+              {isUpdatingSpecificDate ? "Saving..." : "Open This Monday"}
+            </button>
           </div>
         </div>
 
-        <button
-          type="button"
-          disabled={isTogglingMonday}
-          onClick={async () => {
-            const nextVal = !isMondayOpen;
-            setIsTogglingMonday(true);
-            const res = await updateSiteSettingAction('monday_open', nextVal ? '1' : '0');
-            setIsTogglingMonday(false);
-            if (res.success) {
-              setIsMondayOpen(nextVal);
-              setFeedback({ 
-                type: 'success', 
-                message: nextVal ? "Mondays are now OPEN for bookings!" : "Mondays are now CLOSED for bookings." 
-              });
-            } else {
-              setFeedback({ type: 'error', message: res.error || "Failed to update Monday status" });
-            }
-          }}
-          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 ${
-            isMondayOpen 
-              ? 'bg-amber-600 hover:bg-amber-700 text-white' 
-              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
-          }`}
-        >
-          <Power className="w-3.5 h-3.5" />
-          {isTogglingMonday 
-            ? "Updating..." 
-            : isMondayOpen 
-              ? "Set Mondays to CLOSED" 
-              : "Enable All Monday Slots (OPEN)"}
-        </button>
+        {/* List of currently opened specific dates */}
+        {openedSpecificDates.length > 0 && (
+          <div className="pt-2 border-t border-gray-100 flex items-center gap-2 flex-wrap">
+            <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Specifically Opened Mondays:</span>
+            {openedSpecificDates.map(dateStr => (
+              <span
+                key={dateStr}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs"
+              >
+                <span>📅 {dateStr}</span>
+                <button
+                  type="button"
+                  title="Remove override (re-close this Monday)"
+                  disabled={isUpdatingSpecificDate}
+                  onClick={async () => {
+                    setIsUpdatingSpecificDate(true);
+                    const res = await toggleOpenedSpecificDateAction(dateStr, false);
+                    setIsUpdatingSpecificDate(false);
+                    if (res.success && res.dates) {
+                      setOpenedSpecificDates(res.dates);
+                      setFeedback({
+                        type: 'success',
+                        message: `Closed specific Monday: ${dateStr}.`
+                      });
+                    } else {
+                      setFeedback({ type: 'error', message: res.error || "Failed to close date" });
+                    }
+                  }}
+                  className="hover:text-red-600 transition-colors ml-0.5 p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* TAB 1: BLOCK DATES & SLOTS */}

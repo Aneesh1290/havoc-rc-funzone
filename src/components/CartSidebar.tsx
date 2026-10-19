@@ -4,6 +4,7 @@ import React from 'react';
 import { useCart } from '@/context/CartContext';
 import { X, Trash2, ShoppingCart, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
+import { SimPerkBadgeList } from './SimPerkBadgeList';
 
 export function CartSidebar() {
   const { items, isCartOpen, setIsCartOpen, removeItem, cartTotal } = useCart();
@@ -54,13 +55,10 @@ export function CartSidebar() {
                   <div className="flex-1">
                     <h3 className="font-bold text-gray-900">{item.type.replace(/_/g, ' ')}</h3>
                     <p className="text-sm text-gray-500 mt-1">{item.date} • {item.timeSlot}</p>
-                    {item.simulatorName && (
-                      <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-2 font-medium">
-                        <span className="font-bold">🏆 VIP Simulator:</span> {item.simulatorName}
-                        <br />
-                        <span className="text-amber-800">Slot: {item.simulatorSlot}</span>
-                      </div>
-                    )}
+                    <SimPerkBadgeList 
+                      simNameStr={item.simulatorName} 
+                      simSlotStr={item.simulatorSlot} 
+                    />
                     <div className="flex justify-between items-end mt-3">
                       <p className="font-bold text-[#ff5a1f]">₹{item.price * item.quantity}</p>
                       <p className="text-sm font-medium text-gray-600 bg-gray-100 px-2.5 py-1 rounded-lg">Qty: {item.quantity}</p>

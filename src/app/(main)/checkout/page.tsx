@@ -8,6 +8,7 @@ import { addBookingAction, validateCouponAction, useCouponAction } from "@/app/a
 import { useRouter } from "next/navigation";
 import { COUNTRY_CODES } from "@/lib/countries";
 import { formatOrderNumber } from "@/lib/order-utils";
+import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
 export default function CheckoutPage() {
   const { items, cartTotal, clearCart } = useCart();
@@ -489,13 +490,10 @@ export default function CheckoutPage() {
                       </div>
                       <p className="text-xs text-gray-500 mt-1">Date: {item.date}</p>
                       <p className="text-xs text-gray-500 mt-0.5">Slot: {item.timeSlot}</p>
-                      {item.simulatorName && (
-                        <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-2 font-medium">
-                          <span className="font-bold">🏆 VIP Simulator:</span> {item.simulatorName}
-                          <br />
-                          <span className="text-amber-800">Slot: {item.simulatorSlot} (30 mins)</span>
-                        </div>
-                      )}
+                      <SimPerkBadgeList 
+                        simNameStr={item.simulatorName} 
+                        simSlotStr={item.simulatorSlot} 
+                      />
                       <p className="text-xs font-bold text-[#ff5a1f] mt-2">Qty: {item.quantity}</p>
                     </div>
                   </div>

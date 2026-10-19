@@ -12,6 +12,7 @@ import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor } from "@/lib/slotColors";
 import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag } from "lucide-react";
 import Link from "next/link";
+import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -294,13 +295,12 @@ export default function OrderDetailPage() {
                       );
                     })()}
                   </div>
-                  {booking.simulator_name && (
-                    <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-2 font-medium max-w-sm">
-                      <span className="font-bold">🏆 Reserved VIP Simulator:</span> {booking.simulator_name}
-                      <br />
-                      <span className="text-amber-800">Slot: {booking.simulator_slot}</span>
-                    </div>
-                  )}
+                  <div className="max-w-md">
+                    <SimPerkBadgeList 
+                      simNameStr={booking.simulator_name} 
+                      simSlotStr={booking.simulator_slot} 
+                    />
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-6 self-start sm:self-auto text-sm">

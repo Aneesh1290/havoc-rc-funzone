@@ -269,25 +269,20 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     }
   }, [hasSimPerk, totalSimSlotsNeeded, simulators]);
 
-  // Automatically sync slots whenever Funzone visit time changes
+  // When Funzone visit time changes, clear any previously chosen slot that is no longer valid
   useEffect(() => {
-    if (time && hasSimPerk && availableSimSlots.length > 0) {
+    if (hasSimPerk) {
       setSimSelections(prev => {
-        return prev.map((item, idx) => {
-          // Keep current slot if still valid, otherwise find available slot
-          const takenForThis = takenSimSlots[item.simName] || [];
-          if (item.slotLabel && availableSimSlots.some(s => s.label === item.slotLabel) && !takenForThis.includes(item.slotLabel)) {
-            return item;
+        return prev.map(item => {
+          // If the slot is no longer in availableSimSlots, reset it to empty so participant picks explicitly
+          if (item.slotLabel && !availableSimSlots.some(s => s.label === item.slotLabel)) {
+            return { ...item, slotLabel: "" };
           }
-          const candidate = availableSimSlots.find((s, sIdx) => sIdx >= idx && !takenForThis.includes(s.label)) || availableSimSlots[idx % availableSimSlots.length] || availableSimSlots[0];
-          return {
-            ...item,
-            slotLabel: candidate ? candidate.label : ""
-          };
+          return item;
         });
       });
     }
-  }, [time, hasSimPerk, availableSimSlots.length, takenSimSlots]);
+  }, [time, hasSimPerk, availableSimSlots.length]);
 
   const basePrice = selectedTicket ? selectedTicket.price : 0;
   const totalPrice = basePrice * quantity;

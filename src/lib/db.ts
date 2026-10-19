@@ -619,9 +619,9 @@ export interface TimeSlotRow {
 
 export function getTimeSlots(activeOnly = false): TimeSlotRow[] {
   if (activeOnly) {
-    return db.prepare('SELECT * FROM time_slots WHERE active = 1 ORDER BY start_hour ASC, sort_order ASC').all() as TimeSlotRow[];
+    return db.prepare('SELECT * FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC').all() as TimeSlotRow[];
   }
-  return db.prepare('SELECT * FROM time_slots ORDER BY start_hour ASC, sort_order ASC').all() as TimeSlotRow[];
+  return db.prepare('SELECT * FROM time_slots ORDER BY sort_order ASC, start_hour ASC').all() as TimeSlotRow[];
 }
 
 export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0, color?: string) {

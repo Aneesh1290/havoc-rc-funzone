@@ -136,20 +136,7 @@ export async function sendBookingConfirmationEmail(
               </tr>
               <tr>
                 <td style="padding: 8px 0; color: #64748B;">Funzone Time Slot:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #0F172A;">
-                  ${params.timeSlot}
-                  ${(() => {
-                    const band = getSlotWristbandColor(params.timeSlot);
-                    return `
-                      <div style="margin-top: 4px; display: inline-block;">
-                        <span style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 700; background-color: ${band.hex}20; color: ${band.hex}; border: 1px solid ${band.hex}50;">
-                          <span style="display: inline-block; width: 7px; height: 7px; border-radius: 50%; background-color: ${band.hex};"></span>
-                          ${band.name} Wristband
-                        </span>
-                      </div>
-                    `;
-                  })()}
-                </td>
+                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #0F172A;">${params.timeSlot}</td>
               </tr>
               <tr>
                 <td style="padding: 8px 0; color: #64748B;">Payment Status:</td>

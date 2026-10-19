@@ -111,9 +111,6 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     });
     fetchVipPerksAction(true).then(data => {
       setSimulators(data);
-      if (data.length > 0) {
-        setSimSelections(prev => prev.map(s => ({ ...s, simName: s.simName || data[0].name })));
-      }
     });
     fetchBlockedSlotsAction().then(data => {
       setBlockedSlots(data || []);
@@ -206,7 +203,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
 
   // Selected simulators & slots per participant & session
   const [simSelections, setSimSelections] = useState<{ simName: string; slotLabel: string }[]>([
-    { simName: "Race Sim GT", slotLabel: "" }
+    { simName: "", slotLabel: "" }
   ]);
 
   // Track expanded/collapsed participant cards (default opens Participant 1)
@@ -262,12 +259,12 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       setSimSelections(prev => {
         const next = [...prev];
         while (next.length < totalSimSlotsNeeded) {
-          next.push({ simName: simulators[0]?.name || "Race Sim GT", slotLabel: "" });
+          next.push({ simName: "", slotLabel: "" });
         }
         return next.slice(0, totalSimSlotsNeeded);
       });
     }
-  }, [hasSimPerk, totalSimSlotsNeeded, simulators]);
+  }, [hasSimPerk, totalSimSlotsNeeded]);
 
   // When Funzone visit time changes, clear any previously chosen slot that is no longer valid
   useEffect(() => {
@@ -652,11 +649,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                       return {
                         globalIndex,
                         sessionIndex: sIdx,
-                        selection: simSelections[globalIndex] || { simName: "Race Sim GT", slotLabel: "" }
+                        selection: simSelections[globalIndex] || { simName: "", slotLabel: "" }
                       };
                     });
 
-                    const isParticipantComplete = participantSlots.every(ps => Boolean(ps.selection.slotLabel));
+                    const isParticipantComplete = participantSlots.every(ps => Boolean(ps.selection.simName && ps.selection.slotLabel));
                     const isOpen = Boolean(openParticipants[participantIndex]);
 
                     return (
@@ -687,8 +684,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                                 <p className="text-[11px] text-gray-500 font-medium">
                                   {isParticipantComplete 
                                     ? participantSlots.map(ps => `${ps.selection.simName} (${ps.selection.slotLabel})`).join(", ")
-                                    : "Tap to select simulator & slot"
-                                  }
+                                    : "Tap to select simulator & slot"}
                                 </p>
                               )}
                             </div>
@@ -725,7 +721,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                                       Session {sessionIndex + 1} (30 Minutes)
                                     </span>
                                     <span className="text-[11px] font-bold text-[#ff5a1f]">
-                                      {selection.simName} • {selection.slotLabel || "Pending"}
+                                      {selection.simName 
+                                        ? `${selection.simName} • ${selection.slotLabel || "Slot Pending"}` 
+                                        : "Simulator & Slot Pending"}
                                     </span>
                                   </div>
                                 )}

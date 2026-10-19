@@ -471,6 +471,16 @@ export function deleteCoupon(id: number) {
   return db.prepare('DELETE FROM coupons WHERE id = ?').run(id);
 }
 
+export function deleteAllCoupons() {
+  return db.prepare('DELETE FROM coupons').run();
+}
+
+export function deleteMultipleCoupons(ids: number[]) {
+  if (ids.length === 0) return { changes: 0 };
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`DELETE FROM coupons WHERE id IN (${placeholders})`).run(...ids);
+}
+
 export function getCouponByCode(code: string): CouponRow | undefined {
   return db.prepare('SELECT * FROM coupons WHERE code = ?').get(code.toUpperCase().trim()) as CouponRow | undefined;
 }

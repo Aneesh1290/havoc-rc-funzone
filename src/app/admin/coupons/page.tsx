@@ -6,7 +6,9 @@ import {
   fetchCouponsAction, 
   createCouponAction, 
   bulkCreateCouponsAction, 
-  deleteCouponAction 
+  deleteCouponAction,
+  deleteAllCouponsAction,
+  deleteMultipleCouponsAction
 } from "@/app/actions/tickets";
 import { CouponRow } from "@/lib/db";
 
@@ -14,6 +16,8 @@ export default function AdminCouponsPage() {
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
   // Single coupon form state
   const [singleCode, setSingleCode] = useState("");
@@ -39,6 +43,7 @@ export default function AdminCouponsPage() {
     try {
       const data = await fetchCouponsAction();
       setCoupons(data);
+      setSelectedIds([]);
     } catch (e) {
       console.error(e);
     } finally {
@@ -125,6 +130,52 @@ export default function AdminCouponsPage() {
       showNotification(`Coupon ${code} deleted`);
       loadCoupons();
     }
+  };
+
+  const handleClearAll = async () => {
+    if (coupons.length === 0) return;
+    const count = coupons.length;
+    if (confirm(`⚠️ ARE YOU ABSOLUTELY SURE?\n\nThis will permanently delete ALL ${count} coupons from the database. This action cannot be undone.`)) {
+      setIsDeletingBulk(true);
+      const res = await deleteAllCouponsAction();
+      setIsDeletingBulk(false);
+      if (res.success) {
+        showNotification(`Cleared all ${count} coupons successfully!`);
+        loadCoupons();
+      } else {
+        showNotification(res.error || "Failed to clear coupons", "error");
+      }
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    if (confirm(`Are you sure you want to delete the ${count} selected coupons?`)) {
+      setIsDeletingBulk(true);
+      const res = await deleteMultipleCouponsAction(selectedIds);
+      setIsDeletingBulk(false);
+      if (res.success) {
+        showNotification(`Deleted ${count} coupons successfully!`);
+        loadCoupons();
+      } else {
+        showNotification(res.error || "Failed to delete selected coupons", "error");
+      }
+    }
+  };
+
+  const handleToggleSelectAll = () => {
+    if (selectedIds.length === coupons.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(coupons.map(c => c.id));
+    }
+  };
+
+  const handleToggleSelectOne = (id: number) => {
+    setSelectedIds(prev => 
+      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+    );
   };
 
   return (
@@ -339,11 +390,36 @@ export default function AdminCouponsPage() {
 
       {/* Section 3: Active Coupons Table */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-100 flex items-center justify-between">
+        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <Tag className="w-5 h-5 text-[#ff5a1f]" />
             <h2 className="text-lg font-bold text-gray-900">Active Coupons ({coupons.length})</h2>
           </div>
+
+          {coupons.length > 0 && (
+            <div className="flex items-center gap-2 self-start sm:self-auto">
+              {selectedIds.length > 0 && (
+                <button
+                  type="button"
+                  disabled={isDeletingBulk}
+                  onClick={handleDeleteSelected}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 text-xs font-bold transition-all disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Delete Selected ({selectedIds.length})
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={isDeletingBulk}
+                onClick={handleClearAll}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {isDeletingBulk ? "Clearing..." : "Clear All Coupons"}
+              </button>
+            </div>
+          )}
         </div>
 
         {loading ? (
@@ -359,6 +435,15 @@ export default function AdminCouponsPage() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-500">
+                  <th className="py-4 px-4 w-10 text-center">
+                    <input 
+                      type="checkbox"
+                      checked={coupons.length > 0 && selectedIds.length === coupons.length}
+                      onChange={handleToggleSelectAll}
+                      className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
+                      title="Select all coupons"
+                    />
+                  </th>
                   <th className="py-4 px-6">Code</th>
                   <th className="py-4 px-6">Type</th>
                   <th className="py-4 px-6">Value</th>
@@ -369,7 +454,18 @@ export default function AdminCouponsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
                 {coupons.map((coupon) => (
-                  <tr key={coupon.id} className="hover:bg-gray-50/70 transition-colors">
+                  <tr 
+                    key={coupon.id} 
+                    className={`hover:bg-gray-50/70 transition-colors ${selectedIds.includes(coupon.id) ? "bg-orange-50/40" : ""}`}
+                  >
+                    <td className="py-4 px-4 text-center">
+                      <input 
+                        type="checkbox"
+                        checked={selectedIds.includes(coupon.id)}
+                        onChange={() => handleToggleSelectOne(coupon.id)}
+                        className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
+                      />
+                    </td>
                     <td className="py-4 px-6 font-mono font-bold text-gray-900">
                       <span className="bg-gray-100 text-gray-800 px-2.5 py-1 rounded-md text-xs">
                         {coupon.code}

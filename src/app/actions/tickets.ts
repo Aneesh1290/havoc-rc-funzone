@@ -15,6 +15,8 @@ import {
   createCoupon,
   bulkCreateCoupons,
   deleteCoupon,
+  deleteAllCoupons,
+  deleteMultipleCoupons,
   getCouponByCode,
   incrementCouponUsage,
   CouponRow,
@@ -302,6 +304,28 @@ export async function deleteCouponAction(id: number) {
   deleteCoupon(id);
   revalidatePath('/admin/coupons');
   return { success: true };
+}
+
+export async function deleteAllCouponsAction() {
+  try {
+    const result = deleteAllCoupons();
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("deleteAllCouponsAction error:", error);
+    return { success: false, error: error.message || "Failed to clear all coupons" };
+  }
+}
+
+export async function deleteMultipleCouponsAction(ids: number[]) {
+  try {
+    const result = deleteMultipleCoupons(ids);
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("deleteMultipleCouponsAction error:", error);
+    return { success: false, error: error.message || "Failed to delete selected coupons" };
+  }
 }
 
 export async function validateCouponAction(code: string, subtotal: number) {

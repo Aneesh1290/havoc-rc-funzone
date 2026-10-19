@@ -190,7 +190,7 @@ export async function sendBookingConfirmationEmail(
       html: htmlContent,
     });
 
-    console.log("Customer confirmation email sent successfully:", info.messageId);
+    console.log("Customer confirmation email sent successfully to", params.customerEmail, "messageId:", info.messageId);
 
     // 2. Send Admin Alert matching the exact Havoc System format to havochobbysim@gmail.com
     try {
@@ -230,17 +230,18 @@ export async function sendBookingConfirmationEmail(
         </div>
       `;
 
-      await transporter.sendMail({
-        from: `"Havoc System" <${fromEmail}>`,
+      const adminInfo = await transporter.sendMail({
+        from: fromAddress,
         to: adminEmail,
+        replyTo: params.customerEmail,
         subject: adminSubject,
         text: adminPlain,
         html: adminHtml,
       });
 
-      console.log("Havoc System admin booking alert sent to", adminEmail);
+      console.log("Havoc System admin booking alert sent successfully to", adminEmail, "messageId:", adminInfo.messageId);
     } catch (adminErr) {
-      console.error("Error sending admin alert email:", adminErr);
+      console.error("Error sending admin alert email to", adminEmail, adminErr);
     }
 
     return { success: true };

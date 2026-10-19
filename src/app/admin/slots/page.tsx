@@ -28,7 +28,9 @@ import {
   createTimeSlotAction,
   updateTimeSlotAction,
   toggleTimeSlotStatusAction,
-  deleteTimeSlotAction
+  deleteTimeSlotAction,
+  fetchSiteSettingAction,
+  updateSiteSettingAction
 } from "@/app/actions/tickets";
 import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "@/lib/slotColors";
@@ -61,6 +63,10 @@ export default function SlotsManagementPage() {
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(true);
   const [isSubmittingBlock, setIsSubmittingBlock] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Monday Open / Closed Site Setting
+  const [isMondayOpen, setIsMondayOpen] = useState(false);
+  const [isTogglingMonday, setIsTogglingMonday] = useState(false);
 
   // Form states for Block
   const [blockType, setBlockType] = useState<'specific_slot' | 'entire_day' | 'slot_all_dates'>('specific_slot');
@@ -96,13 +102,15 @@ export default function SlotsManagementPage() {
     setIsLoadingSlots(true);
     setIsLoadingBlocked(true);
     try {
-      const [slotsData, blockedData] = await Promise.all([
+      const [slotsData, blockedData, mondayVal] = await Promise.all([
         fetchTimeSlotsAction(false),
-        fetchBlockedSlotsAction()
+        fetchBlockedSlotsAction(),
+        fetchSiteSettingAction('monday_open', '0')
       ]);
       const sortedSlots = [...slotsData].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour));
       setTimeSlots(sortedSlots);
       setBlockedList(blockedData);
+      setIsMondayOpen(mondayVal === '1' || mondayVal.toLowerCase() === 'true');
 
       if (sortedSlots.length > 0 && selectedSlots.length === 0) {
         setSelectedSlots([sortedSlots[0].label]);
@@ -422,6 +430,73 @@ export default function SlotsManagementPage() {
           <span>{feedback.message}</span>
         </div>
       )}
+
+      {/* Monday Operations Quick Toggle Card */}
+      <div className={`p-5 rounded-2xl border transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs ${
+        isMondayOpen 
+          ? 'bg-emerald-50/80 border-emerald-200' 
+          : 'bg-amber-50/80 border-amber-200'
+      }`}>
+        <div className="flex items-start sm:items-center gap-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+            isMondayOpen ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+          }`}>
+            <Calendar className="w-5 h-5" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-sm font-bold text-gray-900">
+                Monday Operations: {isMondayOpen ? "OPEN & ACCEPTING BOOKINGS" : "CLOSED (DEFAULT)"}
+              </h3>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                isMondayOpen 
+                  ? 'bg-emerald-200 text-emerald-800' 
+                  : 'bg-amber-200 text-amber-900'
+              }`}>
+                {isMondayOpen ? "Open" : "Closed"}
+              </span>
+            </div>
+            <p className="text-xs text-gray-600 mt-0.5">
+              {isMondayOpen 
+                ? "Mondays are active. Visitors can select and book any available hourly slots on Mondays."
+                : "Mondays are currently locked. Turn this ON to allow bookings on upcoming Mondays."
+              }
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          disabled={isTogglingMonday}
+          onClick={async () => {
+            const nextVal = !isMondayOpen;
+            setIsTogglingMonday(true);
+            const res = await updateSiteSettingAction('monday_open', nextVal ? '1' : '0');
+            setIsTogglingMonday(false);
+            if (res.success) {
+              setIsMondayOpen(nextVal);
+              setFeedback({ 
+                type: 'success', 
+                message: nextVal ? "Mondays are now OPEN for bookings!" : "Mondays are now CLOSED for bookings." 
+              });
+            } else {
+              setFeedback({ type: 'error', message: res.error || "Failed to update Monday status" });
+            }
+          }}
+          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all shadow-sm flex items-center justify-center gap-2 shrink-0 ${
+            isMondayOpen 
+              ? 'bg-amber-600 hover:bg-amber-700 text-white' 
+              : 'bg-emerald-600 hover:bg-emerald-700 text-white'
+          }`}
+        >
+          <Power className="w-3.5 h-3.5" />
+          {isTogglingMonday 
+            ? "Updating..." 
+            : isMondayOpen 
+              ? "Set Mondays to CLOSED" 
+              : "Enable All Monday Slots (OPEN)"}
+        </button>
+      </div>
 
       {/* TAB 1: BLOCK DATES & SLOTS */}
       {activeTab === 'block_slots' && (

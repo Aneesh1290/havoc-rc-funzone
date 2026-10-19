@@ -42,7 +42,9 @@ import {
   createTimeSlot,
   updateTimeSlot,
   toggleTimeSlotStatus,
-  deleteTimeSlot
+  deleteTimeSlot,
+  getSiteSetting,
+  setSiteSetting
 } from "@/lib/db";
 import { 
   getTakenSimulatorSlots, 
@@ -535,6 +537,23 @@ export async function deleteTimeSlotAction(id: number) {
   } catch (error: any) {
     console.error("deleteTimeSlotAction error:", error);
     return { success: false, error: error.message || "Failed to delete slot" };
+  }
+}
+
+// Site Settings Actions (e.g. monday_open)
+export async function fetchSiteSettingAction(key: string, defaultValue = ""): Promise<string> {
+  return getSiteSetting(key, defaultValue);
+}
+
+export async function updateSiteSettingAction(key: string, value: string, description?: string) {
+  try {
+    setSiteSetting(key, value, description);
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true };
+  } catch (error: any) {
+    console.error("updateSiteSettingAction error:", error);
+    return { success: false, error: error.message || "Failed to update setting" };
   }
 }
 

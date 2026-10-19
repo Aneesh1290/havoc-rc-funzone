@@ -115,8 +115,22 @@ export function initDB() {
       remark TEXT,                    -- Slot Type / Remark (e.g. Regular, VIP, Rush Hour)
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      description TEXT
+    );
   `);
   
+  // Seed default site settings
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO site_settings (key, value, description) 
+      VALUES ('monday_open', '0', 'Allow bookings on Mondays (1 = Open, 0 = Closed)')
+    `).run();
+  } catch (e) {}
+
   try { db.exec('ALTER TABLE time_slots ADD COLUMN color TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE time_slots ADD COLUMN color_name TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE time_slots ADD COLUMN remark TEXT'); } catch (e) {}
@@ -669,6 +683,24 @@ export function toggleTimeSlotStatus(id: number, active: boolean) {
 
 export function deleteTimeSlot(id: number) {
   return db.prepare('DELETE FROM time_slots WHERE id = ?').run(id);
+}
+
+// Site Settings Methods
+export function getSiteSetting(key: string, defaultValue = ""): string {
+  try {
+    const row = db.prepare('SELECT value FROM site_settings WHERE key = ?').get(key) as { value: string } | undefined;
+    return row ? row.value : defaultValue;
+  } catch (e) {
+    return defaultValue;
+  }
+}
+
+export function setSiteSetting(key: string, value: string, description?: string) {
+  return db.prepare(`
+    INSERT INTO site_settings (key, value, description)
+    VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, description = COALESCE(excluded.description, site_settings.description)
+  `).run(key, value, description || null);
 }
 
 

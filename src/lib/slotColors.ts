@@ -42,8 +42,71 @@ export const DEFAULT_SLOT_COLORS: Record<string, string> = {
   "11PM-12AM": "#64748B", // Slate
 };
 
+/**
+ * Common color name keywords to Hex codes mapping
+ */
+export const COLOR_NAME_TO_HEX: Record<string, string> = {
+  "yellow": "#FACC15",
+  "gold": "#EAB308",
+  "golden": "#EAB308",
+  "amber": "#F59E0B",
+  "red": "#EF4444",
+  "crimson": "#DC2626",
+  "ruby": "#E11D48",
+  "blue": "#3B82F6",
+  "cyan": "#06B6D4",
+  "navy": "#1E3A8A",
+  "royal blue": "#2563EB",
+  "sky blue": "#38BDF8",
+  "green": "#10B981",
+  "emerald": "#059669",
+  "lime": "#84CC16",
+  "orange": "#F97316",
+  "purple": "#8B5CF6",
+  "violet": "#7C3AED",
+  "pink": "#EC4899",
+  "magenta": "#D946EF",
+  "rose": "#F43F5E",
+  "teal": "#14B8A6",
+  "mint": "#2DD4BF",
+  "indigo": "#6366F1",
+  "black": "#18181B",
+  "white": "#F4F4F5",
+  "gray": "#71717A",
+  "grey": "#71717A",
+  "silver": "#94A3B8",
+  "slate": "#64748B",
+  "brown": "#78350F",
+};
+
+export function resolveColorNameToHex(name: string): string | null {
+  if (!name) return null;
+  const clean = name.trim().toLowerCase();
+  
+  // Exact match
+  if (COLOR_NAME_TO_HEX[clean]) return COLOR_NAME_TO_HEX[clean];
+
+  // Check if any keyword appears inside the typed string (e.g. "Bright Yellow", "Yellow Band", "Neon Green")
+  for (const [key, hex] of Object.entries(COLOR_NAME_TO_HEX)) {
+    // word boundary or contains
+    const regex = new RegExp(`\\b${key}\\b`, 'i');
+    if (regex.test(clean)) {
+      return hex;
+    }
+  }
+
+  return null;
+}
+
 export function getSlotWristbandColor(slotLabel?: string | null, customHex?: string | null, customColorName?: string | null): WristbandColor {
-  const hex = (customHex || (slotLabel ? DEFAULT_SLOT_COLORS[slotLabel.trim()] : null) || "#06B6D4").toUpperCase();
+  // If customColorName resolves to a known hex and no customHex or customHex is empty, use resolved hex
+  let targetHex = customHex;
+  if (!targetHex && customColorName) {
+    const resolved = resolveColorNameToHex(customColorName);
+    if (resolved) targetHex = resolved;
+  }
+
+  const hex = (targetHex || (slotLabel ? DEFAULT_SLOT_COLORS[slotLabel.trim()] : null) || "#06B6D4").toUpperCase();
   
   const found = WRISTBAND_PALETTE.find(p => p.hex.toUpperCase() === hex);
   if (found) {

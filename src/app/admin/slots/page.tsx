@@ -31,7 +31,7 @@ import {
   deleteTimeSlotAction
 } from "@/app/actions/tickets";
 import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
-import { WRISTBAND_PALETTE, getSlotWristbandColor } from "@/lib/slotColors";
+import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "@/lib/slotColors";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
@@ -860,8 +860,16 @@ export default function SlotsManagementPage() {
                         <input
                           type="text"
                           value={newSlotForm.colorName || ""}
-                          onChange={(e) => setNewSlotForm({ ...newSlotForm, colorName: e.target.value })}
-                          placeholder="e.g. Neon Blue Band"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const matchedHex = resolveColorNameToHex(val);
+                            setNewSlotForm({
+                              ...newSlotForm,
+                              colorName: val,
+                              color: matchedHex ? matchedHex : newSlotForm.color
+                            });
+                          }}
+                          placeholder="e.g. Yellow, Red, Pink"
                           className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
@@ -1039,8 +1047,16 @@ export default function SlotsManagementPage() {
                         <input
                           type="text"
                           value={editingSlot.color_name || ""}
-                          onChange={(e) => setEditingSlot({ ...editingSlot, color_name: e.target.value })}
-                          placeholder="e.g. Neon Blue Band"
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            const matchedHex = resolveColorNameToHex(val);
+                            setEditingSlot({
+                              ...editingSlot,
+                              color_name: val,
+                              color: matchedHex ? matchedHex : editingSlot.color
+                            });
+                          }}
+                          placeholder="e.g. Yellow, Red, Pink"
                           className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>

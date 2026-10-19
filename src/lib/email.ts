@@ -168,7 +168,7 @@ export async function sendBookingConfirmationEmail(
         <div style="background: #F8FAFC; border-top: 1px solid #E2E8F0; padding: 20px 24px; text-align: center; font-size: 12px; color: #94A3B8;">
           <p style="margin: 0 0 6px 0;">Need help or have questions? Contact us:</p>
           <p style="margin: 0; font-weight: 600; color: #64748B;">
-            📞 +91 8618796251 &nbsp;|&nbsp; ✉️ havochobbysim@gmail.com
+            📞 <a href="tel:+918951336255" style="color: #64748B; text-decoration: none;">+91 89513 36255</a> &nbsp;|&nbsp; ✉️ <a href="mailto:havocrcfunzone@gmail.com" style="color: #64748B; text-decoration: none;">havocrcfunzone@gmail.com</a>
           </p>
           <p style="margin: 12px 0 0 0; font-size: 11px; color: #CBD5E1;">
             © ${new Date().getFullYear()} Havoc RC Fun Zone & Havoc Sim Podium. All rights reserved.

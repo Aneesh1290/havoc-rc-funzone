@@ -270,7 +270,7 @@ export async function lockSimulatorSlot(params: {
         [
           sourceOrderId,
           customerName || 'RC Fun Zone Guest',
-          customerEmail || 'support@havocrcfunzone.com',
+          customerEmail || 'havocrcfunzone@gmail.com',
           customerPhone || 'N/A',
           simulatorName,
           formattedDate,

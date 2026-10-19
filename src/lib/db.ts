@@ -112,12 +112,14 @@ export function initDB() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       color TEXT,                     -- Wristband hex color e.g. '#06B6D4'
       color_name TEXT,                -- Wristband custom name e.g. 'Neon Blue Band'
+      remark TEXT,                    -- Slot Type / Remark (e.g. Regular, VIP, Rush Hour)
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
   
   try { db.exec('ALTER TABLE time_slots ADD COLUMN color TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE time_slots ADD COLUMN color_name TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE time_slots ADD COLUMN remark TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_name TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_email TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_phone TEXT'); } catch (e) {}
@@ -621,6 +623,7 @@ export interface TimeSlotRow {
   sort_order: number;
   color?: string | null;
   color_name?: string | null;
+  remark?: string | null;
   created_at?: string;
 }
 
@@ -631,19 +634,19 @@ export function getTimeSlots(activeOnly = false): TimeSlotRow[] {
   return db.prepare('SELECT * FROM time_slots ORDER BY sort_order ASC, start_hour ASC').all() as TimeSlotRow[];
 }
 
-export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0, color?: string, colorName?: string) {
+export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0, color?: string, colorName?: string, remark?: string) {
   return db.prepare(`
-    INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name)
-    VALUES (?, ?, ?, 1, ?, ?, ?)
-  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null, colorName?.trim() || null);
+    INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
+    VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null, colorName?.trim() || null, remark?.trim() || null);
 }
 
-export function updateTimeSlot(id: number, label: string, startHour: number, endHour: number, sortOrder = 0, color?: string, colorName?: string) {
+export function updateTimeSlot(id: number, label: string, startHour: number, endHour: number, sortOrder = 0, color?: string, colorName?: string, remark?: string) {
   return db.prepare(`
     UPDATE time_slots 
-    SET label = ?, start_hour = ?, end_hour = ?, sort_order = ?, color = ?, color_name = ?
+    SET label = ?, start_hour = ?, end_hour = ?, sort_order = ?, color = ?, color_name = ?, remark = ?
     WHERE id = ?
-  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null, colorName?.trim() || null, id);
+  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null, colorName?.trim() || null, remark?.trim() || null, id);
 }
 
 export function getTimeSlotByLabel(label: string): TimeSlotRow | undefined {

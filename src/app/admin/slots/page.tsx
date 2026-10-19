@@ -52,7 +52,8 @@ export default function SlotsManagementPage() {
     endHour: 12.0,
     sortOrder: 0,
     color: "#06B6D4",
-    colorName: "Cyan / Neon Blue"
+    colorName: "Cyan / Neon Blue",
+    remark: ""
   });
 
   // Blocked Slots State
@@ -266,12 +267,13 @@ export default function SlotsManagementPage() {
         Number(newSlotForm.endHour),
         Number(newSlotForm.sortOrder),
         newSlotForm.color,
-        newSlotForm.colorName
+        newSlotForm.colorName,
+        newSlotForm.remark
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Created slot "${newSlotForm.label}" successfully.` });
         setIsAddingSlot(false);
-        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0, color: "#06B6D4", colorName: "Cyan / Neon Blue" });
+        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0, color: "#06B6D4", colorName: "Cyan / Neon Blue", remark: "" });
         const freshSlots = await fetchTimeSlotsAction(false);
         setTimeSlots([...freshSlots].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour)));
       } else {
@@ -294,7 +296,8 @@ export default function SlotsManagementPage() {
         Number(editingSlot.end_hour),
         Number(editingSlot.sort_order),
         editingSlot.color || undefined,
-        editingSlot.color_name || undefined
+        editingSlot.color_name || undefined,
+        editingSlot.remark || undefined
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Updated slot "${editingSlot.label}" successfully.` });
@@ -870,6 +873,19 @@ export default function SlotsManagementPage() {
                             });
                           }}
                           placeholder="e.g. Yellow, Red, Pink"
+                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-32"
+                        />
+                      </div>
+
+                      <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
+
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase text-[#ff5a1f] tracking-wider">TYPE / REMARK</span>
+                        <input
+                          type="text"
+                          value={newSlotForm.remark || ""}
+                          onChange={(e) => setNewSlotForm({ ...newSlotForm, remark: e.target.value })}
+                          placeholder="e.g. VIP, Regular, Rush Hour"
                           className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
@@ -1057,6 +1073,19 @@ export default function SlotsManagementPage() {
                             });
                           }}
                           placeholder="e.g. Yellow, Red, Pink"
+                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-32"
+                        />
+                      </div>
+
+                      <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
+
+                      <div className="flex flex-col">
+                        <span className="text-[9px] font-bold uppercase text-blue-600 tracking-wider">TYPE / REMARK</span>
+                        <input
+                          type="text"
+                          value={editingSlot.remark || ""}
+                          onChange={(e) => setEditingSlot({ ...editingSlot, remark: e.target.value })}
+                          placeholder="e.g. VIP, Regular, Rush Hour"
                           className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
@@ -1119,6 +1148,7 @@ export default function SlotsManagementPage() {
                   <th className="py-3 px-4">Slot #</th>
                   <th className="py-3 px-4">Slot Display Name</th>
                   <th className="py-3 px-4">Wristband Band Color</th>
+                  <th className="py-3 px-4">Type / Remark</th>
                   <th className="py-3 px-4">Start Hour</th>
                   <th className="py-3 px-4">End Hour</th>
                   <th className="py-3 px-4">Status</th>
@@ -1163,6 +1193,15 @@ export default function SlotsManagementPage() {
                             ({band.hex})
                           </span>
                         </div>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        {slot.remark ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider bg-orange-50 text-[#ff5a1f] border border-orange-200">
+                            {slot.remark}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-400 italic">—</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-gray-600 text-xs font-medium">
                         {slot.start_hour}:00 ({slot.start_hour >= 12 ? `${slot.start_hour === 12 ? 12 : slot.start_hour - 12}PM` : `${slot.start_hour}AM`})

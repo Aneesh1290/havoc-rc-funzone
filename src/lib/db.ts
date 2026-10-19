@@ -110,10 +110,12 @@ export function initDB() {
       end_hour REAL NOT NULL,         -- e.g. 12.0
       active INTEGER NOT NULL DEFAULT 1,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      color TEXT,                     -- Wristband hex color e.g. '#06B6D4'
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
   `);
   
+  try { db.exec('ALTER TABLE time_slots ADD COLUMN color TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_name TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_email TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN customer_phone TEXT'); } catch (e) {}
@@ -184,24 +186,51 @@ export function initDB() {
     }
   }
 
-  // Seed default 9 hourly time slots if table is empty
+  // Seed default hourly time slots if table is empty
   const slotCount = db.prepare('SELECT COUNT(*) as count FROM time_slots').get() as { count: number };
   if (slotCount.count === 0) {
-    const insertSlot = db.prepare('INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order) VALUES (?, ?, ?, 1, ?)');
+    const insertSlot = db.prepare('INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color) VALUES (?, ?, ?, 1, ?, ?)');
     const defaultSlots = [
-      { label: "11AM-12PM", start: 11.0, end: 12.0, order: 1 },
-      { label: "12PM-1PM",  start: 12.0, end: 13.0, order: 2 },
-      { label: "1PM-2PM",   start: 13.0, end: 14.0, order: 3 },
-      { label: "2PM-3PM",   start: 14.0, end: 15.0, order: 4 },
-      { label: "3PM-4PM",   start: 15.0, end: 16.0, order: 5 },
-      { label: "4PM-5PM",   start: 16.0, end: 17.0, order: 6 },
-      { label: "5PM-6PM",   start: 17.0, end: 18.0, order: 7 },
-      { label: "6PM-7PM",   start: 18.0, end: 19.0, order: 8 },
-      { label: "7PM-8PM",   start: 19.0, end: 20.0, order: 9 },
+      { label: "11AM-12PM", start: 11.0, end: 12.0, order: 1, color: "#06B6D4" },
+      { label: "12PM-1PM",  start: 12.0, end: 13.0, order: 2, color: "#10B981" },
+      { label: "1PM-2PM",   start: 13.0, end: 14.0, order: 3, color: "#F59E0B" },
+      { label: "2PM-3PM",   start: 14.0, end: 15.0, order: 4, color: "#F97316" },
+      { label: "3PM-4PM",   start: 15.0, end: 16.0, order: 5, color: "#EF4444" },
+      { label: "4PM-5PM",   start: 16.0, end: 17.0, order: 6, color: "#8B5CF6" },
+      { label: "5PM-6PM",   start: 17.0, end: 18.0, order: 7, color: "#EC4899" },
+      { label: "6PM-7PM",   start: 18.0, end: 19.0, order: 8, color: "#3B82F6" },
+      { label: "7PM-8PM",   start: 19.0, end: 20.0, order: 9, color: "#14B8A6" },
+      { label: "8PM-9PM",   start: 20.0, end: 21.0, order: 10, color: "#84CC16" },
+      { label: "9PM-10PM",  start: 21.0, end: 22.0, order: 11, color: "#EAB308" },
+      { label: "10PM-11PM", start: 22.0, end: 23.0, order: 12, color: "#6366F1" },
+      { label: "11PM-12AM", start: 23.0, end: 24.0, order: 13, color: "#64748B" },
     ];
     for (const s of defaultSlots) {
-      insertSlot.run(s.label, s.start, s.end, s.order);
+      insertSlot.run(s.label, s.start, s.end, s.order, s.color);
     }
+  } else {
+    // Backfill colors for existing slots if they don't have one set yet
+    try {
+      const updateColorStmt = db.prepare('UPDATE time_slots SET color = ? WHERE label = ? AND (color IS NULL OR color = \'\')');
+      const fallbackPalette: Record<string, string> = {
+        "11AM-12PM": "#06B6D4",
+        "12PM-1PM":  "#10B981",
+        "1PM-2PM":   "#F59E0B",
+        "2PM-3PM":   "#F97316",
+        "3PM-4PM":   "#EF4444",
+        "4PM-5PM":   "#8B5CF6",
+        "5PM-6PM":   "#EC4899",
+        "6PM-7PM":   "#3B82F6",
+        "7PM-8PM":   "#14B8A6",
+        "8PM-9PM":   "#84CC16",
+        "9PM-10PM":  "#EAB308",
+        "10PM-11PM": "#6366F1",
+        "11PM-12AM": "#64748B",
+      };
+      for (const [lbl, col] of Object.entries(fallbackPalette)) {
+        updateColorStmt.run(col, lbl);
+      }
+    } catch (e) {}
   }
 
   // If bookings table was cleared or only has 1 record, ensure sequence matches max(id)
@@ -584,6 +613,7 @@ export interface TimeSlotRow {
   end_hour: number;
   active: number;
   sort_order: number;
+  color?: string | null;
   created_at?: string;
 }
 
@@ -594,19 +624,23 @@ export function getTimeSlots(activeOnly = false): TimeSlotRow[] {
   return db.prepare('SELECT * FROM time_slots ORDER BY start_hour ASC, sort_order ASC').all() as TimeSlotRow[];
 }
 
-export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0) {
+export function createTimeSlot(label: string, startHour: number, endHour: number, sortOrder = 0, color?: string) {
   return db.prepare(`
-    INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order)
-    VALUES (?, ?, ?, 1, ?)
-  `).run(label.trim(), startHour, endHour, sortOrder);
+    INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color)
+    VALUES (?, ?, ?, 1, ?, ?)
+  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null);
 }
 
-export function updateTimeSlot(id: number, label: string, startHour: number, endHour: number, sortOrder = 0) {
+export function updateTimeSlot(id: number, label: string, startHour: number, endHour: number, sortOrder = 0, color?: string) {
   return db.prepare(`
     UPDATE time_slots 
-    SET label = ?, start_hour = ?, end_hour = ?, sort_order = ?
+    SET label = ?, start_hour = ?, end_hour = ?, sort_order = ?, color = ?
     WHERE id = ?
-  `).run(label.trim(), startHour, endHour, sortOrder, id);
+  `).run(label.trim(), startHour, endHour, sortOrder, color?.trim() || null, id);
+}
+
+export function getTimeSlotByLabel(label: string): TimeSlotRow | undefined {
+  return db.prepare('SELECT * FROM time_slots WHERE label = ?').get(label.trim()) as TimeSlotRow | undefined;
 }
 
 export function toggleTimeSlotStatus(id: number, active: boolean) {

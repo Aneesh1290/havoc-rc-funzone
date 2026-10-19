@@ -29,6 +29,7 @@ import {
   deleteTimeSlotAction
 } from "@/app/actions/tickets";
 import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
+import { WRISTBAND_PALETTE, getSlotWristbandColor } from "@/lib/slotColors";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
@@ -47,7 +48,8 @@ export default function SlotsManagementPage() {
     label: "",
     startHour: 11.0,
     endHour: 12.0,
-    sortOrder: 0
+    sortOrder: 0,
+    color: "#06B6D4"
   });
 
   // Blocked Slots State
@@ -259,12 +261,13 @@ export default function SlotsManagementPage() {
         newSlotForm.label.trim(),
         Number(newSlotForm.startHour),
         Number(newSlotForm.endHour),
-        Number(newSlotForm.sortOrder)
+        Number(newSlotForm.sortOrder),
+        newSlotForm.color
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Created slot "${newSlotForm.label}" successfully.` });
         setIsAddingSlot(false);
-        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0 });
+        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0, color: "#06B6D4" });
         const freshSlots = await fetchTimeSlotsAction(false);
         setTimeSlots([...freshSlots].sort((a, b) => a.start_hour - b.start_hour));
       } else {
@@ -285,7 +288,8 @@ export default function SlotsManagementPage() {
         editingSlot.label.trim(),
         Number(editingSlot.start_hour),
         Number(editingSlot.end_hour),
-        Number(editingSlot.sort_order)
+        Number(editingSlot.sort_order),
+        editingSlot.color || undefined
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Updated slot "${editingSlot.label}" successfully.` });
@@ -738,64 +742,99 @@ export default function SlotsManagementPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleCreateSlot} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    Slot Label *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newSlotForm.label}
-                    onChange={(e) => setNewSlotForm({ ...newSlotForm, label: e.target.value })}
-                    placeholder="e.g. 8PM-9PM or 10AM-11AM"
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  />
+              <form onSubmit={handleCreateSlot} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      Slot Label *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={newSlotForm.label}
+                      onChange={(e) => setNewSlotForm({ ...newSlotForm, label: e.target.value })}
+                      placeholder="e.g. 8PM-9PM or 10AM-11AM"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      Start Hour (24h) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      required
+                      value={newSlotForm.startHour}
+                      onChange={(e) => setNewSlotForm({ ...newSlotForm, startHour: parseFloat(e.target.value) || 0 })}
+                      placeholder="e.g. 20 (for 8PM)"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      End Hour (24h) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      required
+                      value={newSlotForm.endHour}
+                      onChange={(e) => setNewSlotForm({ ...newSlotForm, endHour: parseFloat(e.target.value) || 0 })}
+                      placeholder="e.g. 21 (for 9PM)"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    />
+                  </div>
                 </div>
 
+                {/* Wristband Color Scheme Picker */}
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    Start Hour (24h) *
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Wristband Band Color Scheme:
                   </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    required
-                    value={newSlotForm.startHour}
-                    onChange={(e) => setNewSlotForm({ ...newSlotForm, startHour: parseFloat(e.target.value) || 0 })}
-                    placeholder="e.g. 20 (for 8PM)"
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {WRISTBAND_PALETTE.map((c) => {
+                      const isSelected = (newSlotForm.color || "").toUpperCase() === c.hex.toUpperCase();
+                      return (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => setNewSlotForm({ ...newSlotForm, color: c.hex })}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                            isSelected
+                              ? 'ring-2 ring-offset-1 ring-gray-900 border-gray-900 shadow-sm'
+                              : 'border-gray-200 hover:border-gray-400 opacity-80 hover:opacity-100'
+                          }`}
+                          style={{ backgroundColor: c.hex + "15" }}
+                        >
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0"
+                            style={{ backgroundColor: c.hex }}
+                          />
+                          <span style={{ color: c.hex }} className="font-bold">
+                            {c.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    End Hour (24h) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    required
-                    value={newSlotForm.endHour}
-                    onChange={(e) => setNewSlotForm({ ...newSlotForm, endHour: parseFloat(e.target.value) || 0 })}
-                    placeholder="e.g. 21 (for 9PM)"
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-2 px-4 rounded-xl font-bold text-xs shadow transition-all"
-                  >
-                    Save Slot
-                  </button>
+                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setIsAddingSlot(false)}
-                    className="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
+                    className="bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-[#ff5a1f] hover:bg-[#e04812] text-white py-2 px-5 rounded-xl font-bold text-xs shadow transition-all"
+                  >
+                    Save Slot
                   </button>
                 </div>
               </form>
@@ -815,61 +854,96 @@ export default function SlotsManagementPage() {
                 </button>
               </div>
 
-              <form onSubmit={handleUpdateSlot} className="grid grid-cols-1 sm:grid-cols-4 gap-4 items-end">
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    Slot Label *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={editingSlot.label}
-                    onChange={(e) => setEditingSlot({ ...editingSlot, label: e.target.value })}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+              <form onSubmit={handleUpdateSlot} className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      Slot Label *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editingSlot.label}
+                      onChange={(e) => setEditingSlot({ ...editingSlot, label: e.target.value })}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      Start Hour (24h) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      required
+                      value={editingSlot.start_hour}
+                      onChange={(e) => setEditingSlot({ ...editingSlot, start_hour: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
+                      End Hour (24h) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      required
+                      value={editingSlot.end_hour}
+                      onChange={(e) => setEditingSlot({ ...editingSlot, end_hour: parseFloat(e.target.value) || 0 })}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
+                {/* Wristband Color Scheme Picker */}
                 <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    Start Hour (24h) *
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Wristband Band Color Scheme:
                   </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    required
-                    value={editingSlot.start_hour}
-                    onChange={(e) => setEditingSlot({ ...editingSlot, start_hour: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    {WRISTBAND_PALETTE.map((c) => {
+                      const isSelected = (editingSlot.color || "").toUpperCase() === c.hex.toUpperCase();
+                      return (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          onClick={() => setEditingSlot({ ...editingSlot, color: c.hex })}
+                          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
+                            isSelected
+                              ? 'ring-2 ring-offset-1 ring-gray-900 border-gray-900 shadow-sm'
+                              : 'border-gray-200 hover:border-gray-400 opacity-80 hover:opacity-100'
+                          }`}
+                          style={{ backgroundColor: c.hex + "15" }}
+                        >
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-black/10 shrink-0"
+                            style={{ backgroundColor: c.hex }}
+                          />
+                          <span style={{ color: c.hex }} className="font-bold">
+                            {c.name}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs font-bold uppercase text-gray-600 mb-1">
-                    End Hour (24h) *
-                  </label>
-                  <input
-                    type="number"
-                    step="0.5"
-                    required
-                    value={editingSlot.end_hour}
-                    onChange={(e) => setEditingSlot({ ...editingSlot, end_hour: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <button
-                    type="submit"
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-xl font-bold text-xs shadow transition-all"
-                  >
-                    Update Slot
-                  </button>
+                <div className="flex justify-end gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setEditingSlot(null)}
-                    className="bg-white border border-gray-300 text-gray-700 py-2 px-3 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
+                    className="bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded-xl font-bold text-xs hover:bg-gray-50 transition-all"
                   >
                     Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-5 rounded-xl font-bold text-xs shadow transition-all"
+                  >
+                    Update Slot
                   </button>
                 </div>
               </form>
@@ -883,6 +957,7 @@ export default function SlotsManagementPage() {
                 <tr>
                   <th className="py-3 px-4">Order</th>
                   <th className="py-3 px-4">Slot Display Name</th>
+                  <th className="py-3 px-4">Wristband Color Band</th>
                   <th className="py-3 px-4">Start Hour</th>
                   <th className="py-3 px-4">End Hour</th>
                   <th className="py-3 px-4">Status</th>
@@ -892,6 +967,7 @@ export default function SlotsManagementPage() {
               <tbody className="divide-y divide-gray-100 bg-white">
                 {timeSlots.map((slot, index) => {
                   const isActive = slot.active === 1;
+                  const band = getSlotWristbandColor(slot.label, slot.color);
 
                   return (
                     <tr key={slot.id} className="hover:bg-gray-50/80 transition-colors">
@@ -902,6 +978,24 @@ export default function SlotsManagementPage() {
                         <span className="font-bold text-gray-900 text-sm">
                           {slot.label}
                         </span>
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div 
+                          className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold shadow-xs"
+                          style={{
+                            backgroundColor: band.hex + '18',
+                            borderColor: band.hex + '40',
+                            color: band.hex
+                          }}
+                        >
+                          <span 
+                            className="w-3 h-3 rounded-full border border-black/20 shrink-0 shadow-inner"
+                            style={{ backgroundColor: band.hex }}
+                          />
+                          <span className="tracking-wide uppercase text-[11px]">
+                            {band.name}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3.5 px-4 text-gray-600 text-xs font-medium">
                         {slot.start_hour}:00 ({slot.start_hour >= 12 ? `${slot.start_hour === 12 ? 12 : slot.start_hour - 12}PM` : `${slot.start_hour}AM`})

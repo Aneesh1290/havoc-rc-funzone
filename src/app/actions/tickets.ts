@@ -466,9 +466,9 @@ export async function fetchTimeSlotsAction(activeOnly = false): Promise<TimeSlot
   return getTimeSlots(activeOnly);
 }
 
-export async function createTimeSlotAction(label: string, startHour: number, endHour: number, sortOrder = 0) {
+export async function createTimeSlotAction(label: string, startHour: number, endHour: number, sortOrder = 0, color?: string) {
   try {
-    createTimeSlot(label, startHour, endHour, sortOrder);
+    createTimeSlot(label, startHour, endHour, sortOrder, color);
     revalidatePath('/admin/slots');
     revalidatePath('/tickets');
     return { success: true };
@@ -478,9 +478,9 @@ export async function createTimeSlotAction(label: string, startHour: number, end
   }
 }
 
-export async function updateTimeSlotAction(id: number, label: string, startHour: number, endHour: number, sortOrder = 0) {
+export async function updateTimeSlotAction(id: number, label: string, startHour: number, endHour: number, sortOrder = 0, color?: string) {
   try {
-    updateTimeSlot(id, label, startHour, endHour, sortOrder);
+    updateTimeSlot(id, label, startHour, endHour, sortOrder, color);
     revalidatePath('/admin/slots');
     revalidatePath('/tickets');
     return { success: true };

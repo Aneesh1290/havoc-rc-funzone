@@ -9,6 +9,7 @@ import {
   cancelBookingAction
 } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
+import { getSlotWristbandColor } from "@/lib/slotColors";
 import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag } from "lucide-react";
 import Link from "next/link";
 
@@ -270,9 +271,29 @@ export default function OrderDetailPage() {
                   <p className="text-xs text-gray-500">
                     Select Date: <strong className="text-gray-700 font-semibold">{booking.booking_date}</strong>
                   </p>
-                  <p className="text-xs text-gray-500">
-                    Select Time Slot: <strong className="text-gray-700 font-semibold">{booking.time_slot}</strong>
-                  </p>
+                  <div className="text-xs text-gray-500 flex items-center gap-2">
+                    <span>Select Time Slot:</span>
+                    <strong className="text-gray-900 font-bold">{booking.time_slot}</strong>
+                    {booking.time_slot && (() => {
+                      const band = getSlotWristbandColor(booking.time_slot);
+                      return (
+                        <span 
+                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
+                          style={{
+                            backgroundColor: band.hex + '18',
+                            borderColor: band.hex + '50',
+                            color: band.hex
+                          }}
+                        >
+                          <span 
+                            className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0 shadow-inner"
+                            style={{ backgroundColor: band.hex }}
+                          />
+                          <span>{band.name} Band</span>
+                        </span>
+                      );
+                    })()}
+                  </div>
                   {booking.simulator_name && (
                     <div className="mt-2 text-xs bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-2 font-medium max-w-sm">
                       <span className="font-bold">🏆 Reserved VIP Simulator:</span> {booking.simulator_name}

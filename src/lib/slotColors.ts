@@ -42,15 +42,20 @@ export const DEFAULT_SLOT_COLORS: Record<string, string> = {
   "11PM-12AM": "#64748B", // Slate
 };
 
-export function getSlotWristbandColor(slotLabel?: string | null, customHex?: string | null): WristbandColor {
+export function getSlotWristbandColor(slotLabel?: string | null, customHex?: string | null, customColorName?: string | null): WristbandColor {
   const hex = (customHex || (slotLabel ? DEFAULT_SLOT_COLORS[slotLabel.trim()] : null) || "#06B6D4").toUpperCase();
   
   const found = WRISTBAND_PALETTE.find(p => p.hex.toUpperCase() === hex);
-  if (found) return found;
+  if (found) {
+    if (customColorName && customColorName.trim()) {
+      return { ...found, name: customColorName.trim() };
+    }
+    return found;
+  }
 
   return {
     hex,
-    name: "Custom Band",
+    name: (customColorName && customColorName.trim()) ? customColorName.trim() : "Custom Band",
     bgClass: "bg-gray-100",
     textClass: "text-gray-800",
     borderClass: "border-gray-300",

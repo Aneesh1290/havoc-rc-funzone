@@ -51,7 +51,8 @@ export default function SlotsManagementPage() {
     startHour: 11.0,
     endHour: 12.0,
     sortOrder: 0,
-    color: "#06B6D4"
+    color: "#06B6D4",
+    colorName: "Cyan / Neon Blue"
   });
 
   // Blocked Slots State
@@ -264,12 +265,13 @@ export default function SlotsManagementPage() {
         Number(newSlotForm.startHour),
         Number(newSlotForm.endHour),
         Number(newSlotForm.sortOrder),
-        newSlotForm.color
+        newSlotForm.color,
+        newSlotForm.colorName
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Created slot "${newSlotForm.label}" successfully.` });
         setIsAddingSlot(false);
-        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0, color: "#06B6D4" });
+        setNewSlotForm({ label: "", startHour: 11.0, endHour: 12.0, sortOrder: 0, color: "#06B6D4", colorName: "Cyan / Neon Blue" });
         const freshSlots = await fetchTimeSlotsAction(false);
         setTimeSlots([...freshSlots].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour)));
       } else {
@@ -291,7 +293,8 @@ export default function SlotsManagementPage() {
         Number(editingSlot.start_hour),
         Number(editingSlot.end_hour),
         Number(editingSlot.sort_order),
-        editingSlot.color || undefined
+        editingSlot.color || undefined,
+        editingSlot.color_name || undefined
       );
       if (res.success) {
         setFeedback({ type: 'success', message: `Updated slot "${editingSlot.label}" successfully.` });
@@ -813,32 +816,53 @@ export default function SlotsManagementPage() {
 
                 {/* Wristband Color Scheme Picker + MS Paint Custom Color Box */}
                 <div className="bg-white/80 p-4 rounded-2xl border border-orange-200/60 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <label className="text-xs font-bold uppercase text-gray-700 flex items-center gap-1.5">
                       <Palette className="w-4 h-4 text-[#ff5a1f]" />
-                      Wristband Color Scheme &amp; Band Color Code
+                      Wristband Band Color Scheme &amp; Custom Name
                     </label>
 
-                    {/* MS Paint Custom Color Picker Box */}
-                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-1.5 self-start sm:self-auto">
-                      <div className="relative flex items-center">
+                    {/* MS Paint Custom Color Picker & Color Name Box */}
+                    <div className="flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 self-start sm:self-auto">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           id="newSlotColorPicker"
                           value={newSlotForm.color?.startsWith('#') && newSlotForm.color.length === 7 ? newSlotForm.color : '#06B6D4'}
-                          onChange={(e) => setNewSlotForm({ ...newSlotForm, color: e.target.value.toUpperCase() })}
+                          onChange={(e) => {
+                            const newHex = e.target.value.toUpperCase();
+                            const matchedPreset = WRISTBAND_PALETTE.find(p => p.hex.toUpperCase() === newHex);
+                            setNewSlotForm({
+                              ...newSlotForm,
+                              color: newHex,
+                              colorName: matchedPreset ? matchedPreset.name : (newSlotForm.colorName || "Custom Band")
+                            });
+                          }}
                           className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent"
                           title="Click to open MS Paint color palette"
                         />
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Paint Box / HEX</span>
+                          <input
+                            type="text"
+                            value={newSlotForm.color || ""}
+                            onChange={(e) => setNewSlotForm({ ...newSlotForm, color: e.target.value })}
+                            placeholder="#06B6D4"
+                            className="font-mono text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-20"
+                          />
+                        </div>
                       </div>
+
+                      <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
+
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Paint Box / HEX</span>
+                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Band Color Name</span>
                         <input
                           type="text"
-                          value={newSlotForm.color || ""}
-                          onChange={(e) => setNewSlotForm({ ...newSlotForm, color: e.target.value })}
-                          placeholder="#06B6D4"
-                          className="font-mono text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-20"
+                          value={newSlotForm.colorName || ""}
+                          onChange={(e) => setNewSlotForm({ ...newSlotForm, colorName: e.target.value })}
+                          placeholder="e.g. Neon Blue Band"
+                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
                     </div>
@@ -852,7 +876,7 @@ export default function SlotsManagementPage() {
                         <button
                           key={c.hex}
                           type="button"
-                          onClick={() => setNewSlotForm({ ...newSlotForm, color: c.hex })}
+                          onClick={() => setNewSlotForm({ ...newSlotForm, color: c.hex, colorName: c.name })}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
                             isSelected
                               ? 'ring-2 ring-offset-1 ring-gray-900 border-gray-900 shadow-sm'
@@ -971,32 +995,53 @@ export default function SlotsManagementPage() {
 
                 {/* Wristband Color Scheme Picker + MS Paint Custom Color Box */}
                 <div className="bg-white/80 p-4 rounded-2xl border border-blue-200/60 space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <label className="text-xs font-bold uppercase text-gray-700 flex items-center gap-1.5">
                       <Palette className="w-4 h-4 text-blue-600" />
-                      Wristband Band Color Scheme &amp; Color Code
+                      Wristband Band Color Scheme &amp; Custom Name
                     </label>
 
-                    {/* MS Paint Custom Color Picker Box */}
-                    <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-1.5 self-start sm:self-auto">
-                      <div className="relative flex items-center">
+                    {/* MS Paint Custom Color Picker & Color Name Box */}
+                    <div className="flex flex-wrap items-center gap-2 bg-gray-50 border border-gray-200 rounded-xl p-2 self-start sm:self-auto">
+                      <div className="flex items-center gap-2">
                         <input
                           type="color"
                           id="editSlotColorPicker"
                           value={editingSlot.color?.startsWith('#') && editingSlot.color.length === 7 ? editingSlot.color : '#06B6D4'}
-                          onChange={(e) => setEditingSlot({ ...editingSlot, color: e.target.value.toUpperCase() })}
+                          onChange={(e) => {
+                            const newHex = e.target.value.toUpperCase();
+                            const matchedPreset = WRISTBAND_PALETTE.find(p => p.hex.toUpperCase() === newHex);
+                            setEditingSlot({
+                              ...editingSlot,
+                              color: newHex,
+                              color_name: matchedPreset ? matchedPreset.name : (editingSlot.color_name || "Custom Band")
+                            });
+                          }}
                           className="w-8 h-8 rounded-lg cursor-pointer border-0 p-0 bg-transparent"
                           title="Click to open MS Paint color palette"
                         />
+                        <div className="flex flex-col">
+                          <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Paint Box / HEX</span>
+                          <input
+                            type="text"
+                            value={editingSlot.color || ""}
+                            onChange={(e) => setEditingSlot({ ...editingSlot, color: e.target.value })}
+                            placeholder="#06B6D4"
+                            className="font-mono text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-20"
+                          />
+                        </div>
                       </div>
+
+                      <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
+
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Paint Box / HEX</span>
+                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Band Color Name</span>
                         <input
                           type="text"
-                          value={editingSlot.color || ""}
-                          onChange={(e) => setEditingSlot({ ...editingSlot, color: e.target.value })}
-                          placeholder="#06B6D4"
-                          className="font-mono text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-20"
+                          value={editingSlot.color_name || ""}
+                          onChange={(e) => setEditingSlot({ ...editingSlot, color_name: e.target.value })}
+                          placeholder="e.g. Neon Blue Band"
+                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
                     </div>
@@ -1010,7 +1055,7 @@ export default function SlotsManagementPage() {
                         <button
                           key={c.hex}
                           type="button"
-                          onClick={() => setEditingSlot({ ...editingSlot, color: c.hex })}
+                          onClick={() => setEditingSlot({ ...editingSlot, color: c.hex, color_name: c.name })}
                           className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all ${
                             isSelected
                               ? 'ring-2 ring-offset-1 ring-gray-900 border-gray-900 shadow-sm'
@@ -1067,7 +1112,7 @@ export default function SlotsManagementPage() {
               <tbody className="divide-y divide-gray-100 bg-white">
                 {timeSlots.map((slot, index) => {
                   const isActive = slot.active === 1;
-                  const band = getSlotWristbandColor(slot.label, slot.color);
+                  const band = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
                   const displayOrder = slot.sort_order > 0 ? slot.sort_order : index + 1;
 
                   return (

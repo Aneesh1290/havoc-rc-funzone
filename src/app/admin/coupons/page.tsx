@@ -1,7 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Tag, Trash2, Plus, Layers, Calendar, Check, AlertCircle } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import { 
+  Tag, 
+  Trash2, 
+  Plus, 
+  Layers, 
+  Calendar, 
+  Check, 
+  AlertCircle,
+  Search,
+  Filter,
+  ArrowUpDown,
+  ChevronLeft,
+  ChevronRight
+} from "lucide-react";
 import { 
   fetchCouponsAction, 
   createCouponAction, 
@@ -34,6 +47,14 @@ export default function AdminCouponsPage() {
   const [bulkType, setBulkType] = useState<"percentage" | "flat">("percentage");
   const [bulkValue, setBulkValue] = useState<number>(10);
   const [bulkMaxUses, setBulkMaxUses] = useState<number>(1);
+
+  // Filter, Category, Sort & Pagination States
+  const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL"); // 'ALL', 'PREFIX:XYZ', 'PERCENTAGE', 'FLAT', 'USED', 'UNUSED', 'EXPIRED', 'ACTIVE'
+  const [sortField, setSortField] = useState<"id" | "code" | "value" | "used_count" | "expiry_date">("id");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50); // 50, 100, 250, 500, ALL (-1)
 
   // Loading states
   const [addingSingle, setAddingSingle] = useState(false);
@@ -177,6 +198,152 @@ export default function AdminCouponsPage() {
       prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
     );
   };
+
+  // Helper to extract series prefix or category
+  // e.g. "F003281" -> "F-Series", "BAND-01" -> "BAND-Series", "004837" -> "Numeric / General"
+  const getCouponCategory = (code: string) => {
+    const clean = code.trim().toUpperCase();
+    if (clean.includes("-")) {
+      const p = clean.split("-")[0];
+      return `${p}-Series`;
+    }
+    // If starts with letters followed by digits, e.g. "F003281"
+    const match = clean.match(/^([A-Z]+)\d+/);
+    if (match && match[1]) {
+      return `${match[1]}-Series`;
+    }
+    // Pure digits
+    if (/^\d+$/.test(clean)) {
+      return "Numeric Series";
+    }
+    return "Custom Promo Codes";
+  };
+
+  // Dynamic Categories and Counts
+  const categoriesList = useMemo(() => {
+    const counts: Record<string, number> = {
+      ALL: coupons.length,
+      PERCENTAGE: 0,
+      FLAT: 0,
+      ACTIVE: 0,
+      USED: 0,
+      EXPIRED: 0
+    };
+
+    const prefixCounts: Record<string, number> = {};
+
+    const now = new Date();
+    const todayStr = now.toISOString().split("T")[0];
+
+    for (const c of coupons) {
+      if (c.discount_type === "percentage") counts.PERCENTAGE++;
+      if (c.discount_type === "flat") counts.FLAT++;
+
+      const isUsedUp = c.max_uses !== null && c.used_count >= c.max_uses;
+      const isExpired = Boolean(c.expiry_date && c.expiry_date < todayStr);
+
+      if (isUsedUp) counts.USED++;
+      if (isExpired) counts.EXPIRED++;
+      if (!isUsedUp && !isExpired) counts.ACTIVE++;
+
+      const catName = getCouponCategory(c.code);
+      prefixCounts[catName] = (prefixCounts[catName] || 0) + 1;
+    }
+
+    return { counts, prefixCounts };
+  }, [coupons]);
+
+  // Filter & Sort Pipeline
+  const filteredAndSortedCoupons = useMemo(() => {
+    let result = [...coupons];
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    // 1. Category Filter
+    if (categoryFilter !== "ALL") {
+      if (categoryFilter === "PERCENTAGE") {
+        result = result.filter(c => c.discount_type === "percentage");
+      } else if (categoryFilter === "FLAT") {
+        result = result.filter(c => c.discount_type === "flat");
+      } else if (categoryFilter === "ACTIVE") {
+        result = result.filter(c => {
+          const isUsedUp = c.max_uses !== null && c.used_count >= c.max_uses;
+          const isExpired = Boolean(c.expiry_date && c.expiry_date < todayStr);
+          return !isUsedUp && !isExpired;
+        });
+      } else if (categoryFilter === "USED") {
+        result = result.filter(c => c.max_uses !== null && c.used_count >= c.max_uses);
+      } else if (categoryFilter === "EXPIRED") {
+        result = result.filter(c => Boolean(c.expiry_date && c.expiry_date < todayStr));
+      } else if (categoryFilter.startsWith("CAT:")) {
+        const targetCat = categoryFilter.replace("CAT:", "");
+        result = result.filter(c => getCouponCategory(c.code) === targetCat);
+      }
+    }
+
+    // 2. Search Query Filter
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      result = result.filter(c => 
+        c.code.toLowerCase().includes(q) || 
+        String(c.value).includes(q) ||
+        (c.expiry_date && c.expiry_date.toLowerCase().includes(q))
+      );
+    }
+
+    // 3. Sorting
+    result.sort((a, b) => {
+      let comparison = 0;
+      if (sortField === "id") {
+        comparison = a.id - b.id;
+      } else if (sortField === "code") {
+        comparison = a.code.localeCompare(b.code, undefined, { numeric: true, sensitivity: 'base' });
+      } else if (sortField === "value") {
+        comparison = a.value - b.value;
+      } else if (sortField === "used_count") {
+        comparison = a.used_count - b.used_count;
+      } else if (sortField === "expiry_date") {
+        const expA = a.expiry_date || "9999-99-99";
+        const expB = b.expiry_date || "9999-99-99";
+        comparison = expA.localeCompare(expB);
+      }
+      return sortOrder === "asc" ? comparison : -comparison;
+    });
+
+    return result;
+  }, [coupons, categoryFilter, searchQuery, sortField, sortOrder]);
+
+  // Pagination Slice
+  const totalItems = filteredAndSortedCoupons.length;
+  const effectivePageSize = pageSize === -1 ? totalItems : pageSize;
+  const totalPages = Math.max(1, Math.ceil(totalItems / (effectivePageSize || 1)));
+  const validCurrentPage = Math.min(currentPage, totalPages);
+
+  const paginatedCoupons = useMemo(() => {
+    if (pageSize === -1) return filteredAndSortedCoupons;
+    const start = (validCurrentPage - 1) * pageSize;
+    return filteredAndSortedCoupons.slice(start, start + pageSize);
+  }, [filteredAndSortedCoupons, validCurrentPage, pageSize]);
+
+  // Toggle sort direction or field
+  const handleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortOrder(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("desc");
+    }
+  };
+
+  const handleSelectVisible = () => {
+    const pageIds = paginatedCoupons.map(c => c.id);
+    const allSelected = pageIds.every(id => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(prev => prev.filter(id => !pageIds.includes(id)));
+    } else {
+      setSelectedIds(prev => Array.from(new Set([...prev, ...pageIds])));
+    }
+  };
+
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -388,22 +555,33 @@ export default function AdminCouponsPage() {
         </form>
       </div>
 
-      {/* Section 3: Active Coupons Table */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-        <div className="p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Tag className="w-5 h-5 text-[#ff5a1f]" />
-            <h2 className="text-lg font-bold text-gray-900">Active Coupons ({coupons.length})</h2>
+      {/* Section 3: Active Coupons Table with Categories, Search, Sort & Pagination */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden space-y-4">
+        {/* Header bar */}
+        <div className="p-6 pb-4 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-orange-50 text-[#ff5a1f] flex items-center justify-center font-bold">
+              <Tag className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-bold text-gray-900">Active Coupons</h2>
+                <span className="bg-gray-100 text-gray-700 text-xs font-bold px-2.5 py-0.5 rounded-full">
+                  {filteredAndSortedCoupons.length} {filteredAndSortedCoupons.length !== coupons.length ? `of ${coupons.length}` : ""}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mt-0.5">Filter, sort, and manage all voucher codes in the system.</p>
+            </div>
           </div>
 
           {coupons.length > 0 && (
-            <div className="flex items-center gap-2 self-start sm:self-auto">
+            <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
               {selectedIds.length > 0 && (
                 <button
                   type="button"
                   disabled={isDeletingBulk}
                   onClick={handleDeleteSelected}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 text-xs font-bold transition-all disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 text-xs font-bold transition-all disabled:opacity-50"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                   Delete Selected ({selectedIds.length})
@@ -413,7 +591,7 @@ export default function AdminCouponsPage() {
                 type="button"
                 disabled={isDeletingBulk}
                 onClick={handleClearAll}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 {isDeletingBulk ? "Clearing..." : "Clear All Coupons"}
@@ -422,6 +600,156 @@ export default function AdminCouponsPage() {
           )}
         </div>
 
+        {/* Category Tabs & Quick Filters */}
+        <div className="px-6 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap text-xs">
+            <span className="font-bold text-gray-500 uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <Filter className="w-3.5 h-3.5 text-gray-400" /> Filter by Category:
+            </span>
+            <div className="flex items-center gap-1 text-[11px] text-gray-400">
+              <span>Showing:</span>
+              <strong className="text-gray-700">{filteredAndSortedCoupons.length} items</strong>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1.5 pb-2 border-b border-gray-100">
+            {/* Primary Status & Type filters */}
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("ALL"); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                categoryFilter === "ALL"
+                  ? "bg-[#0d1b2a] text-white shadow-xs"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              All ({categoriesList.counts.ALL})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("ACTIVE"); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                categoryFilter === "ACTIVE"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200/60"
+              }`}
+            >
+              Active / Ready ({categoriesList.counts.ACTIVE})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("PERCENTAGE"); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                categoryFilter === "PERCENTAGE"
+                  ? "bg-[#ff5a1f] text-white shadow-xs"
+                  : "bg-orange-50 text-orange-700 hover:bg-orange-100 border border-orange-200/60"
+              }`}
+            >
+              Percentage (%) ({categoriesList.counts.PERCENTAGE})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("FLAT"); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                categoryFilter === "FLAT"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200/60"
+              }`}
+            >
+              Flat ₹ ({categoriesList.counts.FLAT})
+            </button>
+
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("USED"); setCurrentPage(1); }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                categoryFilter === "USED"
+                  ? "bg-gray-700 text-white shadow-xs"
+                  : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+              }`}
+            >
+              Exhausted / Used ({categoriesList.counts.USED})
+            </button>
+
+            {categoriesList.counts.EXPIRED > 0 && (
+              <button
+                type="button"
+                onClick={() => { setCategoryFilter("EXPIRED"); setCurrentPage(1); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  categoryFilter === "EXPIRED"
+                    ? "bg-red-600 text-white shadow-xs"
+                    : "bg-red-50 text-red-700 hover:bg-red-100 border border-red-200/60"
+                }`}
+              >
+                Expired ({categoriesList.counts.EXPIRED})
+              </button>
+            )}
+
+            {/* Prefix / Series Categories */}
+            {Object.entries(categoriesList.prefixCounts).map(([catName, count]) => {
+              const filterKey = `CAT:${catName}`;
+              const isSelected = categoryFilter === filterKey;
+              return (
+                <button
+                  key={catName}
+                  type="button"
+                  onClick={() => { setCategoryFilter(filterKey); setCurrentPage(1); }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                    isSelected
+                      ? "bg-indigo-600 text-white shadow-xs"
+                      : "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 border border-indigo-200/60"
+                  }`}
+                >
+                  📁 {catName} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Search Bar & Page Size Row */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                placeholder="Search coupon code or value..."
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl pl-9 pr-4 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => { setSearchQuery(""); setCurrentPage(1); }}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
+              <span className="text-gray-500 font-semibold">Per Page:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                className="bg-gray-50 border border-gray-200 text-gray-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+              >
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={250}>250</option>
+                <option value={500}>500</option>
+                <option value={-1}>All ({filteredAndSortedCoupons.length})</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        {/* Content Table */}
         {loading ? (
           <div className="p-12 text-center text-gray-400">Loading coupons...</div>
         ) : coupons.length === 0 ? (
@@ -430,73 +758,198 @@ export default function AdminCouponsPage() {
             <p className="font-medium text-gray-500">No coupons created yet</p>
             <p className="text-xs text-gray-400 mt-1">Add a coupon above or generate a batch series.</p>
           </div>
+        ) : filteredAndSortedCoupons.length === 0 ? (
+          <div className="p-12 text-center text-gray-400">
+            <Filter className="w-10 h-10 mx-auto mb-2 opacity-30 text-gray-400" />
+            <p className="font-semibold text-gray-700">No matching coupons found</p>
+            <p className="text-xs text-gray-400 mt-1">Try clearing your search query or selecting a different category filter.</p>
+            <button
+              type="button"
+              onClick={() => { setCategoryFilter("ALL"); setSearchQuery(""); setCurrentPage(1); }}
+              className="mt-3 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 transition-colors"
+            >
+              Reset Filters
+            </button>
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-gray-50 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-500">
-                  <th className="py-4 px-4 w-10 text-center">
+                <tr className="bg-gray-50 border-b border-gray-100 text-[11px] font-bold uppercase tracking-wider text-gray-500 select-none">
+                  <th className="py-3.5 px-4 w-10 text-center">
                     <input 
                       type="checkbox"
-                      checked={coupons.length > 0 && selectedIds.length === coupons.length}
-                      onChange={handleToggleSelectAll}
+                      checked={
+                        paginatedCoupons.length > 0 && 
+                        paginatedCoupons.every(c => selectedIds.includes(c.id))
+                      }
+                      onChange={handleSelectVisible}
                       className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
-                      title="Select all coupons"
+                      title="Select all on current page"
                     />
                   </th>
-                  <th className="py-4 px-6">Code</th>
-                  <th className="py-4 px-6">Type</th>
-                  <th className="py-4 px-6">Value</th>
-                  <th className="py-4 px-6">Uses</th>
-                  <th className="py-4 px-6">Expires</th>
-                  <th className="py-4 px-6 text-right">Action</th>
+                  
+                  {/* Sortable Code */}
+                  <th 
+                    onClick={() => handleSort("code")}
+                    className="py-3.5 px-6 cursor-pointer hover:text-gray-900 group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Code</span>
+                      <ArrowUpDown className={`w-3 h-3 ${sortField === "code" ? "text-[#ff5a1f]" : "text-gray-400 group-hover:text-gray-600"}`} />
+                      {sortField === "code" && (
+                        <span className="text-[10px] text-[#ff5a1f]">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                  </th>
+
+                  <th className="py-3.5 px-6">Category / Series</th>
+                  <th className="py-3.5 px-6">Type</th>
+                  
+                  {/* Sortable Value */}
+                  <th 
+                    onClick={() => handleSort("value")}
+                    className="py-3.5 px-6 cursor-pointer hover:text-gray-900 group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Value</span>
+                      <ArrowUpDown className={`w-3 h-3 ${sortField === "value" ? "text-[#ff5a1f]" : "text-gray-400 group-hover:text-gray-600"}`} />
+                      {sortField === "value" && (
+                        <span className="text-[10px] text-[#ff5a1f]">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Sortable Uses */}
+                  <th 
+                    onClick={() => handleSort("used_count")}
+                    className="py-3.5 px-6 cursor-pointer hover:text-gray-900 group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Uses</span>
+                      <ArrowUpDown className={`w-3 h-3 ${sortField === "used_count" ? "text-[#ff5a1f]" : "text-gray-400 group-hover:text-gray-600"}`} />
+                      {sortField === "used_count" && (
+                        <span className="text-[10px] text-[#ff5a1f]">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                  </th>
+
+                  {/* Sortable Expiry */}
+                  <th 
+                    onClick={() => handleSort("expiry_date")}
+                    className="py-3.5 px-6 cursor-pointer hover:text-gray-900 group"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Expires</span>
+                      <ArrowUpDown className={`w-3 h-3 ${sortField === "expiry_date" ? "text-[#ff5a1f]" : "text-gray-400 group-hover:text-gray-600"}`} />
+                      {sortField === "expiry_date" && (
+                        <span className="text-[10px] text-[#ff5a1f]">{sortOrder === "asc" ? "▲" : "▼"}</span>
+                      )}
+                    </div>
+                  </th>
+
+                  <th className="py-3.5 px-6 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {coupons.map((coupon) => (
-                  <tr 
-                    key={coupon.id} 
-                    className={`hover:bg-gray-50/70 transition-colors ${selectedIds.includes(coupon.id) ? "bg-orange-50/40" : ""}`}
-                  >
-                    <td className="py-4 px-4 text-center">
-                      <input 
-                        type="checkbox"
-                        checked={selectedIds.includes(coupon.id)}
-                        onChange={() => handleToggleSelectOne(coupon.id)}
-                        className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
-                      />
-                    </td>
-                    <td className="py-4 px-6 font-mono font-bold text-gray-900">
-                      <span className="bg-gray-100 text-gray-800 px-2.5 py-1 rounded-md text-xs">
-                        {coupon.code}
-                      </span>
-                    </td>
-                    <td className="py-4 px-6 capitalize text-gray-600">
-                      {coupon.discount_type === "percentage" ? "Percentage" : "Flat Amount"}
-                    </td>
-                    <td className="py-4 px-6 font-bold text-gray-900">
-                      {coupon.discount_type === "percentage" ? `${coupon.value}%` : `₹${coupon.value}`}
-                    </td>
-                    <td className="py-4 px-6 text-gray-600">
-                      <span className="font-medium text-gray-900">{coupon.used_count}</span>
-                      <span className="text-gray-400"> / {coupon.max_uses !== null ? coupon.max_uses : "∞"}</span>
-                    </td>
-                    <td className="py-4 px-6 text-gray-500">
-                      {coupon.expiry_date ? coupon.expiry_date : "Never"}
-                    </td>
-                    <td className="py-4 px-6 text-right">
-                      <button
-                        onClick={() => handleDelete(coupon.id, coupon.code)}
-                        className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Delete coupon"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                {paginatedCoupons.map((coupon) => {
+                  const isUsedUp = coupon.max_uses !== null && coupon.used_count >= coupon.max_uses;
+                  const isExpired = Boolean(coupon.expiry_date && coupon.expiry_date < new Date().toISOString().split("T")[0]);
+                  const cat = getCouponCategory(coupon.code);
+
+                  return (
+                    <tr 
+                      key={coupon.id} 
+                      className={`hover:bg-gray-50/70 transition-colors ${selectedIds.includes(coupon.id) ? "bg-orange-50/40" : ""}`}
+                    >
+                      <td className="py-3.5 px-4 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={selectedIds.includes(coupon.id)}
+                          onChange={() => handleToggleSelectOne(coupon.id)}
+                          className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
+                        />
+                      </td>
+                      <td className="py-3.5 px-6 font-mono font-bold text-gray-900">
+                        <span className="bg-gray-100 text-gray-800 px-2.5 py-1 rounded-md text-xs inline-flex items-center gap-1.5">
+                          {coupon.code}
+                          {isUsedUp && (
+                            <span className="text-[9px] font-sans font-bold px-1.5 py-0.2 rounded bg-gray-200 text-gray-600 uppercase tracking-tight">Used</span>
+                          )}
+                          {isExpired && (
+                            <span className="text-[9px] font-sans font-bold px-1.5 py-0.2 rounded bg-red-100 text-red-600 uppercase tracking-tight">Expired</span>
+                          )}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-6">
+                        <span className="text-xs font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-md">
+                          {cat}
+                        </span>
+                      </td>
+                      <td className="py-3.5 px-6 capitalize text-xs text-gray-600">
+                        {coupon.discount_type === "percentage" ? "Percentage" : "Flat Amount"}
+                      </td>
+                      <td className="py-3.5 px-6 font-bold text-gray-900 text-xs">
+                        {coupon.discount_type === "percentage" ? `${coupon.value}%` : `₹${coupon.value}`}
+                      </td>
+                      <td className="py-3.5 px-6 text-gray-600 text-xs">
+                        <span className="font-bold text-gray-900">{coupon.used_count}</span>
+                        <span className="text-gray-400"> / {coupon.max_uses !== null ? coupon.max_uses : "∞"}</span>
+                      </td>
+                      <td className="py-3.5 px-6 text-gray-500 text-xs">
+                        {coupon.expiry_date ? coupon.expiry_date : "Never"}
+                      </td>
+                      <td className="py-3.5 px-6 text-right">
+                        <button
+                          onClick={() => handleDelete(coupon.id, coupon.code)}
+                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Delete coupon"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination Bar */}
+        {pageSize !== -1 && totalPages > 1 && (
+          <div className="p-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600">
+            <div>
+              Showing <strong className="text-gray-900">{(validCurrentPage - 1) * pageSize + 1}</strong> to{" "}
+              <strong className="text-gray-900">{Math.min(validCurrentPage * pageSize, totalItems)}</strong> of{" "}
+              <strong className="text-gray-900">{totalItems}</strong> coupons
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                disabled={validCurrentPage <= 1}
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                className="p-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Previous page"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <span className="px-3 py-1 font-bold text-gray-800">
+                Page {validCurrentPage} of {totalPages}
+              </span>
+
+              <button
+                type="button"
+                disabled={validCurrentPage >= totalPages}
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                className="p-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                title="Next page"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

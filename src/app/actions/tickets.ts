@@ -292,7 +292,7 @@ export async function createCouponAction(code: string, discountType: 'percentage
   }
 }
 
-export async function bulkCreateCouponsAction(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null; expiryDate?: string | null }[]) {
+export async function bulkCreateCouponsAction(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null }[]) {
   try {
     const count = bulkCreateCoupons(coupons);
     revalidatePath('/admin/coupons');

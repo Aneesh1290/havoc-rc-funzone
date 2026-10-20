@@ -465,15 +465,15 @@ export function createCoupon(code: string, discountType: 'percentage' | 'flat', 
   `).run(code.toUpperCase().trim(), discountType, value, maxUses, expiryDate || null);
 }
 
-export function bulkCreateCoupons(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null; expiryDate?: string | null }[]) {
+export function bulkCreateCoupons(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null }[]) {
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses, expiry_date)
-    VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses)
+    VALUES (?, ?, ?, ?)
   `);
   const transaction = db.transaction((list: typeof coupons) => {
     let created = 0;
     for (const c of list) {
-      const result = insert.run(c.code.toUpperCase().trim(), c.discountType, c.value, c.maxUses ?? null, c.expiryDate || null);
+      const result = insert.run(c.code.toUpperCase().trim(), c.discountType, c.value, c.maxUses);
       if (result.changes > 0) created++;
     }
     return created;

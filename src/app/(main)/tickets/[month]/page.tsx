@@ -300,11 +300,22 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     : 0;
   const maxAvailableCap = selectedTicket ? Math.max(0, selectedTicket.capacity - bookedForSelected) : 100;
 
-  // Check that all required simulator slots for EVERY participant have a simulator and time slot chosen
+  // Check that all required simulator slots for EVERY participant have a simulator and time slot chosen,
+  // AND ensure no single participant has assigned themselves conflicting identical time slots across multiple sessions
+  const hasParticipantTimeConflict = hasSimPerk && Array.from({ length: quantity }, (_, pIdx) => {
+    const pSlots = simSelections
+      .slice(pIdx * requiredSlotsPerTicket, (pIdx + 1) * requiredSlotsPerTicket)
+      .map(s => s.slotLabel)
+      .filter(Boolean);
+    const uniqueSlots = new Set(pSlots);
+    return uniqueSlots.size < pSlots.length; // Conflict if duplicate slot found for same participant
+  }).some(Boolean);
+
   const allSimsSelected = !hasSimPerk || (
     simSelections.length === totalSimSlotsNeeded &&
     simSelections.length > 0 &&
-    simSelections.every(s => Boolean(s.simName && s.slotLabel))
+    simSelections.every(s => Boolean(s.simName && s.slotLabel)) &&
+    !hasParticipantTimeConflict
   );
 
   const canSubmit = type && date && time && maxAvailableCap > 0 && allSimsSelected;
@@ -819,15 +830,25 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                                     <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto p-1 bg-white rounded-xl border border-gray-200/80">
                                       {availableSimSlots.map((slot) => {
                                         const isSelected = selection.slotLabel === slot.label;
-                                        // Disallow picking the EXACT same simulator at the exact same 30-min slot in another selection
+                                        
+                                        // 1. Conflict Check: Same participant cannot be in two simulators at the SAME time slot
+                                        const isSlotTakenBySameParticipant = participantSlots.some(ps => 
+                                          ps.globalIndex !== globalIndex && 
+                                          ps.selection.slotLabel === slot.label
+                                        );
+
+                                        // 2. Conflict Check: Disallow picking the EXACT same simulator rig at the exact same 30-min slot by another participant
                                         const isTakenByAnotherParticipant = simSelections.some((s, idx) => 
                                           idx !== globalIndex && 
                                           s.simName === selection.simName && 
                                           s.slotLabel === slot.label
                                         );
+
+                                        // 3. Database check: Already booked in Havoc Sim Podium database
                                         const takenForThisSim = takenSimSlots[selection.simName] || [];
                                         const isTakenInDb = takenForThisSim.includes(slot.label);
-                                        const isDisabled = isTakenByAnotherParticipant || isTakenInDb;
+
+                                        const isDisabled = isSlotTakenBySameParticipant || isTakenByAnotherParticipant || isTakenInDb;
 
                                         return (
                                           <button
@@ -846,16 +867,20 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                                                 ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-sm shadow-[#ff5a1f]/30 scale-[1.02]"
                                                 : isTakenInDb
                                                   ? "bg-red-50 text-red-400 border-red-200 cursor-not-allowed opacity-60 line-through"
-                                                  : isTakenByAnotherParticipant
-                                                    ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
-                                                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                                                  : isSlotTakenBySameParticipant
+                                                    ? "bg-amber-50 text-amber-500 border-amber-200 cursor-not-allowed opacity-60 line-through"
+                                                    : isTakenByAnotherParticipant
+                                                      ? "bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-50 line-through"
+                                                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-300 hover:bg-gray-50"
                                             }`}
                                             title={
                                               isTakenInDb
                                                 ? "Already booked on Havoc Sim Podium"
-                                                : isTakenByAnotherParticipant
-                                                  ? "Already chosen by another participant"
-                                                  : undefined
+                                                : isSlotTakenBySameParticipant
+                                                  ? `Participant ${participantNumber} already has another session at ${slot.label}`
+                                                  : isTakenByAnotherParticipant
+                                                    ? "Already chosen for this simulator by another participant"
+                                                    : undefined
                                             }
                                           >
                                             {slot.label}

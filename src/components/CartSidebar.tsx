@@ -77,11 +77,12 @@ export function CartSidebar() {
         </div>
 
         {items.length > 0 && (
-          <div className="p-6 bg-gray-50 border-t border-gray-100">
-            <div className="flex justify-between items-center mb-6">
+          <div className="p-6 bg-gray-50 border-t border-gray-100 space-y-3">
+            <div className="flex justify-between items-center pb-2">
               <span className="text-gray-600 font-medium">Total Amount</span>
               <span className="text-2xl font-black text-gray-900">₹{cartTotal}</span>
             </div>
+            
             <Link 
               href="/checkout"
               onClick={() => setIsCartOpen(false)}
@@ -90,6 +91,14 @@ export function CartSidebar() {
               Proceed to Checkout
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
             </Link>
+
+            <button
+              type="button"
+              onClick={() => setIsCartOpen(false)}
+              className="w-full py-3 rounded-xl font-bold text-sm text-gray-600 hover:text-gray-900 hover:bg-gray-200/60 border border-gray-200 transition-all flex items-center justify-center gap-1.5"
+            >
+              ← Continue Browsing & Add More
+            </button>
           </div>
         )}
       </div>

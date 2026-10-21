@@ -1,14 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2 } from "lucide-react";
-import { fetchAllBookingsAction, deleteBookingsAction } from "@/app/actions/tickets";
+import { useEffect, useState, useMemo } from "react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet } from "lucide-react";
+import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
+import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
+import type { TimeSlotRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-
-import { useMemo } from "react";
 
 export interface GroupedOrder {
   orderNumber: number;
@@ -35,13 +35,19 @@ export default function BookingsPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
+  const [isExporting, setIsExporting] = useState(false);
   const router = useRouter();
 
   const loadBookings = () => {
     setIsLoading(true);
-    fetchAllBookingsAction()
-      .then((data) => {
-        setBookings(data || []);
+    Promise.all([
+      fetchAllBookingsAction(),
+      fetchTimeSlotsAction()
+    ])
+      .then(([bookingsData, slotsData]) => {
+        setBookings(bookingsData || []);
+        setTimeSlots(slotsData || []);
       })
       .catch((err) => console.error(err))
       .finally(() => setIsLoading(false));
@@ -286,6 +292,62 @@ export default function BookingsPage() {
     return true;
   });
 
+  const handleExportExcel = () => {
+    try {
+      setIsExporting(true);
+
+      // Determine which items to export:
+      // If user selected checkboxes, export only the selected orders
+      // Else export the currently filtered orders
+      let targetOrders = filteredOrders;
+      if (selectedIds.length > 0) {
+        targetOrders = filteredOrders.filter(o => selectedIds.includes(o.orderNumber));
+      }
+
+      if (targetOrders.length === 0) {
+        alert("No orders available to export.");
+        setIsExporting(false);
+        return;
+      }
+
+      // Collect all line items from the target orders
+      const exportItems: any[] = [];
+      for (const order of targetOrders) {
+        for (const item of order.items) {
+          exportItems.push({
+            ...item,
+            order_number: order.orderNumber,
+            customer_name: order.customer_name,
+            customer_phone: order.customer_phone,
+            customer_email: order.customer_email,
+            payment_status: order.payment_status,
+            fulfillment_status: order.fulfillment_status,
+            total_amount: order.total_amount
+          });
+        }
+      }
+
+      // Determine report title e.g. based on filterBookingDate
+      let title: string | undefined = undefined;
+      if (filterBookingDate) {
+        const d = new Date(filterBookingDate);
+        if (!isNaN(d.getTime())) {
+          const dayName = d.toLocaleDateString('en-US', { weekday: 'long' }).toUpperCase();
+          const monthName = d.toLocaleDateString('en-US', { month: 'long' }).toUpperCase();
+          const dayNum = d.getDate();
+          title = `${monthName} ${dayNum} (${dayName})`;
+        }
+      }
+
+      generateBookingsExcelReport(exportItems, timeSlots, title);
+    } catch (err: any) {
+      console.error("Failed to export Excel report:", err);
+      alert(err.message || "Failed to generate Excel report.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const totalSales = groupedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
   const totalOrders = groupedOrders.length;
   const avgOrder = totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : "0.00";
@@ -331,6 +393,29 @@ export default function BookingsPage() {
               </button>
             </div>
           )}
+
+          {/* Export Report Excel Button */}
+          <button
+            type="button"
+            disabled={isExporting || isLoading || filteredOrders.length === 0}
+            onClick={handleExportExcel}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Download Excel Report matching Havoc Sim Podium format"
+          >
+            {isExporting ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+            ) : (
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+            )}
+            <span>
+              {isExporting 
+                ? "Exporting..." 
+                : selectedIds.length > 0 
+                  ? `Export (${selectedIds.length})` 
+                  : "Export Report"
+              }
+            </span>
+          </button>
 
           {/* Filter button that opens the slide-over filter panel */}
           <button

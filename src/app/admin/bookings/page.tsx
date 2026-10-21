@@ -292,7 +292,7 @@ export default function BookingsPage() {
     return true;
   });
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     try {
       setIsExporting(true);
 
@@ -340,7 +340,7 @@ export default function BookingsPage() {
         }
       }
 
-      generateBookingsExcelReport(exportItems, timeSlots, title);
+      await generateBookingsExcelReport(exportItems, timeSlots, title);
     } catch (err: any) {
       console.error("Failed to export Excel report:", err);
       alert(err.message || "Failed to generate Excel report.");

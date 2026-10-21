@@ -4,6 +4,7 @@ import { getSlotWristbandColor } from "./slotColors";
 export interface BookingExportItem {
   id: number;
   order_number: number;
+  order_code?: string;
   booking_date: string;
   time_slot: string;
   quantity: number;
@@ -18,26 +19,6 @@ export interface BookingExportItem {
   slot_color?: string;
   slot_color_name?: string;
   created_at?: string;
-}
-
-interface ProcessedRow {
-  totalSl: number;
-  sn: number;
-  orderNo: string | number;
-  name: string;
-  phone: string;
-  email: string;
-  date: string;
-  timeSlot: string;
-  slotNoColour: string;
-  vQty: number | string;
-  pQty: number | string;
-  vvQty: number | string;
-  vpQty: number | string;
-  otherQty: number | string;
-  amountReceived: number;
-  amountDue: number;
-  status: string;
 }
 
 // Convert "11AM-12PM" or "3PM-4PM" into start minutes from midnight for chronological sorting
@@ -65,8 +46,8 @@ function cleanColourName(colorName?: string | null, colorHex?: string | null): s
  * Exports bookings into a beautifully styled Excel workbook matching the exact Havoc report format:
  * Top header: DATE (DAY) e.g. "OCTOBER 18 (SUNDAY)" or "ALL BOOKINGS"
  * Table Headers:
- * TOTAL SL | SN | ORDER NO | NAME | PHONE NO | E-MAIL ID | DATE | TIME SLOT | SLOT NO / COLOUR | NO OF TIC [V, P, VV, VP] | AMOUNT RECEIVED | AMOUNT DUE | STATUS
- * Grouped by Slot with separate subtotal & grand totals
+ * TOTAL SL | SN | ORDER NO | NAME | PHONE NO | E-MAIL ID | DATE | TIME SLOT | SLOT NO / COLOUR | NUMBER OF TICKETS [V, P, VV, VP] | AMOUNT RECEIVED | AMOUNT DUE | STATUS
+ * Grouped by Slot with separate subtotal & grand totals and visual gaps between time slots.
  */
 export function generateBookingsExcelReport(
   bookings: BookingExportItem[],
@@ -88,6 +69,7 @@ export function generateBookingsExcelReport(
   // Group items by order_number so all ticket passes of the same order stay combined
   const ordersMap = new Map<number, {
     orderNo: number;
+    orderCode: string;
     name: string;
     phone: string;
     email: string;
@@ -106,6 +88,7 @@ export function generateBookingsExcelReport(
     if (!ordersMap.has(orderNum)) {
       ordersMap.set(orderNum, {
         orderNo: orderNum,
+        orderCode: b.order_code || `#PAYDUE_FZ_${orderNum}`,
         name: b.customer_name || "Guest",
         phone: b.customer_phone || "",
         email: b.customer_email || "",
@@ -122,7 +105,7 @@ export function generateBookingsExcelReport(
     ordersMap.get(orderNum)!.items.push(b);
   }
 
-  // 2. Group orders by Time Slot (and date if multi-date)
+  // 2. Group orders by Time Slot
   const slotGroups = new Map<string, typeof ordersMap extends Map<any, infer V> ? V[] : never>();
 
   for (const order of ordersMap.values()) {
@@ -138,13 +121,13 @@ export function generateBookingsExcelReport(
     return getSlotStartMinutes(a) - getSlotStartMinutes(b);
   });
 
-  // Assign distinct slot numbering (SLOT-1, SLOT-2, ...)
+  // Assign distinct slot numbering (SLOT-1/ COLOR, SLOT-2/ COLOR, ...)
   const slotLabelToDisplay = new Map<string, string>();
   sortedSlotKeys.forEach((slotKey, sIdx) => {
     const meta = slotMetaMap.get(slotKey.trim().toUpperCase());
     const slotNum = meta ? meta.slotIndex : (sIdx + 1);
     
-    // Pick color from meta or from first order in this slot
+    // Pick color nickname from time slot settings or fallback to order's slot color
     const firstOrder = slotGroups.get(slotKey)?.[0];
     const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
 
@@ -165,14 +148,14 @@ export function generateBookingsExcelReport(
     }
   }
 
-  // Row 1: Main Title Banner (spanning columns A to Q)
+  // Row 1: Main Title Banner (spanning columns A to P)
   excelRows.push([
     "", "", "", "", "", "", "",
     headerDateTitle,
-    "", "", "", "", "", "", "", "", ""
+    "", "", "", "", "", "", "", ""
   ]);
 
-  // Row 2: Secondary Header / Top Row for Column Spanning (NO OF TIC and AMOUNT)
+  // Row 2: Secondary Header / Top Row for Column Spanning (NUMBER OF TICKETS and AMOUNT)
   excelRows.push([
     "TOTAL SL",
     "SN",
@@ -183,14 +166,13 @@ export function generateBookingsExcelReport(
     "DATE",
     "TIME SLOT",
     "SLOT NO / COLOUR",
-    "NO OF TIC",
+    "NUMBER OF TICKETS",
     "",
     "",
     "",
     "AMOUNT RECEIVED",
     "AMOUNT DUE",
-    "STATUS",
-    ""
+    "STATUS"
   ]);
 
   // Row 3: Sub-header row for ticket breakdown columns
@@ -202,8 +184,7 @@ export function generateBookingsExcelReport(
     "VP",  // VIP Participant
     "",    // Amount Received
     "",    // Amount Due
-    "",    // Status
-    ""
+    ""     // Status
   ]);
 
   let totalSlCounter = 1;
@@ -215,8 +196,13 @@ export function generateBookingsExcelReport(
   let grandTotalAmountReceived = 0;
   let grandTotalAmountDue = 0;
 
-  // Process slot groups
-  for (const slotKey of sortedSlotKeys) {
+  // Process slot groups with a clean blank gap row in-between slots
+  sortedSlotKeys.forEach((slotKey, slotIndex) => {
+    // If not the very first slot, add an empty gap row between slots for clean separation
+    if (slotIndex > 0) {
+      excelRows.push([]);
+    }
+
     const ordersInSlot = slotGroups.get(slotKey)!;
     // Sort orders in slot by orderNo
     ordersInSlot.sort((a, b) => a.orderNo - b.orderNo);
@@ -259,7 +245,6 @@ export function generateBookingsExcelReport(
       grandTotalTickets += (vCount + pCount + vvCount + vpCount);
 
       // Financials
-      // If payment_status is 'Paid', amount is in Received; otherwise in Due
       const isPaid = order.payment_status.toLowerCase() === "paid";
       const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
 
@@ -272,7 +257,7 @@ export function generateBookingsExcelReport(
       const rowData = [
         currentSl,
         sn,
-        order.orderNo,
+        order.orderCode, // Use the default website order code e.g. #PAYDUE_FZ_16
         order.name,
         order.phone,
         order.email,
@@ -290,7 +275,7 @@ export function generateBookingsExcelReport(
 
       excelRows.push(rowData);
     });
-  }
+  });
 
   // Blank separator row before total
   excelRows.push([]);
@@ -324,7 +309,7 @@ export function generateBookingsExcelReport(
   ws["!merges"] = [
     // Row 1 Title Banner
     { s: { r: 0, c: 0 }, e: { r: 0, c: 15 } },
-    // NO OF TIC across 4 columns (V, P, VV, VP) -> cols 9, 10, 11, 12
+    // NUMBER OF TICKETS across 4 columns (V, P, VV, VP) -> cols 9, 10, 11, 12
     { s: { r: 1, c: 9 }, e: { r: 1, c: 12 } },
     // Columns that span rows 1 and 2 (0-indexed r:1 to r:2)
     { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }, // TOTAL SL
@@ -345,13 +330,13 @@ export function generateBookingsExcelReport(
   ws["!cols"] = [
     { wch: 10 }, // TOTAL SL
     { wch: 6 },  // SN
-    { wch: 12 }, // ORDER NO
+    { wch: 18 }, // ORDER NO (wide enough for #PAYDUE_FZ_16)
     { wch: 22 }, // NAME
-    { wch: 15 }, // PHONE NO
+    { wch: 16 }, // PHONE NO
     { wch: 28 }, // E-MAIL ID
-    { wch: 10 }, // DATE
-    { wch: 14 }, // TIME SLOT
-    { wch: 20 }, // SLOT NO / COLOUR
+    { wch: 12 }, // DATE
+    { wch: 15 }, // TIME SLOT
+    { wch: 22 }, // SLOT NO / COLOUR
     { wch: 6 },  // V
     { wch: 6 },  // P
     { wch: 6 },  // VV

@@ -317,6 +317,7 @@ export default function BookingsPage() {
           exportItems.push({
             ...item,
             order_number: order.orderNumber,
+            order_code: order.orderCode,
             customer_name: order.customer_name,
             customer_phone: order.customer_phone,
             customer_email: order.customer_email,

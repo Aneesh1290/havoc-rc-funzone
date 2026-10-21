@@ -110,10 +110,10 @@ export function getSlotWristbandColor(slotLabel?: string | null, customHex?: str
   
   const found = WRISTBAND_PALETTE.find(p => p.hex.toUpperCase() === hex);
   if (found) {
-    if (customColorName && customColorName.trim()) {
-      return { ...found, name: customColorName.trim() };
-    }
-    return found;
+    return {
+      ...found,
+      name: (customColorName && customColorName.trim()) ? customColorName.trim() : found.name
+    };
   }
 
   return {

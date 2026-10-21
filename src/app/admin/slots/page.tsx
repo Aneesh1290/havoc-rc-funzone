@@ -1287,21 +1287,18 @@ export default function SlotsManagementPage() {
                       <div className="h-6 w-[1px] bg-gray-200 mx-1 hidden sm:block" />
 
                       <div className="flex flex-col">
-                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Band Color Name</span>
+                        <span className="text-[9px] font-bold uppercase text-gray-400 tracking-wider">Color Nickname / Label</span>
                         <input
                           type="text"
                           value={editingSlot.color_name || ""}
                           onChange={(e) => {
-                            const val = e.target.value;
-                            const matchedHex = resolveColorNameToHex(val);
                             setEditingSlot({
                               ...editingSlot,
-                              color_name: val,
-                              color: matchedHex ? matchedHex : editingSlot.color
+                              color_name: e.target.value
                             });
                           }}
-                          placeholder="e.g. Yellow, Red, Pink"
-                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-32"
+                          placeholder="e.g. Yellow, Red, Neon Blue"
+                          className="text-xs font-bold text-gray-900 bg-transparent border-0 p-0 focus:ring-0 w-36"
                         />
                       </div>
 

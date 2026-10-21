@@ -9,7 +9,7 @@ import {
   cancelBookingAction
 } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
-import { getSlotWristbandColor } from "@/lib/slotColors";
+import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
@@ -277,18 +277,22 @@ export default function OrderDetailPage() {
                     <strong className="text-gray-900 font-bold">{booking.time_slot}</strong>
                     {booking.time_slot && (() => {
                       const band = getSlotWristbandColor(booking.time_slot, booking.slot_color, booking.slot_color_name);
+                      const badgeStyle = getWristbandBadgeStyle(band.hex);
                       return (
                         <span 
                           className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
                           style={{
-                            backgroundColor: band.hex + '18',
-                            borderColor: band.hex + '50',
-                            color: band.hex
+                            backgroundColor: badgeStyle.backgroundColor,
+                            borderColor: badgeStyle.borderColor,
+                            color: badgeStyle.color
                           }}
                         >
                           <span 
-                            className="w-2.5 h-2.5 rounded-full border border-black/20 shrink-0 shadow-inner"
-                            style={{ backgroundColor: band.hex }}
+                            className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
+                            style={{ 
+                              backgroundColor: band.hex,
+                              borderColor: badgeStyle.dotBorderColor
+                            }}
                           />
                           <span>{band.name} Band</span>
                         </span>

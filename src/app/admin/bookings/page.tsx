@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2 } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
-import { getSlotWristbandColor } from "@/lib/slotColors";
+import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -642,19 +642,23 @@ export default function BookingsPage() {
                           <div className="mt-1 flex items-center gap-1.5">
                             {(() => {
                               const band = getSlotWristbandColor(b.time_slot, b.slot_color, b.slot_color_name);
+                              const badgeStyle = getWristbandBadgeStyle(band.hex);
                               return (
                                 <span
                                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-extrabold border"
                                   style={{
-                                    backgroundColor: band.hex + '18',
-                                    borderColor: band.hex + '50',
-                                    color: band.hex
+                                    backgroundColor: badgeStyle.backgroundColor,
+                                    borderColor: badgeStyle.borderColor,
+                                    color: badgeStyle.color
                                   }}
                                   title={`Wristband Color: ${band.name}`}
                                 >
                                   <span 
-                                    className="w-2 h-2 rounded-full border border-black/20 shrink-0"
-                                    style={{ backgroundColor: band.hex }}
+                                    className="w-2 h-2 rounded-full border shrink-0"
+                                    style={{ 
+                                      backgroundColor: band.hex,
+                                      borderColor: badgeStyle.dotBorderColor
+                                    }}
                                   />
                                   <span>{b.time_slot}</span>
                                 </span>

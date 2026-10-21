@@ -36,7 +36,7 @@ import {
   toggleOpenedSpecificDateAction
 } from "@/app/actions/tickets";
 import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
-import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "@/lib/slotColors";
+import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex, getWristbandBadgeStyle } from "@/lib/slotColors";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
@@ -1340,6 +1340,7 @@ export default function SlotsManagementPage() {
                 {timeSlots.map((slot, index) => {
                   const isActive = slot.active === 1;
                   const band = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
+                  const badgeStyle = getWristbandBadgeStyle(band.hex);
                   const displayOrder = slot.sort_order > 0 ? slot.sort_order : index + 1;
 
                   return (
@@ -1358,14 +1359,17 @@ export default function SlotsManagementPage() {
                         <div 
                           className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold shadow-xs"
                           style={{
-                            backgroundColor: band.hex + '18',
-                            borderColor: band.hex + '40',
-                            color: band.hex
+                            backgroundColor: badgeStyle.backgroundColor,
+                            borderColor: badgeStyle.borderColor,
+                            color: badgeStyle.color
                           }}
                         >
                           <span 
-                            className="w-3.5 h-3.5 rounded-full border border-black/20 shrink-0 shadow-inner"
-                            style={{ backgroundColor: band.hex }}
+                            className="w-3.5 h-3.5 rounded-full border shrink-0 shadow-inner"
+                            style={{ 
+                              backgroundColor: band.hex,
+                              borderColor: badgeStyle.dotBorderColor
+                            }}
                           />
                           <span className="tracking-wide uppercase text-[11px] font-bold">
                             {band.name}

@@ -125,3 +125,47 @@ export function getSlotWristbandColor(slotLabel?: string | null, customHex?: str
     ringClass: "ring-gray-400"
   };
 }
+
+/**
+ * Helper to compute high-contrast inline styles for wristband badges.
+ * Prevents light or white colors (e.g. #F4F4F5, #FFFFFF, pale yellows) from becoming unreadable invisible text.
+ */
+export function getWristbandBadgeStyle(hex: string): {
+  backgroundColor: string;
+  borderColor: string;
+  color: string;
+  dotBorderColor: string;
+} {
+  const cleanHex = hex.replace("#", "");
+  let r = 0, g = 0, b = 0;
+  if (cleanHex.length === 3) {
+    r = parseInt(cleanHex[0] + cleanHex[0], 16);
+    g = parseInt(cleanHex[1] + cleanHex[1], 16);
+    b = parseInt(cleanHex[2] + cleanHex[2], 16);
+  } else if (cleanHex.length >= 6) {
+    r = parseInt(cleanHex.substring(0, 2), 16);
+    g = parseInt(cleanHex.substring(2, 4), 16);
+    b = parseInt(cleanHex.substring(4, 6), 16);
+  }
+
+  // Calculate perceived luminance (standard formula)
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+
+  // If color is very bright (e.g. White, Cream, Pale Gray > 0.72)
+  if (luminance > 0.72) {
+    return {
+      backgroundColor: "#F4F4F5",
+      borderColor: "#D4D4D8",
+      color: "#18181B", // Dark charcoal for high contrast readability
+      dotBorderColor: "#71717A"
+    };
+  }
+
+  return {
+    backgroundColor: `${hex}18`,
+    borderColor: `${hex}50`,
+    color: hex,
+    dotBorderColor: "rgba(0, 0, 0, 0.2)"
+  };
+}
+

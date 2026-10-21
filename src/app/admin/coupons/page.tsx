@@ -21,7 +21,9 @@ import {
   bulkCreateCouponsAction, 
   deleteCouponAction,
   deleteAllCouponsAction,
-  deleteMultipleCouponsAction
+  deleteMultipleCouponsAction,
+  bulkUpdateCouponsExpiryAction,
+  bulkUpdateAllCouponsExpiryAction
 } from "@/app/actions/tickets";
 import { CouponRow } from "@/lib/db";
 
@@ -55,6 +57,11 @@ export default function AdminCouponsPage() {
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(50); // 50, 100, 250, 500, ALL (-1)
+
+  // Bulk Expiry Update States
+  const [bulkExpiryInput, setBulkExpiryInput] = useState("");
+  const [isUpdatingExpiry, setIsUpdatingExpiry] = useState(false);
+  const [showBulkExpiryBar, setShowBulkExpiryBar] = useState(false);
 
   // Loading states
   const [addingSingle, setAddingSingle] = useState(false);
@@ -192,6 +199,57 @@ export default function AdminCouponsPage() {
       setSelectedIds(coupons.map(c => c.id));
     }
   };
+
+  const handleBulkApplyExpiry = async (targetIds: number[], dateVal: string | null) => {
+    if (targetIds.length === 0) {
+      showNotification("Please select at least one coupon", "error");
+      return;
+    }
+    const label = dateVal ? `set expiry to ${dateVal}` : `remove expiry date (Never)`;
+    if (!confirm(`Are you sure you want to ${label} for ${targetIds.length} coupons?`)) {
+      return;
+    }
+
+    setIsUpdatingExpiry(true);
+    const res = await bulkUpdateCouponsExpiryAction(targetIds, dateVal);
+    setIsUpdatingExpiry(false);
+
+    if (res.success) {
+      showNotification(`Successfully updated expiry date for ${res.count} coupons!`);
+      setShowBulkExpiryBar(false);
+      setBulkExpiryInput("");
+      loadCoupons();
+    } else {
+      showNotification(res.error || "Failed to update expiry date", "error");
+    }
+  };
+
+  const handleApplyExpiryToCurrentFiltered = async (dateVal: string | null) => {
+    const targetIds = filteredAndSortedCoupons.map(c => c.id);
+    if (targetIds.length === 0) {
+      showNotification("No coupons match the current filter", "error");
+      return;
+    }
+
+    const label = dateVal ? `set expiry to ${dateVal}` : `remove expiry date (Never)`;
+    if (!confirm(`Are you sure you want to ${label} for ALL ${targetIds.length} currently filtered/displayed coupons?`)) {
+      return;
+    }
+
+    setIsUpdatingExpiry(true);
+    const res = await bulkUpdateCouponsExpiryAction(targetIds, dateVal);
+    setIsUpdatingExpiry(false);
+
+    if (res.success) {
+      showNotification(`Successfully updated expiry date for ${res.count} coupons!`);
+      setShowBulkExpiryBar(false);
+      setBulkExpiryInput("");
+      loadCoupons();
+    } else {
+      showNotification(res.error || "Failed to update expiry date", "error");
+    }
+  };
+
 
   const handleToggleSelectOne = (id: number) => {
     setSelectedIds(prev => 
@@ -576,6 +634,19 @@ export default function AdminCouponsPage() {
 
           {coupons.length > 0 && (
             <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+              <button
+                type="button"
+                onClick={() => setShowBulkExpiryBar(prev => !prev)}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                  showBulkExpiryBar
+                    ? "bg-amber-100 text-amber-900 border-amber-300 shadow-2xs"
+                    : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200 shadow-2xs"
+                }`}
+              >
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                {showBulkExpiryBar ? "Hide Expiry Tool" : "Bulk Set / Update Expiry"}
+              </button>
+
               {selectedIds.length > 0 && (
                 <button
                   type="button"
@@ -599,6 +670,70 @@ export default function AdminCouponsPage() {
             </div>
           )}
         </div>
+
+        {/* Collapsible Bulk Expiry Update Bar */}
+        {showBulkExpiryBar && (
+          <div className="mx-6 p-4 rounded-xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/80 shadow-xs space-y-3 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-amber-600" />
+                <span className="text-xs font-black uppercase tracking-wider text-amber-900">
+                  Bulk Assign / Change Expiry Date
+                </span>
+              </div>
+              <span className="text-[11px] text-amber-800">
+                Pick a date to update selected coupons or all currently filtered coupons at once.
+              </span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-bold text-gray-700 whitespace-nowrap">Target Expiry:</label>
+                <input
+                  type="date"
+                  value={bulkExpiryInput}
+                  onChange={(e) => setBulkExpiryInput(e.target.value)}
+                  className="bg-white border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Apply to Selected */}
+                <button
+                  type="button"
+                  disabled={isUpdatingExpiry || !bulkExpiryInput || selectedIds.length === 0}
+                  onClick={() => handleBulkApplyExpiry(selectedIds, bulkExpiryInput)}
+                  className="px-3.5 py-1.5 bg-[#ff5a1f] hover:bg-[#e04812] text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {isUpdatingExpiry ? "Updating..." : `Apply to Selected (${selectedIds.length})`}
+                </button>
+
+                {/* Apply to All Filtered / Displayed */}
+                <button
+                  type="button"
+                  disabled={isUpdatingExpiry || !bulkExpiryInput || filteredAndSortedCoupons.length === 0}
+                  onClick={() => handleApplyExpiryToCurrentFiltered(bulkExpiryInput)}
+                  className="px-3.5 py-1.5 bg-gray-900 hover:bg-gray-800 text-white text-xs font-bold rounded-xl transition-all shadow-xs disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {isUpdatingExpiry ? "Updating..." : `Apply to All Filtered (${filteredAndSortedCoupons.length})`}
+                </button>
+
+                {/* Remove Expiry (Set to Never) */}
+                <button
+                  type="button"
+                  disabled={isUpdatingExpiry || selectedIds.length === 0}
+                  onClick={() => handleBulkApplyExpiry(selectedIds, null)}
+                  className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 text-xs font-semibold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Remove expiry date from selected coupons"
+                >
+                  Remove Expiry (Never)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Category Tabs & Quick Filters */}
         <div className="px-6 space-y-3">

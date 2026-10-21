@@ -17,6 +17,8 @@ import {
   deleteCoupon,
   deleteAllCoupons,
   deleteMultipleCoupons,
+  bulkUpdateCouponsExpiry,
+  bulkUpdateAllCouponsExpiry,
   getCouponByCode,
   incrementCouponUsage,
   CouponRow,
@@ -327,6 +329,28 @@ export async function deleteMultipleCouponsAction(ids: number[]) {
   } catch (error: any) {
     console.error("deleteMultipleCouponsAction error:", error);
     return { success: false, error: error.message || "Failed to delete selected coupons" };
+  }
+}
+
+export async function bulkUpdateCouponsExpiryAction(ids: number[], expiryDate: string | null) {
+  try {
+    const result = bulkUpdateCouponsExpiry(ids, expiryDate);
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("bulkUpdateCouponsExpiryAction error:", error);
+    return { success: false, error: error.message || "Failed to update expiry date" };
+  }
+}
+
+export async function bulkUpdateAllCouponsExpiryAction(expiryDate: string | null) {
+  try {
+    const result = bulkUpdateAllCouponsExpiry(expiryDate);
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("bulkUpdateAllCouponsExpiryAction error:", error);
+    return { success: false, error: error.message || "Failed to update expiry date for all coupons" };
   }
 }
 

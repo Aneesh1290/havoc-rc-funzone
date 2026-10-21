@@ -503,6 +503,16 @@ export function incrementCouponUsage(code: string) {
   return db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE code = ?').run(code.toUpperCase().trim());
 }
 
+export function bulkUpdateCouponsExpiry(ids: number[], expiryDate: string | null) {
+  if (ids.length === 0) return { changes: 0 };
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`UPDATE coupons SET expiry_date = ? WHERE id IN (${placeholders})`).run(expiryDate || null, ...ids);
+}
+
+export function bulkUpdateAllCouponsExpiry(expiryDate: string | null) {
+  return db.prepare(`UPDATE coupons SET expiry_date = ?`).run(expiryDate || null);
+}
+
 export interface AdminUser {
   id: number;
   username: string;

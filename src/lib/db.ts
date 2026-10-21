@@ -268,6 +268,74 @@ export function initDB() {
   } catch (e) {
     // sqlite_sequence may not exist yet if no table with autoincrement was touched
   }
+
+  // Automatic consolidation for existing orders placed by the same customer around the same time
+  try {
+    // 1. For any rows where order_number is NULL, initialize order_number = id
+    db.exec('UPDATE bookings SET order_number = id WHERE order_number IS NULL');
+
+    // 2. Identify and consolidate split rows:
+    // When the same customer (matching email or phone or name) booked for the same date & time slot within 10 minutes,
+    // consolidate them under the earliest order_number.
+    const allRows = db.prepare(`
+      SELECT id, order_number, customer_name, customer_email, customer_phone, booking_date, time_slot, created_at
+      FROM bookings
+      ORDER BY id ASC
+    `).all() as {
+      id: number;
+      order_number: number;
+      customer_name?: string;
+      customer_email?: string;
+      customer_phone?: string;
+      booking_date: string;
+      time_slot: string;
+      created_at?: string;
+    }[];
+
+    const updateOrderStmt = db.prepare('UPDATE bookings SET order_number = ? WHERE id = ?');
+
+    for (let i = 0; i < allRows.length; i++) {
+      const primary = allRows[i];
+      const pName = (primary.customer_name || '').trim().toLowerCase();
+      const pEmail = (primary.customer_email || '').trim().toLowerCase();
+      const pPhone = (primary.customer_phone || '').replace(/\D/g, '');
+      const pDate = primary.booking_date;
+      const pSlot = primary.time_slot;
+      const pTime = primary.created_at ? new Date(primary.created_at).getTime() : 0;
+
+      for (let j = i + 1; j < allRows.length; j++) {
+        const secondary = allRows[j];
+        if (secondary.order_number === primary.order_number) continue;
+
+        const sName = (secondary.customer_name || '').trim().toLowerCase();
+        const sEmail = (secondary.customer_email || '').trim().toLowerCase();
+        const sPhone = (secondary.customer_phone || '').replace(/\D/g, '');
+        const sDate = secondary.booking_date;
+        const sSlot = secondary.time_slot;
+        const sTime = secondary.created_at ? new Date(secondary.created_at).getTime() : 0;
+
+        // Check customer identity match
+        const matchesCustomer = 
+          (pEmail && sEmail && pEmail === sEmail) ||
+          (pPhone && sPhone && pPhone === sPhone) ||
+          (pName && sName && pName === sName);
+
+        // Check if same slot and date
+        const sameSlotAndDate = (pDate === sDate) && (pSlot === sSlot);
+
+        // Check if created around the same time (within 15 minutes of each other or same time)
+        const timeDiffMins = (pTime && sTime) ? Math.abs(pTime - sTime) / (1000 * 60) : 0;
+        const closeTime = timeDiffMins <= 15;
+
+        if (matchesCustomer && sameSlotAndDate && closeTime) {
+          updateOrderStmt.run(primary.order_number, secondary.id);
+          secondary.order_number = primary.order_number;
+        }
+      }
+    }
+  } catch (consolidateErr) {
+    console.error("Error running booking auto-consolidation:", consolidateErr);
+  }
 }
 
 export interface TicketRow {

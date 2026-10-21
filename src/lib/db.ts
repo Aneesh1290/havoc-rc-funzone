@@ -333,8 +333,38 @@ export function initDB() {
         }
       }
     }
+
+    // 3. Renumber distinct order_numbers sequentially (1, 2, 3, 4...) so there are no skipped gaps
+    const distinctOrders = db.prepare(`
+      SELECT order_number, MIN(id) as min_id
+      FROM bookings
+      GROUP BY order_number
+      ORDER BY min_id ASC
+    `).all() as { order_number: number; min_id: number }[];
+
+    // If there are gaps (e.g. 1, 4, 5, 6, 8, 9, 11, 13, 16...), map them to 1, 2, 3, 4, 5...
+    let needsRenumbering = false;
+    for (let idx = 0; idx < distinctOrders.length; idx++) {
+      if (distinctOrders[idx].order_number !== idx + 1) {
+        needsRenumbering = true;
+        break;
+      }
+    }
+
+    if (needsRenumbering) {
+      const updateOrderNumStmt = db.prepare('UPDATE bookings SET order_number = ? WHERE order_number = ?');
+      // Use temporary negative offset to avoid collision
+      for (let idx = 0; idx < distinctOrders.length; idx++) {
+        const oldNum = distinctOrders[idx].order_number;
+        updateOrderNumStmt.run(-(idx + 1), oldNum);
+      }
+      // Re-apply positive sequential numbers
+      for (let idx = 0; idx < distinctOrders.length; idx++) {
+        updateOrderNumStmt.run(idx + 1, -(idx + 1));
+      }
+    }
   } catch (consolidateErr) {
-    console.error("Error running booking auto-consolidation:", consolidateErr);
+    console.error("Error running booking auto-consolidation & renumbering:", consolidateErr);
   }
 }
 

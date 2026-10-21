@@ -68,31 +68,95 @@ function normalizeHex(hex?: string | null): string {
   return clean.toUpperCase();
 }
 
-// Format a date string (e.g. "Oct 18" or "2026-10-18") into a full display banner "OCTOBER 18 (SUNDAY)"
-function formatFullDateBanner(dateStr: string, fallbackTitle?: string): { bannerTitle: string; sheetTabName: string } {
+const MONTH_NAME_TO_INDEX: Record<string, number> = {
+  jan: 0, january: 0,
+  feb: 1, february: 1,
+  mar: 2, march: 2,
+  apr: 3, april: 3,
+  may: 4,
+  jun: 5, june: 5,
+  jul: 6, july: 6,
+  aug: 7, august: 7,
+  sep: 8, september: 8,
+  oct: 9, october: 9,
+  nov: 10, november: 10,
+  dec: 11, december: 11,
+};
+
+const WEEKDAY_NAMES = [
+  "SUNDAY", "MONDAY", "TUESDAY", "WEDNESDAY", "THURSDAY", "FRIDAY", "SATURDAY"
+];
+
+const MONTH_FULL_NAMES = [
+  "OCTOBER", "NOVEMBER", "DECEMBER", "JANUARY", "FEBRUARY", "MARCH",
+  "APRIL", "MAY", "JUNE", "JULY", "AUGUST", "SEPTEMBER"
+];
+
+// Helper to reliably parse booking dates like "Oct 20", "October 20", "2026-10-20"
+function parseBookingDate(dateStr: string, referenceYear?: number): Date | null {
+  if (!dateStr || dateStr === "UNASSIGNED") return null;
+
+  const clean = dateStr.trim();
+  const yearToUse = referenceYear || new Date().getFullYear();
+
+  // Pattern 1: "Oct 20" or "October 20" or "Oct 20, 2026"
+  const wordMatch = clean.match(/^([A-Za-z]+)\s*(\d{1,2})(?:[,\s]+(\d{4}))?$/i);
+  if (wordMatch) {
+    const monthKey = wordMatch[1].toLowerCase().slice(0, 3);
+    const day = parseInt(wordMatch[2], 10);
+    const yr = wordMatch[3] ? parseInt(wordMatch[3], 10) : yearToUse;
+    const mIdx = MONTH_NAME_TO_INDEX[monthKey];
+    if (mIdx !== undefined && !isNaN(day) && day >= 1 && day <= 31) {
+      return new Date(yr, mIdx, day);
+    }
+  }
+
+  // Pattern 2: ISO "2026-10-20"
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const yr = parseInt(isoMatch[1], 10);
+    const mIdx = parseInt(isoMatch[2], 10) - 1;
+    const day = parseInt(isoMatch[3], 10);
+    return new Date(yr, mIdx, day);
+  }
+
+  // Pattern 3: Fallback standard date
+  const parsed = new Date(clean);
+  if (!isNaN(parsed.getTime())) {
+    // If parsed year is suspiciously 2001 (e.g. from new Date("Oct 20")), replace with yearToUse
+    if (parsed.getFullYear() < 2020) {
+      return new Date(yearToUse, parsed.getMonth(), parsed.getDate());
+    }
+    return parsed;
+  }
+
+  return null;
+}
+
+// Format a date string (e.g. "Oct 20") into a full display banner "OCTOBER 20 (TUESDAY)"
+function formatFullDateBanner(
+  dateStr: string, 
+  fallbackTitle?: string,
+  referenceYear?: number
+): { bannerTitle: string; sheetTabName: string; sortTimestamp: number } {
   if (!dateStr || dateStr === "UNASSIGNED") {
-    return { bannerTitle: fallbackTitle || "ALL BOOKINGS", sheetTabName: "All Bookings" };
+    return { bannerTitle: fallbackTitle || "ALL BOOKINGS", sheetTabName: "All Bookings", sortTimestamp: 0 };
   }
 
-  // Attempt standard parsing
-  let d = new Date(dateStr);
-  // If "Oct 18" without year, append current year
-  if (isNaN(d.getTime())) {
-    d = new Date(`${dateStr} ${new Date().getFullYear()}`);
-  }
+  const d = parseBookingDate(dateStr, referenceYear);
 
-  if (!isNaN(d.getTime())) {
+  if (d && !isNaN(d.getTime())) {
     const monthLong = d.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
     const dayNum = d.getDate();
-    const weekday = d.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+    const weekday = WEEKDAY_NAMES[d.getDay()]; // Direct 0-6 index lookup ensures 100% correct day
     const bannerTitle = `${monthLong} ${dayNum} (${weekday})`;
     const monthShort = d.toLocaleDateString("en-US", { month: "short" });
     const sheetTabName = `${monthShort} ${dayNum}`.slice(0, 31);
-    return { bannerTitle, sheetTabName };
+    return { bannerTitle, sheetTabName, sortTimestamp: d.getTime() };
   }
 
   const clean = dateStr.toUpperCase();
-  return { bannerTitle: clean, sheetTabName: dateStr.slice(0, 31) };
+  return { bannerTitle: clean, sheetTabName: dateStr.slice(0, 31), sortTimestamp: 0 };
 }
 
 interface OrderData {
@@ -488,11 +552,23 @@ export async function generateBookingsExcelReport(
     dateGroups.get(dKey)!.push(order);
   }
 
-  // Sort distinct dates chronologically
+  // Determine reference year from bookings (e.g. 2026 from created_at)
+  let detectedYear = new Date().getFullYear();
+  for (const b of bookings) {
+    if (b.created_at) {
+      const y = new Date(b.created_at).getFullYear();
+      if (!isNaN(y) && y >= 2020) {
+        detectedYear = y;
+        break;
+      }
+    }
+  }
+
+  // Sort distinct dates chronologically using accurate timestamps
   const sortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
-    const timeA = new Date(a).getTime() || 0;
-    const timeB = new Date(b).getTime() || 0;
-    return timeA - timeB;
+    const metaA = formatFullDateBanner(a, undefined, detectedYear);
+    const metaB = formatFullDateBanner(b, undefined, detectedYear);
+    return metaA.sortTimestamp - metaB.sortTimestamp;
   });
 
   // Create Excel Workbook
@@ -511,7 +587,7 @@ export async function generateBookingsExcelReport(
   if (sortedDates.length > 1) usedTabNames.add("All Bookings");
 
   for (const dateKey of sortedDates) {
-    const { bannerTitle, sheetTabName } = formatFullDateBanner(dateKey, reportTitle);
+    const { bannerTitle, sheetTabName } = formatFullDateBanner(dateKey, reportTitle, detectedYear);
 
     // Ensure tab name is unique and valid for Excel (max 31 chars, no invalid chars : \ / ? * [ ])
     let cleanTab = sheetTabName.replace(/[:\\/?*\[\]]/g, "_").slice(0, 31);

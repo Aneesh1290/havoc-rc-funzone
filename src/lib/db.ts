@@ -144,6 +144,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_name TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_slot TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN order_number INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
 
@@ -310,7 +311,7 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
 export function getAllBookings() {
   return db.prepare(`
     SELECT 
-      b.id, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
+      b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
@@ -324,7 +325,7 @@ export function getAllBookings() {
 export function getBookingById(id: number) {
   return db.prepare(`
     SELECT 
-      b.id, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
+      b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
@@ -333,6 +334,49 @@ export function getBookingById(id: number) {
     LEFT JOIN time_slots s ON b.time_slot = s.label
     WHERE b.id = ?
   `).get(id);
+}
+
+export function getBookingsByOrderNumber(orderNum: number) {
+  return db.prepare(`
+    SELECT 
+      b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      s.color as slot_color, s.color_name as slot_color_name
+    FROM bookings b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
+    WHERE b.order_number = ? OR (b.order_number IS NULL AND b.id = ?)
+    ORDER BY b.id ASC
+  `).all(orderNum, orderNum);
+}
+
+export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string, fulfillmentStatus?: string) {
+  if (paymentStatus && fulfillmentStatus) {
+    return db.prepare('UPDATE bookings SET payment_status = ?, fulfillment_status = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(paymentStatus, fulfillmentStatus, orderNum, orderNum);
+  } else if (paymentStatus) {
+    return db.prepare('UPDATE bookings SET payment_status = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(paymentStatus, orderNum, orderNum);
+  } else if (fulfillmentStatus) {
+    return db.prepare('UPDATE bookings SET fulfillment_status = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(fulfillmentStatus, orderNum, orderNum);
+  }
+}
+
+export function updateOrderGroupTags(orderNum: number, tags: string) {
+  return db.prepare('UPDATE bookings SET tags = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(tags, orderNum, orderNum);
+}
+
+export function cancelOrderGroup(orderNum: number) {
+  return db.prepare(`
+    UPDATE bookings 
+    SET payment_status = 'Refunded', fulfillment_status = 'Canceled' 
+    WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+  `).run(orderNum, orderNum);
+}
+
+export function deleteOrderGroup(orderNums: number[]) {
+  if (!orderNums || orderNums.length === 0) return { changes: 0 };
+  const placeholders = orderNums.map(() => '?').join(',');
+  return db.prepare(`DELETE FROM bookings WHERE order_number IN (${placeholders}) OR (order_number IS NULL AND id IN (${placeholders}))`).run(...orderNums, ...orderNums);
 }
 
 export function updateBookingStatus(id: number, paymentStatus?: string, fulfillmentStatus?: string) {
@@ -368,7 +412,70 @@ export function deleteBookings(ids: number[]) {
   return db.prepare(`DELETE FROM bookings WHERE id IN (${placeholders})`).run(...ids);
 }
 
+export function getNextOrderNumber(): number {
+  const row = db.prepare('SELECT MAX(COALESCE(order_number, id)) as max_num FROM bookings').get() as { max_num: number | null };
+  return (row && row.max_num && row.max_num > 0) ? row.max_num + 1 : 1;
+}
 
+export interface BatchBookingItem {
+  ticketId: number;
+  date: string;
+  timeSlot: string;
+  quantity: number;
+  itemTotal: number;
+  simulatorName?: string;
+  simulatorSlot?: string;
+}
+
+export function addBatchBooking(
+  items: BatchBookingItem[],
+  customerName: string,
+  customerEmail: string,
+  customerPhone: string
+) {
+  if (!items || items.length === 0) return null;
+  const createdAt = new Date().toISOString();
+  const orderNumber = getNextOrderNumber();
+
+  const insertStmt = db.prepare(`
+    INSERT INTO bookings (
+      order_number, ticket_id, booking_date, time_slot, quantity, 
+      customer_name, customer_email, customer_phone, total_amount, 
+      payment_status, fulfillment_status, simulator_name, simulator_slot, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?)
+  `);
+
+  const insertedIds: number[] = [];
+
+  const runTransaction = db.transaction(() => {
+    for (const item of items) {
+      const info = insertStmt.run(
+        orderNumber,
+        item.ticketId,
+        item.date,
+        item.timeSlot,
+        item.quantity,
+        customerName,
+        customerEmail,
+        customerPhone,
+        item.itemTotal,
+        item.simulatorName || null,
+        item.simulatorSlot || null,
+        createdAt
+      );
+      insertedIds.push(Number(info.lastInsertRowid));
+    }
+  });
+
+  runTransaction();
+
+  return {
+    orderNumber,
+    primaryId: insertedIds[0] || orderNumber,
+    insertedIds,
+    createdAt
+  };
+}
 
 export function addBooking(
   ticketId: number, 
@@ -380,18 +487,20 @@ export function addBooking(
   customerPhone: string, 
   totalAmount: number,
   simulatorName?: string,
-  simulatorSlot?: string
+  simulatorSlot?: string,
+  explicitOrderNumber?: number
 ) {
   const createdAt = new Date().toISOString();
+  const orderNumber = explicitOrderNumber || getNextOrderNumber();
   const info = db.prepare(`
     INSERT INTO bookings (
-      ticket_id, booking_date, time_slot, quantity, 
+      order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
       payment_status, fulfillment_status, simulator_name, simulator_slot, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?)
-  `).run(ticketId, date, timeSlot, quantity, customerName, customerEmail, customerPhone, totalAmount, simulatorName || null, simulatorSlot || null, createdAt);
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?)
+  `).run(orderNumber, ticketId, date, timeSlot, quantity, customerName, customerEmail, customerPhone, totalAmount, simulatorName || null, simulatorSlot || null, createdAt);
 
-  return { id: Number(info.lastInsertRowid), createdAt };
+  return { id: Number(info.lastInsertRowid), orderNumber, createdAt };
 }
 
 export function updateTicketStatus(id: number, active: boolean) {

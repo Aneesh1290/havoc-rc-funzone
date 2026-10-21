@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { 
   fetchBookingByIdAction, 
+  fetchBookingsByOrderNumberAction,
   updateBookingStatusAction, 
   updateBookingTagsAction,
   cancelBookingAction
@@ -20,6 +21,7 @@ export default function OrderDetailPage() {
   const id = Number(params?.id);
 
   const [booking, setBooking] = useState<any>(null);
+  const [orderItems, setOrderItems] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [paymentMenuOpen, setPaymentMenuOpen] = useState(false);
@@ -28,16 +30,26 @@ export default function OrderDetailPage() {
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [tagsInput, setTagsInput] = useState("");
 
-  const loadBooking = () => {
+  const loadBooking = async () => {
     if (!id) return;
     setLoading(true);
-    fetchBookingByIdAction(id)
-      .then((data: any) => {
+    try {
+      const data: any = await fetchBookingByIdAction(id);
+      if (data) {
         setBooking(data);
-        if (data?.tags) setTagsInput(data.tags);
-      })
-      .catch((err) => console.error(err))
-      .finally(() => setLoading(false));
+        if (data.tags) setTagsInput(data.tags);
+        const orderNum = data.order_number || data.id;
+        const allItems: any[] = await fetchBookingsByOrderNumberAction(orderNum);
+        setOrderItems(allItems && allItems.length > 0 ? allItems : [data]);
+      } else {
+        setBooking(null);
+        setOrderItems([]);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -63,19 +75,27 @@ export default function OrderDetailPage() {
     );
   }
 
-  const orderCode = formatOrderNumber(booking.id, booking.created_at, booking.payment_status);
+  const effectiveOrderNumber = booking.order_number || booking.id;
+  const orderCode = formatOrderNumber(effectiveOrderNumber, booking.created_at, booking.payment_status);
   const isPaid = (booking.payment_status || "Paid").toLowerCase() === "paid";
   const isFulfilled = (booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
 
-  const rawTotalAmount = Number(booking.total_amount || 0);
-  const quantity = booking.quantity || 1;
-  const singleItemPrice = booking.ticket_price || (rawTotalAmount > 0 ? Math.round(rawTotalAmount / quantity) : 0);
-  const itemsSubtotal = singleItemPrice * quantity;
-  // If stored total_amount exceeds itemsSubtotal (tax already included), GST is difference; otherwise compute standard 18% GST
-  const taxGst = rawTotalAmount > itemsSubtotal 
-    ? (rawTotalAmount - itemsSubtotal)
+  const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
+  
+  // Calculate subtotal across all items
+  const itemsSubtotal = orderItems.reduce((acc, item) => {
+    const rawAmt = Number(item.total_amount || 0);
+    const qty = item.quantity || 1;
+    const price = item.ticket_price || (rawAmt > 0 ? Math.round(rawAmt / qty) : 0);
+    return acc + (price * qty);
+  }, 0);
+
+  // Compute total amount and 18% GST
+  const rawSumTotal = orderItems.reduce((acc, item) => acc + Number(item.total_amount || 0), 0);
+  const taxGst = rawSumTotal > itemsSubtotal
+    ? (rawSumTotal - itemsSubtotal)
     : Math.round(itemsSubtotal * 0.18 * 100) / 100;
-  const totalAmount = rawTotalAmount > itemsSubtotal ? rawTotalAmount : (itemsSubtotal + taxGst);
+  const totalAmount = rawSumTotal > itemsSubtotal ? rawSumTotal : (itemsSubtotal + taxGst);
   const amountDue = isPaid ? 0 : totalAmount;
 
   const handleTogglePayment = async (status: string) => {
@@ -248,71 +268,82 @@ export default function OrderDetailPage() {
           {/* Items Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm">
             <h2 className="text-lg font-bold text-gray-900 mb-6 border-b border-gray-100 pb-3">
-              Items ({quantity})
+              Items ({totalQuantity})
             </h2>
 
-            <div className="space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 gap-4 last:pb-0 last:border-0">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2.5">
-                    <span className="font-bold text-gray-900 text-base">
-                      {booking.ticket_name ? booking.ticket_name.replace("_", " ") : "Havoc Funzone Pass"}
-                    </span>
-                    {isPaid && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-green-50 text-green-700 border border-green-200">
-                        PAID
-                      </span>
-                    )}
-                    {isFulfilled && (
-                      <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
-                        FULFILLED
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-gray-500">
-                    Select Date: <strong className="text-gray-700 font-semibold">{booking.booking_date}</strong>
-                  </p>
-                  <div className="text-xs text-gray-500 flex items-center gap-2">
-                    <span>Select Time Slot:</span>
-                    <strong className="text-gray-900 font-bold">{booking.time_slot}</strong>
-                    {booking.time_slot && (() => {
-                      const band = getSlotWristbandColor(booking.time_slot, booking.slot_color, booking.slot_color_name);
-                      const badgeStyle = getWristbandBadgeStyle(band.hex);
-                      return (
-                        <span 
-                          className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
-                          style={{
-                            backgroundColor: badgeStyle.backgroundColor,
-                            borderColor: badgeStyle.borderColor,
-                            color: badgeStyle.color
-                          }}
-                        >
-                          <span 
-                            className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
-                            style={{ 
-                              backgroundColor: band.hex,
-                              borderColor: badgeStyle.dotBorderColor
-                            }}
-                          />
-                          <span>{band.name} Band</span>
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  <div className="max-w-md">
-                    <SimPerkBadgeList 
-                      simNameStr={booking.simulator_name} 
-                      simSlotStr={booking.simulator_slot} 
-                    />
-                  </div>
-                </div>
+            <div className="space-y-6">
+              {orderItems.map((item, idx) => {
+                const itemQty = item.quantity || 1;
+                const rawItemAmt = Number(item.total_amount || 0);
+                const itemUnitPrice = item.ticket_price || (rawItemAmt > 0 ? Math.round(rawItemAmt / itemQty) : 0);
+                const itemLineSubtotal = itemUnitPrice * itemQty;
+                const itemIsPaid = (item.payment_status || booking.payment_status || "Paid").toLowerCase() === "paid";
+                const itemIsFulfilled = (item.fulfillment_status || booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
 
-                <div className="flex items-center gap-6 self-start sm:self-auto text-sm">
-                  <span className="text-gray-500 font-medium">₹{singleItemPrice.toFixed(2)}</span>
-                  <span className="text-gray-400 font-semibold">×{quantity}</span>
-                  <span className="font-black text-gray-900 text-base">₹{itemsSubtotal.toFixed(2)}</span>
-                </div>
-              </div>
+                return (
+                  <div key={item.id || idx} className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-gray-100 gap-4 last:pb-0 last:border-0">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2.5">
+                        <span className="font-bold text-gray-900 text-base">
+                          {item.ticket_name ? item.ticket_name.replace("_", " ") : "Havoc Funzone Pass"}
+                        </span>
+                        {itemIsPaid && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-green-50 text-green-700 border border-green-200">
+                            PAID
+                          </span>
+                        )}
+                        {itemIsFulfilled && (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
+                            FULFILLED
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        Select Date: <strong className="text-gray-700 font-semibold">{item.booking_date}</strong>
+                      </p>
+                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                        <span>Select Time Slot:</span>
+                        <strong className="text-gray-900 font-bold">{item.time_slot}</strong>
+                        {item.time_slot && (() => {
+                          const band = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
+                          const badgeStyle = getWristbandBadgeStyle(band.hex);
+                          return (
+                            <span 
+                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
+                              style={{
+                                backgroundColor: badgeStyle.backgroundColor,
+                                borderColor: badgeStyle.borderColor,
+                                color: badgeStyle.color
+                              }}
+                            >
+                              <span 
+                                className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
+                                style={{ 
+                                  backgroundColor: band.hex,
+                                  borderColor: badgeStyle.dotBorderColor
+                                }}
+                              />
+                              <span>{band.name} Band</span>
+                            </span>
+                          );
+                        })()}
+                      </div>
+                      <div className="max-w-md">
+                        <SimPerkBadgeList 
+                          simNameStr={item.simulator_name} 
+                          simSlotStr={item.simulator_slot} 
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6 self-start sm:self-auto text-sm">
+                      <span className="text-gray-500 font-medium">₹{itemUnitPrice.toFixed(2)}</span>
+                      <span className="text-gray-400 font-semibold">×{itemQty}</span>
+                      <span className="font-black text-gray-900 text-base">₹{itemLineSubtotal.toFixed(2)}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
 

@@ -8,6 +8,26 @@ import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors"
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { useMemo } from "react";
+
+export interface GroupedOrder {
+  orderNumber: number;
+  orderCode: string;
+  created_at: string;
+  customer_name: string;
+  customer_email: string;
+  customer_phone: string;
+  payment_status: string;
+  fulfillment_status: string;
+  tags: string;
+  total_amount: number;
+  total_quantity: number;
+  bookingIds: number[];
+  primaryId: number;
+  items: any[];
+  slots: { slot: string; color?: string; color_name?: string; date?: string }[];
+}
+
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,11 +51,64 @@ export default function BookingsPage() {
     loadBookings();
   }, []);
 
+  // Group bookings by order_number (or b.id if null)
+  const groupedOrders = useMemo<GroupedOrder[]>(() => {
+    const map = new Map<number, GroupedOrder>();
+
+    for (const b of bookings) {
+      const orderNum = b.order_number || b.id;
+      if (!map.has(orderNum)) {
+        const rawAmount = Number(b.total_amount || 0);
+        const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
+        const effectiveAmount = rawAmount > baseAmount ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : rawAmount);
+
+        map.set(orderNum, {
+          orderNumber: orderNum,
+          orderCode: formatOrderNumber(orderNum, b.created_at, b.payment_status),
+          created_at: b.created_at,
+          customer_name: b.customer_name || "Guest Customer",
+          customer_email: b.customer_email || "",
+          customer_phone: b.customer_phone || "",
+          payment_status: b.payment_status || "Unpaid",
+          fulfillment_status: b.fulfillment_status || "Unfulfilled",
+          tags: b.tags || "",
+          total_amount: effectiveAmount,
+          total_quantity: b.quantity || 1,
+          bookingIds: [b.id],
+          primaryId: b.id,
+          items: [b],
+          slots: b.time_slot ? [{ slot: b.time_slot, color: b.slot_color, color_name: b.slot_color_name, date: b.booking_date }] : []
+        });
+      } else {
+        const existing = map.get(orderNum)!;
+        const rawAmount = Number(b.total_amount || 0);
+        const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
+        const effectiveAmount = rawAmount > baseAmount ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : rawAmount);
+
+        existing.total_amount += effectiveAmount;
+        existing.total_quantity += (b.quantity || 1);
+        existing.bookingIds.push(b.id);
+        existing.items.push(b);
+        if (b.tags && !existing.tags.includes(b.tags)) {
+          existing.tags = existing.tags ? `${existing.tags}, ${b.tags}` : b.tags;
+        }
+        if (b.time_slot) {
+          const alreadyHasSlot = existing.slots.some(s => s.slot === b.time_slot && s.date === b.booking_date);
+          if (!alreadyHasSlot) {
+            existing.slots.push({ slot: b.time_slot, color: b.slot_color, color_name: b.slot_color_name, date: b.booking_date });
+          }
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  }, [bookings]);
+
   const toggleSelectAll = () => {
-    if (selectedIds.length === filteredBookings.length) {
+    if (selectedIds.length === filteredOrders.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(filteredBookings.map((b) => b.id));
+      setSelectedIds(filteredOrders.map((o) => o.primaryId));
     }
   };
 
@@ -124,20 +197,20 @@ export default function BookingsPage() {
   // Distinct ticket product names available in current bookings
   const distinctProducts = Array.from(new Set(bookings.map(b => b.ticket_name).filter(Boolean)));
 
-  // Filter bookings
-  const filteredBookings = bookings.filter((b) => {
+  // Filter grouped orders
+  const filteredOrders = groupedOrders.filter((order) => {
     const q = searchQuery.toLowerCase();
-    const orderNum = formatOrderNumber(b.id, b.created_at, b.payment_status).toLowerCase();
-    const customer = (b.customer_name || "").toLowerCase();
-    const email = (b.customer_email || "").toLowerCase();
-    const phone = (b.customer_phone || "").toLowerCase();
+    const orderNum = order.orderCode.toLowerCase();
+    const customer = (order.customer_name || "").toLowerCase();
+    const email = (order.customer_email || "").toLowerCase();
+    const phone = (order.customer_phone || "").toLowerCase();
     const matchesSearch = !q || orderNum.includes(q) || customer.includes(q) || email.includes(q) || phone.includes(q);
 
     if (!matchesSearch) return false;
 
     // 1. Date Created filter
-    if (filterDateCreated !== "all" && b.created_at) {
-      const createdTime = new Date(b.created_at).getTime();
+    if (filterDateCreated !== "all" && order.created_at) {
+      const createdTime = new Date(order.created_at).getTime();
       const now = Date.now();
       if (filterDateCreated === "7days") {
         if (now - createdTime > 7 * 24 * 60 * 60 * 1000) return false;
@@ -151,41 +224,47 @@ export default function BookingsPage() {
       }
     }
 
-    // 2. Booking Date exact match
-    if (filterBookingDate && b.booking_date) {
-      // b.booking_date might be "Oct 17", "Nov 01", "2026-10-17"
+    // 2. Booking Date exact match across items
+    if (filterBookingDate) {
       const parsedFilter = new Date(filterBookingDate);
       const shortM = parsedFilter.toLocaleString('en-US', { month: 'short' }).toLowerCase();
       const dayNum = parsedFilter.getDate();
-      const rawDate = b.booking_date.toLowerCase();
-      
-      const matchesDay = rawDate.includes(shortM) && (rawDate.includes(` ${dayNum}`) || rawDate.includes(` ${String(dayNum).padStart(2, '0')}`));
-      if (!matchesDay && !rawDate.includes(filterBookingDate.toLowerCase())) {
-        return false;
-      }
-    }
 
-    // 3. Booking Month multi-select
-    if (filterBookingMonths.length > 0) {
-      const rawDate = (b.booking_date || "").toLowerCase();
-      const matchesMonth = filterBookingMonths.some(m => {
-        const fullM = m.toLowerCase();
-        const shortM = fullM.slice(0, 3);
-        return rawDate.includes(fullM) || rawDate.includes(shortM);
+      const matchesAnyItemDate = order.items.some(item => {
+        if (!item.booking_date) return false;
+        const rawDate = item.booking_date.toLowerCase();
+        const matchesDay = rawDate.includes(shortM) && (rawDate.includes(` ${dayNum}`) || rawDate.includes(` ${String(dayNum).padStart(2, '0')}`));
+        return matchesDay || rawDate.includes(filterBookingDate.toLowerCase());
       });
-      if (!matchesMonth) return false;
+
+      if (!matchesAnyItemDate) return false;
     }
 
-    // 4. Product filter
+    // 3. Booking Month multi-select across items
+    if (filterBookingMonths.length > 0) {
+      const matchesAnyItemMonth = order.items.some(item => {
+        const rawDate = (item.booking_date || "").toLowerCase();
+        return filterBookingMonths.some(m => {
+          const fullM = m.toLowerCase();
+          const shortM = fullM.slice(0, 3);
+          return rawDate.includes(fullM) || rawDate.includes(shortM);
+        });
+      });
+
+      if (!matchesAnyItemMonth) return false;
+    }
+
+    // 4. Product filter across items
     if (filterProduct !== "ALL") {
-      if ((b.ticket_name || "").toUpperCase() !== filterProduct.toUpperCase()) {
-        return false;
-      }
+      const matchesProduct = order.items.some(item => 
+        (item.ticket_name || "").toUpperCase() === filterProduct.toUpperCase()
+      );
+      if (!matchesProduct) return false;
     }
 
     // 5. Fulfillment status multi-select
     if (filterFulfillmentStatuses.length > 0) {
-      const fStatus = (b.fulfillment_status || "Unfulfilled").toLowerCase();
+      const fStatus = (order.fulfillment_status || "Unfulfilled").toLowerCase();
       const matchesFulfillment = filterFulfillmentStatuses.some(status => {
         const s = status.toLowerCase();
         if (s === "canceled") return fStatus === "canceled" || fStatus === "cancelled";
@@ -196,7 +275,7 @@ export default function BookingsPage() {
 
     // 6. Payment status multi-select
     if (filterPaymentStatuses.length > 0) {
-      const pStatus = (b.payment_status || "Unpaid").toLowerCase();
+      const pStatus = (order.payment_status || "Unpaid").toLowerCase();
       const matchesPayment = filterPaymentStatuses.some(status => {
         const s = status.toLowerCase();
         return pStatus === s;
@@ -207,8 +286,8 @@ export default function BookingsPage() {
     return true;
   });
 
-  const totalSales = bookings.reduce((sum, b) => sum + (b.total_amount || 0), 0);
-  const totalOrders = bookings.length;
+  const totalSales = groupedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+  const totalOrders = groupedOrders.length;
   const avgOrder = totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : "0.00";
 
   const MONTHS_LIST = [
@@ -556,7 +635,7 @@ export default function BookingsPage() {
               <tr className="bg-gray-50/80 border-b border-gray-200 text-[11px] font-bold uppercase tracking-wider text-gray-500 select-none">
                 <th className="py-4 pl-6 pr-3 w-12 text-center">
                   <button onClick={toggleSelectAll} className="text-gray-400 hover:text-gray-700 transition-colors">
-                    {selectedIds.length > 0 && selectedIds.length === filteredBookings.length ? (
+                    {selectedIds.length > 0 && selectedIds.length === filteredOrders.length ? (
                       <CheckSquare className="w-4 h-4 text-[#ff5a1f]" />
                     ) : (
                       <Square className="w-4 h-4" />
@@ -587,33 +666,29 @@ export default function BookingsPage() {
                     Loading orders...
                   </td>
                 </tr>
-              ) : filteredBookings.length === 0 ? (
+              ) : filteredOrders.length === 0 ? (
                 <tr>
                   <td colSpan={9} className="py-16 text-center text-gray-400">
                     No orders found.
                   </td>
                 </tr>
               ) : (
-                filteredBookings.map((b) => {
-                  const isSelected = selectedIds.includes(b.id);
-                  const orderCode = formatOrderNumber(b.id, b.created_at, b.payment_status);
-                  const isPaid = (b.payment_status || "Paid").toLowerCase() === "paid";
-                  const isFulfilled = (b.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
-                  const rawAmount = Number(b.total_amount || 0);
-                  const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
-                  const effectiveAmount = rawAmount > baseAmount ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : rawAmount);
-                  const totalFormatted = effectiveAmount > 0 ? `₹${effectiveAmount.toFixed(2)}` : "₹0.00";
+                filteredOrders.map((order) => {
+                  const isSelected = selectedIds.includes(order.primaryId);
+                  const isPaid = (order.payment_status || "Paid").toLowerCase() === "paid";
+                  const isFulfilled = (order.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
+                  const totalFormatted = order.total_amount > 0 ? `₹${order.total_amount.toFixed(2)}` : "₹0.00";
 
                   return (
                     <tr
-                      key={b.id}
-                      onClick={() => router.push(`/admin/bookings/${b.id}`)}
+                      key={order.orderNumber}
+                      onClick={() => router.push(`/admin/bookings/${order.primaryId}`)}
                       className={`hover:bg-gray-50/80 transition-colors cursor-pointer group ${
                         isSelected ? "bg-orange-50/30" : ""
                       }`}
                     >
                       {/* Checkbox */}
-                      <td className="py-4 pl-6 pr-3 text-center" onClick={(e) => toggleSelectOne(b.id, e)}>
+                      <td className="py-4 pl-6 pr-3 text-center" onClick={(e) => toggleSelectOne(order.primaryId, e)}>
                         <button className="text-gray-400 group-hover:text-gray-600 transition-colors">
                           {isSelected ? (
                             <CheckSquare className="w-4 h-4 text-[#ff5a1f]" />
@@ -625,26 +700,27 @@ export default function BookingsPage() {
 
                       {/* Order Code */}
                       <td className="py-4 px-4 font-mono font-bold text-gray-900 whitespace-nowrap tracking-tight group-hover:text-[#ff5a1f] transition-colors">
-                        {orderCode}
+                        {order.orderCode}
                       </td>
 
                       {/* Date Created */}
                       <td className="py-4 px-4 text-xs text-gray-500 whitespace-nowrap">
-                        {formatDateTime(b.created_at)}
+                        {formatDateTime(order.created_at)}
                       </td>
 
-                      {/* Customer & Slot Wristband */}
+                      {/* Customer & Slot Wristbands */}
                       <td className="py-4 px-4 whitespace-nowrap">
                         <div className="font-bold text-gray-900">
-                          {b.customer_name || "Guest Customer"}
+                          {order.customer_name}
                         </div>
-                        {b.time_slot && (
-                          <div className="mt-1 flex items-center gap-1.5">
-                            {(() => {
-                              const band = getSlotWristbandColor(b.time_slot, b.slot_color, b.slot_color_name);
+                        {order.slots.length > 0 && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1.5 max-w-xs">
+                            {order.slots.map((s, idx) => {
+                              const band = getSlotWristbandColor(s.slot, s.color, s.color_name);
                               const badgeStyle = getWristbandBadgeStyle(band.hex);
                               return (
                                 <span
+                                  key={idx}
                                   className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-extrabold border"
                                   style={{
                                     backgroundColor: badgeStyle.backgroundColor,
@@ -660,22 +736,22 @@ export default function BookingsPage() {
                                       borderColor: badgeStyle.dotBorderColor
                                     }}
                                   />
-                                  <span>{b.time_slot}</span>
+                                  <span>{s.slot}</span>
+                                  {s.date && (
+                                    <span className="text-[9px] opacity-75 font-normal ml-0.5">
+                                      ({s.date})
+                                    </span>
+                                  )}
                                 </span>
                               );
-                            })()}
-                            {b.booking_date && (
-                              <span className="text-[10px] text-gray-400 font-medium">
-                                ({b.booking_date})
-                              </span>
-                            )}
+                            })}
                           </div>
                         )}
                       </td>
 
                       {/* Payment Badge */}
                       <td className="py-4 px-4 whitespace-nowrap">
-                        {b.payment_status?.toLowerCase() === "refunded" ? (
+                        {order.payment_status?.toLowerCase() === "refunded" ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
                             Refunded
                           </span>
@@ -692,7 +768,7 @@ export default function BookingsPage() {
 
                       {/* Fulfillment Badge */}
                       <td className="py-4 px-4 whitespace-nowrap">
-                        {b.fulfillment_status?.toLowerCase() === "canceled" || b.fulfillment_status?.toLowerCase() === "cancelled" ? (
+                        {order.fulfillment_status?.toLowerCase() === "canceled" || order.fulfillment_status?.toLowerCase() === "cancelled" ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-red-50 text-red-600 border border-red-200">
                             Canceled
                           </span>
@@ -714,17 +790,17 @@ export default function BookingsPage() {
 
                       {/* Items */}
                       <td className="py-4 px-4 whitespace-nowrap text-xs font-bold text-gray-600">
-                        <span className="inline-flex items-center gap-1">
-                          <span>{b.quantity || 1}</span>
+                        <span className="inline-flex items-center gap-1" title={order.items.map(i => `${i.quantity}x ${i.ticket_name}`).join(", ")}>
+                          <span>{order.total_quantity}</span>
                           <span className="text-[10px] text-gray-400">v</span>
                         </span>
                       </td>
 
                       {/* Tags */}
                       <td className="py-4 pr-6 pl-4 whitespace-nowrap text-xs text-gray-500">
-                        {b.tags ? (
+                        {order.tags ? (
                           <span className="bg-gray-100 text-gray-700 px-2.5 py-1 rounded-md text-xs font-semibold">
-                            {b.tags}
+                            {order.tags}
                           </span>
                         ) : (
                           <span className="text-gray-300">—</span>

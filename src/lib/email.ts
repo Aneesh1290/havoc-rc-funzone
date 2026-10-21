@@ -2,19 +2,30 @@ import nodemailer from "nodemailer";
 import { getSlotWristbandColor } from "./slotColors";
 import { parseSimPerkDisplay } from "@/components/SimPerkBadgeList";
 
+export interface EmailOrderItem {
+  ticketName: string;
+  quantity: number;
+  date: string;
+  timeSlot: string;
+  itemTotal: number;
+  simulatorName?: string;
+  simulatorSlot?: string;
+}
+
 export interface BookingConfirmationEmailParams {
   orderId: string;
   customerName: string;
   customerEmail: string;
   customerPhone?: string;
-  ticketName: string;
-  quantity: number;
-  date: string;
-  timeSlot: string;
+  ticketName?: string;
+  quantity?: number;
+  date?: string;
+  timeSlot?: string;
   totalAmount: number;
   simulatorName?: string;
   simulatorSlot?: string;
   paymentStatus?: string;
+  items?: EmailOrderItem[];
 }
 
 /**
@@ -67,41 +78,80 @@ export async function sendBookingConfirmationEmail(
     const paymentLabel = isPaid ? "Paid Online" : "Pay at Desk (Cash / UPI / Card)";
     const paymentBadgeColor = isPaid ? "#10B981" : "#F59E0B";
 
-    // Format simulator perk block systematically if present
-    const simSlots = parseSimPerkDisplay(params.simulatorName, params.simulatorSlot);
-    const simBlockHtml = simSlots.length > 0 ? `
-      <div style="margin-top: 20px; padding: 16px; background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 12px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; border-bottom: 1px solid #FFEDD5; padding-bottom: 8px;">
-          <div style="display: flex; align-items: center;">
-            <span style="font-size: 16px; margin-right: 8px;">🏎️</span>
-            <strong style="color: #9A3412; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">Attached Havoc Sim Podium Perk</strong>
+    // Determine order items (support multi-item cart as well as legacy single item)
+    const orderItems: EmailOrderItem[] = (params.items && params.items.length > 0)
+      ? params.items
+      : [{
+          ticketName: params.ticketName || 'RC Fun Zone Pass',
+          quantity: params.quantity || 1,
+          date: params.date || '',
+          timeSlot: params.timeSlot || '',
+          itemTotal: params.totalAmount,
+          simulatorName: params.simulatorName,
+          simulatorSlot: params.simulatorSlot
+        }];
+
+    // Build items summary HTML table
+    const itemsTableRows = orderItems.map((item, idx) => `
+      <tr style="${idx > 0 ? 'border-top: 1px solid #E2E8F0;' : ''}">
+        <td style="padding: 10px 0;">
+          <div style="font-weight: 700; color: #0F172A; font-size: 14px;">${item.ticketName}</div>
+          <div style="font-size: 12px; color: #64748B; margin-top: 2px;">
+            Visit: <strong style="color: #FF5500;">${item.date}</strong> &nbsp;•&nbsp; Slot: <strong style="color: #0F172A;">${item.timeSlot}</strong>
           </div>
-          <span style="font-size: 11px; font-weight: 700; color: #EA580C; background: #FFEDD5; padding: 2px 8px; border-radius: 9999px;">
-            ${simSlots.length} ${simSlots.length > 1 ? 'Sessions' : 'Session'} (30m each)
-          </span>
-        </div>
-        <table style="width: 100%; border-collapse: separate; border-spacing: 0 6px; font-size: 12px;">
-          ${simSlots.map((item) => `
-            <tr>
-              <td style="background: #FFFFFF; padding: 8px 12px; border-radius: 8px 0 0 8px; border: 1px solid #FFEDD5; border-right: none; color: #1E293B; font-weight: 700;">
-                <span style="display: inline-block; background: #0F172A; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 4px; margin-right: 6px;">
-                  ${item.participantNum ? `P${item.participantNum}` : `#${item.sessionNum}`}
+          ${item.simulatorName && item.simulatorSlot ? `
+            <div style="font-size: 11px; color: #EA580C; font-weight: 600; margin-top: 3px;">
+              🏎️ Attached Sim: ${item.simulatorName} (${item.simulatorSlot})
+            </div>
+          ` : ''}
+        </td>
+        <td style="padding: 10px 0; text-align: right; vertical-align: top;">
+          <div style="font-weight: 700; color: #0F172A; font-size: 14px;">×${item.quantity}</div>
+          <div style="font-size: 12px; font-weight: 600; color: #64748B; margin-top: 2px;">₹${item.itemTotal}</div>
+        </td>
+      </tr>
+    `).join('');
+
+    // Format simulator perk block systematically if present across items
+    const allSimBlocks: string[] = [];
+    for (const item of orderItems) {
+      if (item.simulatorName && item.simulatorSlot) {
+        const simSlots = parseSimPerkDisplay(item.simulatorName, item.simulatorSlot);
+        if (simSlots.length > 0) {
+          allSimBlocks.push(`
+            <div style="margin-top: 16px; padding: 14px; background: #FFF7ED; border: 1px solid #FED7AA; border-radius: 12px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid #FFEDD5; padding-bottom: 6px;">
+                <div style="display: flex; align-items: center;">
+                  <span style="font-size: 15px; margin-right: 8px;">🏎️</span>
+                  <strong style="color: #9A3412; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Sim Podium Perk (${item.ticketName})</strong>
+                </div>
+                <span style="font-size: 11px; font-weight: 700; color: #EA580C; background: #FFEDD5; padding: 2px 8px; border-radius: 9999px;">
+                  ${simSlots.length} ${simSlots.length > 1 ? 'Sessions' : 'Session'}
                 </span>
-                ${item.simulatorName}
-              </td>
-              <td style="background: #FFFFFF; padding: 8px 12px; border-radius: 0 8px 8px 0; border: 1px solid #FFEDD5; border-left: none; text-align: right;">
-                <span style="background: #FFF7ED; color: #EA580C; border: 1px solid #FED7AA; font-weight: 800; font-size: 11px; padding: 3px 8px; border-radius: 6px; display: inline-block;">
-                  ${item.slotLabel}
-                </span>
-              </td>
-            </tr>
-          `).join('')}
-        </table>
-        <p style="margin: 10px 0 0 0; font-size: 11px; color: #9A3412; line-height: 1.4;">
-          * Reserved at the Havoc Sim Podium arena. Please report 5 minutes prior to your simulator slot.
-        </p>
-      </div>
-    ` : "";
+              </div>
+              <table style="width: 100%; border-collapse: separate; border-spacing: 0 4px; font-size: 12px;">
+                ${simSlots.map((s) => `
+                  <tr>
+                    <td style="background: #FFFFFF; padding: 6px 10px; border-radius: 6px 0 0 6px; border: 1px solid #FFEDD5; border-right: none; color: #1E293B; font-weight: 700;">
+                      <span style="display: inline-block; background: #0F172A; color: #FFFFFF; font-size: 10px; font-weight: 800; padding: 1px 5px; border-radius: 4px; margin-right: 6px;">
+                        ${s.participantNum ? `P${s.participantNum}` : `#${s.sessionNum}`}
+                      </span>
+                      ${s.simulatorName}
+                    </td>
+                    <td style="background: #FFFFFF; padding: 6px 10px; border-radius: 0 6px 6px 0; border: 1px solid #FFEDD5; border-left: none; text-align: right;">
+                      <span style="background: #FFF7ED; color: #EA580C; border: 1px solid #FED7AA; font-weight: 800; font-size: 11px; padding: 2px 6px; border-radius: 4px; display: inline-block;">
+                        ${s.slotLabel}
+                      </span>
+                    </td>
+                  </tr>
+                `).join('')}
+              </table>
+            </div>
+          `);
+        }
+      }
+    }
+    const simBlockHtml = allSimBlocks.join('');
 
     const htmlContent = `
     <!DOCTYPE html>
@@ -136,23 +186,8 @@ export async function sendBookingConfirmationEmail(
           <!-- Ticket Summary Card -->
           <div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 16px; padding: 20px; margin-bottom: 20px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
-              <tr>
-                <td style="padding: 8px 0; color: #64748B;">Pass / Ticket Type:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #0F172A;">${params.ticketName}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #64748B;">Quantity:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #0F172A;">${params.quantity} ${params.quantity > 1 ? 'Participants' : 'Participant'}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #64748B;">Visit Date:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #FF5500;">${params.date}</td>
-              </tr>
-              <tr>
-                <td style="padding: 8px 0; color: #64748B;">Funzone Time Slot:</td>
-                <td style="padding: 8px 0; text-align: right; font-weight: 700; color: #0F172A;">${params.timeSlot}</td>
-              </tr>
-              <tr>
+              ${itemsTableRows}
+              <tr style="border-top: 1px solid #E2E8F0;">
                 <td style="padding: 8px 0; color: #64748B;">Payment Status:</td>
                 <td style="padding: 8px 0; text-align: right;">
                   <span style="font-weight: 700; color: ${paymentBadgeColor};">${paymentLabel}</span>
@@ -209,17 +244,24 @@ export async function sendBookingConfirmationEmail(
 
     // 2. Send Admin Alert matching the exact Havoc System format to havochobbysim@gmail.com
     try {
-      const itemsCount = params.quantity || 1;
+      const itemsCount = orderItems.reduce((acc, i) => acc + (i.quantity || 1), 0);
       const formattedTotal = Number(params.totalAmount).toFixed(2);
       
       // Build Experiences lines
-      let experiencesText = `- ${params.ticketName} | ${params.date} at ${params.timeSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | ₹${params.totalAmount}`;
-      let experiencesHtml = `<div>- ${params.ticketName} | ${params.date} at ${params.timeSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | ₹${params.totalAmount}</div>`;
-      
-      if (params.simulatorName && params.simulatorSlot) {
-        experiencesText += `\n- ${params.simulatorName} | ${params.date} at ${params.simulatorSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | Simulator Perk (Included)`;
-        experiencesHtml += `<div style="margin-top: 4px; color: #EA580C; font-weight: 600;">- ${params.simulatorName} | ${params.date} at ${params.simulatorSlot} | ${params.quantity} ${params.quantity > 1 ? 'Players' : 'Player'} | Simulator Perk (Included)</div>`;
-      }
+      const experiencesText = orderItems.map(i => {
+        let line = `- ${i.ticketName} | ${i.date} at ${i.timeSlot} | ${i.quantity} ${i.quantity > 1 ? 'Players' : 'Player'} | ₹${i.itemTotal}`;
+        if (i.simulatorName && i.simulatorSlot) {
+          line += `\n  * Attached Sim Perk: ${i.simulatorName} (${i.simulatorSlot})`;
+        }
+        return line;
+      }).join('\n');
+
+      const experiencesHtml = orderItems.map(i => `
+        <div style="margin-bottom: 6px;">
+          - ${i.ticketName} | ${i.date} at ${i.timeSlot} | ${i.quantity} ${i.quantity > 1 ? 'Players' : 'Player'} | ₹${i.itemTotal}
+          ${i.simulatorName && i.simulatorSlot ? `<div style="color: #EA580C; font-weight: 600; margin-left: 14px; font-size: 12px;">🏎️ Sim Perk: ${i.simulatorName} (${i.simulatorSlot})</div>` : ''}
+        </div>
+      `).join('');
 
       const adminSubject = `New Booking Alert: ${params.orderId} - ${params.customerName} (${itemsCount} ${itemsCount > 1 ? 'items' : 'item'})`;
       

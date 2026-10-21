@@ -4,7 +4,7 @@ import { useCart } from "@/context/CartContext";
 import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
-import { addBookingAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
+import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
 import { useRouter } from "next/navigation";
 import { COUNTRY_CODES } from "@/lib/countries";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -105,27 +105,30 @@ export default function CheckoutPage() {
       // Calculate item share of grand total (including 18% GST and net of any coupons) proportionally
       const totalRatio = cartTotal > 0 ? (grandTotal / cartTotal) : 1.18;
 
-      // Create bookings in the database for each item in the cart
+      // Create unified batch booking in database for all items in the cart under ONE order number
       const fullPhoneNumber = `${selectedCountry.dialCode} ${formData.phone.trim()}`;
-      const generatedOrderCodes: string[] = [];
+      
+      const batchItems = items.map(item => ({
+        ticketId: item.ticketId,
+        date: item.date,
+        timeSlot: item.timeSlot,
+        quantity: item.quantity,
+        itemTotal: Math.round(item.price * item.quantity * totalRatio),
+        simulatorName: item.simulatorName,
+        simulatorSlot: item.simulatorSlot
+      }));
 
-      for (const item of items) {
-        const itemTotal = Math.round(item.price * item.quantity * totalRatio);
-        const res = await addBookingAction(
-          item.ticketId, 
-          item.date, 
-          item.timeSlot, 
-          item.quantity, 
-          formData.fullName, 
-          formData.email, 
-          fullPhoneNumber, 
-          itemTotal,
-          item.simulatorName,
-          item.simulatorSlot
-        );
-        if (res && res.id) {
-          generatedOrderCodes.push(formatOrderNumber(res.id, res.createdAt, 'Unpaid'));
-        }
+      const batchRes = await createBatchOrderAction(
+        batchItems,
+        formData.fullName,
+        formData.email,
+        fullPhoneNumber,
+        grandTotal
+      );
+
+      const generatedOrderCodes: string[] = [];
+      if (batchRes && batchRes.orderCode) {
+        generatedOrderCodes.push(batchRes.orderCode);
       }
       
       // If coupon used, record usage in DB

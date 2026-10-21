@@ -10,6 +10,8 @@ import {
   TicketRow, 
   getBookedQuantities, 
   addBooking, 
+  addBatchBooking,
+  BatchBookingItem,
   getAllBookings,
   getCoupons,
   createCoupon,
@@ -23,10 +25,15 @@ import {
   incrementCouponUsage,
   CouponRow,
   getBookingById,
+  getBookingsByOrderNumber,
   updateBookingStatus,
+  updateOrderGroupStatus,
   updateBookingTags,
+  updateOrderGroupTags,
   cancelBooking,
+  cancelOrderGroup,
   deleteBookings,
+  deleteOrderGroup,
   getVipPerks,
   createVipPerk,
   updateVipPerk,
@@ -174,6 +181,94 @@ export async function addBookingAction(
   return result;
 }
 
+export async function createBatchOrderAction(
+  items: BatchBookingItem[],
+  customerName: string,
+  customerEmail: string,
+  customerPhone: string,
+  totalAmount: number
+) {
+  const result = addBatchBooking(items, customerName, customerEmail, customerPhone);
+  if (!result) return null;
+
+  const orderId = formatOrderNumber(result.orderNumber, result.createdAt, 'Unpaid');
+
+  // Lock simulator slots for any items with simulator sessions
+  for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
+    const item = items[itemIdx];
+    if (item.simulatorName && item.simulatorSlot) {
+      try {
+        const assignments = parseSimulatorSlotAssignments(item.simulatorName, item.simulatorSlot);
+        for (let idx = 0; idx < assignments.length; idx++) {
+          const assign = assignments[idx];
+          if (assign.simulatorName && assign.slotLabel) {
+            const itemOrderId = assignments.length > 1 || items.length > 1 
+              ? `${orderId}_${itemIdx + 1}_${idx + 1}` 
+              : orderId;
+            await lockSimulatorSlot({
+              simulatorName: assign.simulatorName,
+              bookingDate: item.date,
+              bookingTime: assign.slotLabel,
+              sourceOrderId: itemOrderId,
+              customerName,
+              customerEmail,
+              customerPhone,
+              status: 'CONFIRMED'
+            });
+          }
+        }
+      } catch (pgErr) {
+        console.error("Failed to sync lock to PostgreSQL simulator_slot_locks for batch order:", pgErr);
+      }
+    }
+  }
+
+  // Send ONE consolidated confirmation email for all tickets under this order
+  if (customerEmail) {
+    try {
+      const allTickets = getTickets();
+      const emailItems = items.map(item => {
+        const tObj = allTickets.find(t => t.id === item.ticketId);
+        return {
+          ticketName: tObj?.name || 'RC Fun Zone Pass',
+          quantity: item.quantity,
+          date: item.date,
+          timeSlot: item.timeSlot,
+          itemTotal: item.itemTotal,
+          simulatorName: item.simulatorName,
+          simulatorSlot: item.simulatorSlot
+        };
+      });
+
+      sendBookingConfirmationEmail({
+        orderId,
+        customerName,
+        customerEmail,
+        customerPhone,
+        totalAmount,
+        paymentStatus: 'Unpaid',
+        items: emailItems
+      }).catch(err => {
+        console.error("Async batch confirmation email error:", err);
+      });
+    } catch (emailErr) {
+      console.error("Failed to trigger batch confirmation email:", emailErr);
+    }
+  }
+
+  revalidatePath('/tickets');
+  revalidatePath('/admin/bookings');
+  revalidatePath('/admin');
+
+  return {
+    orderNumber: result.orderNumber,
+    primaryId: result.primaryId,
+    orderCode: orderId,
+    createdAt: result.createdAt,
+    insertedIds: result.insertedIds
+  };
+}
+
 export async function fetchAllBookingsAction() {
   return getAllBookings();
 }
@@ -182,31 +277,45 @@ export async function fetchBookingByIdAction(id: number) {
   return getBookingById(id);
 }
 
+export async function fetchBookingsByOrderNumberAction(orderNum: number) {
+  return getBookingsByOrderNumber(orderNum);
+}
+
 export async function updateBookingStatusAction(id: number, paymentStatus?: string, fulfillmentStatus?: string) {
-  updateBookingStatus(id, paymentStatus, fulfillmentStatus);
+  // Update all tickets under this booking's order_number if present
+  const booking = getBookingById(id) as any;
+  const targetNum = (booking && booking.order_number) ? booking.order_number : id;
+  updateOrderGroupStatus(targetNum, paymentStatus, fulfillmentStatus);
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true };
 }
 
 export async function updateBookingTagsAction(id: number, tags: string) {
-  updateBookingTags(id, tags);
+  const booking = getBookingById(id) as any;
+  const targetNum = (booking && booking.order_number) ? booking.order_number : id;
+  updateOrderGroupTags(targetNum, tags);
   revalidatePath('/admin/bookings');
   return { success: true };
 }
 
 export async function cancelBookingAction(id: number) {
-  try {
-    const booking = getBookingById(id) as any;
-    if (booking && booking.simulator_name && booking.simulator_slot) {
-      const orderId = formatOrderNumber(booking.id, booking.created_at);
-      await releaseSimulatorSlots(orderId);
+  const booking = getBookingById(id) as any;
+  const targetNum = (booking && booking.order_number) ? booking.order_number : id;
+  const groupRows = getBookingsByOrderNumber(targetNum) as any[];
+
+  for (const b of groupRows) {
+    if (b.simulator_name && b.simulator_slot) {
+      try {
+        const orderId = formatOrderNumber(targetNum, b.created_at);
+        await releaseSimulatorSlots(orderId, b.id);
+      } catch (pgErr) {
+        console.error("Failed to release PostgreSQL simulator slot lock for booking", b.id, pgErr);
+      }
     }
-  } catch (pgErr) {
-    console.error("Failed to release PostgreSQL simulator slot lock for booking", id, pgErr);
   }
 
-  cancelBooking(id);
+  cancelOrderGroup(targetNum);
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true };
@@ -215,23 +324,33 @@ export async function cancelBookingAction(id: number) {
 export async function deleteBookingsAction(ids: number[]) {
   if (!ids || ids.length === 0) return { success: true, count: 0 };
   
-  // Release any associated simulator locks
+  // Find all distinct order numbers represented by these IDs
+  const orderNumsToDelete = new Set<number>();
   for (const id of ids) {
-    try {
-      const booking = getBookingById(id) as any;
-      if (booking && booking.simulator_name && booking.simulator_slot) {
-        const orderId = formatOrderNumber(booking.id, booking.created_at);
-        await releaseSimulatorSlots(orderId);
+    const booking = getBookingById(id) as any;
+    const targetNum = (booking && booking.order_number) ? booking.order_number : id;
+    orderNumsToDelete.add(targetNum);
+  }
+
+  // Release any associated simulator locks
+  for (const orderNum of Array.from(orderNumsToDelete)) {
+    const groupRows = getBookingsByOrderNumber(orderNum) as any[];
+    for (const b of groupRows) {
+      if (b.simulator_name && b.simulator_slot) {
+        try {
+          const orderId = formatOrderNumber(orderNum, b.created_at);
+          await releaseSimulatorSlots(orderId, b.id);
+        } catch (pgErr) {
+          console.error("Failed to release simulator slot for booking", b.id, pgErr);
+        }
       }
-    } catch (pgErr) {
-      console.error("Failed to release simulator slot for booking", id, pgErr);
     }
   }
 
-  deleteBookings(ids);
+  deleteOrderGroup(Array.from(orderNumsToDelete));
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
-  return { success: true, count: ids.length };
+  return { success: true, count: orderNumsToDelete.size };
 }
 
 export async function toggleTicketStatusAction(id: number, active: boolean) {

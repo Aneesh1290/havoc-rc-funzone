@@ -25,8 +25,25 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     setIsMobileMenuOpen(false);
   }, [pathname]);
 
-  // Load from localStorage on mount
+  const [sessionUser, setSessionUser] = useState<{ username: string; role: string; permissions: string } | null>(null);
+
+  // Load from localStorage on mount and sync session
   useEffect(() => {
+    // 1. Fetch real session info from token
+    fetch("/api/auth/session")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.user) {
+          setSessionUser(data.user);
+          if (data.user.username) setAdminName(data.user.username);
+          if (data.user.role) {
+            setAdminRole(data.user.role === "super_admin" ? "Super Admin" : (data.user.role === "staff" ? "Staff Member" : "Administrator"));
+          }
+        }
+      })
+      .catch(() => {});
+
+    // 2. Profile preferences from localStorage if exists
     const saved = localStorage.getItem("havoc_admin_profile");
     if (saved) {
       try {
@@ -69,15 +86,29 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'AU';
   };
 
-  const navLinks = [
-    { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },
-    { href: "/admin/tickets", label: "Ticket Types", icon: Ticket },
-    { href: "/admin/vip-perks", label: "VIP Perks (Sims)", icon: Sparkles },
-    { href: "/admin/slots", label: "Slots & Dates", icon: Clock },
-    { href: "/admin/coupons", label: "Coupons", icon: Tag },
-    { href: "/admin/staff", label: "Staff", icon: Users },
-    { href: "/admin/settings", label: "Settings", icon: Settings },
+  const allNavLinks = [
+    { href: "/admin/bookings", key: "bookings", label: "Bookings", icon: CalendarDays },
+    { href: "/admin/tickets", key: "tickets", label: "Ticket Types", icon: Ticket },
+    { href: "/admin/vip-perks", key: "vip-perks", label: "VIP Perks (Sims)", icon: Sparkles },
+    { href: "/admin/slots", key: "slots", label: "Slots & Dates", icon: Clock },
+    { href: "/admin/coupons", key: "coupons", label: "Coupons", icon: Tag },
+    { href: "/admin/staff", key: "staff", label: "Staff", icon: Users },
+    { href: "/admin/settings", key: "settings", label: "Settings", icon: Settings },
   ];
+
+  // Filter tabs according to user permissions
+  const navLinks = allNavLinks.filter((item) => {
+    // If not loaded yet or primary admin/super_admin, show all
+    if (!sessionUser) return true;
+    if (sessionUser.username === "admin" || sessionUser.role === "super_admin" || sessionUser.permissions === "all") {
+      return true;
+    }
+    // Staff users cannot access staff accounts management
+    if (item.key === "staff") return false;
+
+    const userPerms = (sessionUser.permissions || "").split(",").map(p => p.trim());
+    return userPerms.includes(item.key);
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 flex">

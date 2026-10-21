@@ -16,7 +16,8 @@ import {
   Tag, 
   Settings,
   Lock,
-  X
+  X,
+  Copy
 } from "lucide-react";
 import { 
   fetchStaffUsersAction, 
@@ -63,9 +64,11 @@ export default function StaffManagementPage() {
   const [adminNewPassword, setAdminNewPassword] = useState("");
   const [isResetting, setIsResetting] = useState(false);
 
+  const [createdAccountCreds, setCreatedAccountCreds] = useState<{ username: string; password: string } | null>(null);
+
   const showNotification = (message: string, type: "success" | "error" = "success") => {
     setFeedback({ type, message });
-    setTimeout(() => setFeedback(null), 4000);
+    setTimeout(() => setFeedback(null), 5000);
   };
 
   const loadStaff = async () => {
@@ -95,18 +98,25 @@ export default function StaffManagementPage() {
       return;
     }
 
+    const assignedPassword = customPassword.trim() || "sabharwal@65";
+    const cleanUser = username.trim().toLowerCase();
+
     setIsSubmitting(true);
     const res = await createStaffUserAction({
-      username,
+      username: cleanUser,
       name,
       role,
       permissions: selectedPerms,
-      customPassword: customPassword.trim() || undefined
+      customPassword: assignedPassword
     });
     setIsSubmitting(false);
 
     if (res.success) {
-      showNotification(`Staff account '${username}' created successfully!`);
+      setCreatedAccountCreds({
+        username: cleanUser,
+        password: assignedPassword
+      });
+      showNotification(`Staff account '${cleanUser}' created successfully! Credentials ready.`);
       setUsername("");
       setName("");
       setRole("staff");
@@ -529,6 +539,62 @@ export default function StaffManagementPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Account Created Credentials Confirmation Modal */}
+      {createdAccountCreds && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 text-gray-900 animate-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 rounded-full bg-green-100 text-green-600 flex items-center justify-center mb-4">
+              <Check className="w-6 h-6 stroke-[3]" />
+            </div>
+
+            <h3 className="text-xl font-bold font-heading text-gray-900 tracking-tight">
+              Staff Account Ready
+            </h3>
+            <p className="text-sm text-gray-500 mt-1 mb-5">
+              The user has been successfully created in the database. Share these login credentials with the staff member:
+            </p>
+
+            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200 space-y-3 font-mono text-sm mb-6">
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500 text-xs font-sans uppercase font-bold">Username</span>
+                <span className="font-bold text-gray-900 select-all">{createdAccountCreds.username}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-500 text-xs font-sans uppercase font-bold">Password</span>
+                <span className="font-bold text-[#ff5a1f] select-all">{createdAccountCreds.password}</span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-gray-200 text-xs">
+                <span className="text-gray-500 font-sans uppercase font-bold">Login URL</span>
+                <span className="font-sans text-gray-700">/login</span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(
+                    `Havoc RC Funzone Staff Login:\nUsername: ${createdAccountCreds.username}\nPassword: ${createdAccountCreds.password}\nLogin URL: https://havocrcfunzone.com/login`
+                  );
+                  showNotification("Login credentials copied to clipboard!");
+                }}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold bg-gray-100 hover:bg-gray-200 text-gray-800 transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                <span>Copy Credentials</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setCreatedAccountCreds(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-bold bg-[#ff5a1f] hover:bg-[#e04812] text-white transition-colors text-center"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}

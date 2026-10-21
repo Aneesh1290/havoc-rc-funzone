@@ -743,7 +743,8 @@ export function getAdminUserById(id: number): AdminUser | undefined {
 }
 
 export function getAdminUserByUsername(username: string): AdminUser | undefined {
-  return db.prepare('SELECT * FROM admin_users WHERE username = ?').get(username.trim()) as AdminUser | undefined;
+  const clean = username.trim().toLowerCase();
+  return db.prepare('SELECT * FROM admin_users WHERE LOWER(username) = ?').get(clean) as AdminUser | undefined;
 }
 
 export function createAdminStaffUser(username: string, passwordHash: string, name: string, role: string, permissions: string, mustChangePassword = 1) {

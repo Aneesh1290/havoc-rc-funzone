@@ -46,7 +46,14 @@ import {
   toggleTimeSlotStatus,
   deleteTimeSlot,
   getSiteSetting,
-  setSiteSetting
+  setSiteSetting,
+  getAllAdminUsers,
+  getAdminUserById,
+  getAdminUserByUsername,
+  createAdminStaffUser,
+  updateStaffRoleAndPerms,
+  resetStaffUserPassword,
+  deleteStaffUser
 } from "@/lib/db";
 import { 
   getTakenSimulatorSlots, 
@@ -614,6 +621,114 @@ export async function toggleOpenedSpecificDateAction(dateStr: string, shouldOpen
   } catch (error: any) {
     console.error("toggleOpenedSpecificDateAction error:", error);
     return { success: false, error: error.message || "Failed to update date" };
+  }
+}
+
+// ==========================================
+// STAFF USER MANAGEMENT SERVER ACTIONS
+// ==========================================
+import bcrypt from "bcryptjs";
+
+export async function fetchStaffUsersAction() {
+  try {
+    const users = getAllAdminUsers();
+    return { success: true, users };
+  } catch (error: any) {
+    console.error("fetchStaffUsersAction error:", error);
+    return { success: false, error: error.message || "Failed to fetch staff accounts" };
+  }
+}
+
+export async function createStaffUserAction(data: {
+  username: string;
+  name?: string;
+  role: string;
+  permissions: string[];
+  customPassword?: string;
+}) {
+  try {
+    const username = data.username?.trim().toLowerCase();
+    if (!username) {
+      return { success: false, error: "Username is required" };
+    }
+
+    const existing = getAdminUserByUsername(username);
+    if (existing) {
+      return { success: false, error: `Username '${username}' is already taken` };
+    }
+
+    const rawPassword = data.customPassword && data.customPassword.trim() ? data.customPassword.trim() : "sabharwal@65";
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+    const userRole = data.role === "super_admin" ? "super_admin" : "staff";
+    const perms = userRole === "super_admin" ? "all" : (data.permissions && data.permissions.length > 0 ? data.permissions.join(",") : "bookings,slots");
+    const displayName = data.name && data.name.trim() ? data.name.trim() : username;
+
+    const res = createAdminStaffUser(username, passwordHash, displayName, userRole, perms, 1);
+    revalidatePath('/admin/staff');
+    return { success: true, id: Number(res.lastInsertRowid) };
+  } catch (error: any) {
+    console.error("createStaffUserAction error:", error);
+    return { success: false, error: error.message || "Failed to create staff account" };
+  }
+}
+
+export async function updateStaffRoleAndPermsAction(id: number, role: string, permissions: string[]) {
+  try {
+    const target = getAdminUserById(id);
+    if (!target) return { success: false, error: "User not found" };
+    if (target.username === "admin") {
+      return { success: false, error: "Cannot modify the primary admin account permissions" };
+    }
+
+    const userRole = role === "super_admin" ? "super_admin" : "staff";
+    const perms = userRole === "super_admin" ? "all" : permissions.join(",");
+
+    updateStaffRoleAndPerms(id, userRole, perms);
+    revalidatePath('/admin/staff');
+    return { success: true };
+  } catch (error: any) {
+    console.error("updateStaffRoleAndPermsAction error:", error);
+    return { success: false, error: error.message || "Failed to update role/permissions" };
+  }
+}
+
+export async function resetStaffPasswordAction(id: number, customPassword?: string) {
+  try {
+    const target = getAdminUserById(id);
+    if (!target) return { success: false, error: "User not found" };
+    if (target.username === "admin") {
+      return { success: false, error: "Cannot reset the primary admin account from staff management" };
+    }
+
+    const rawPassword = customPassword && customPassword.trim() ? customPassword.trim() : "sabharwal@65";
+    if (rawPassword.length < 6) {
+      return { success: false, error: "Password must be at least 6 characters" };
+    }
+
+    const hash = await bcrypt.hash(rawPassword, 10);
+    resetStaffUserPassword(id, hash, 1);
+    revalidatePath('/admin/staff');
+    return { success: true, message: `Password for '${target.username}' has been set successfully.` };
+  } catch (error: any) {
+    console.error("resetStaffPasswordAction error:", error);
+    return { success: false, error: error.message || "Failed to reset password" };
+  }
+}
+
+export async function deleteStaffUserAction(id: number) {
+  try {
+    const target = getAdminUserById(id);
+    if (!target) return { success: false, error: "User not found" };
+    if (target.username === "admin") {
+      return { success: false, error: "Cannot delete the primary admin account" };
+    }
+
+    deleteStaffUser(id);
+    revalidatePath('/admin/staff');
+    return { success: true };
+  } catch (error: any) {
+    console.error("deleteStaffUserAction error:", error);
+    return { success: false, error: error.message || "Failed to delete staff account" };
   }
 }
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users } from "lucide-react";
 import { logoutAction } from "../login/actions";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -94,6 +94,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             <Tag className={`w-5 h-5 ${pathname === '/admin/coupons' ? 'text-[#ff5a1f]' : ''}`} />
             Coupons
           </Link>
+          <Link href="/admin/staff" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/staff' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
+            <Users className={`w-5 h-5 ${pathname === '/admin/staff' ? 'text-[#ff5a1f]' : ''}`} />
+            Staff
+          </Link>
           <Link href="/admin/settings" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/settings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
             <Settings className={`w-5 h-5 ${pathname === '/admin/settings' ? 'text-[#ff5a1f]' : ''}`} />
             Settings
@@ -118,7 +122,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
             {pathname.includes('/bookings') ? 'Bookings' : 
              pathname.includes('/tickets') ? 'Ticket Types' : 
              pathname.includes('/vip-perks') ? 'VIP Perks & Simulators' : 
+             pathname.includes('/slots') ? 'Slots & Dates' :
              pathname.includes('/coupons') ? 'Coupons' : 
+             pathname.includes('/staff') ? 'Staff Accounts' :
              pathname.includes('/settings') ? 'Settings' : 'Admin Portal'}
           </h2>
           <div className="flex items-center gap-4">

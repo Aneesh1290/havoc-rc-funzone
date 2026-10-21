@@ -7,6 +7,8 @@ export interface TokenPayload {
   userId: number;
   username: string;
   role: string;
+  permissions?: string;
+  mustChangePassword?: boolean;
   exp: number; // expiration unix timestamp in seconds
 }
 

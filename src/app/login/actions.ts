@@ -104,6 +104,8 @@ export async function loginAction(formData: FormData) {
     userId: admin.id,
     username: admin.username,
     role: admin.role,
+    permissions: admin.permissions || 'all',
+    mustChangePassword: Boolean(admin.must_change_password === 1),
   });
 
   // Set hardened HTTP-only cookie

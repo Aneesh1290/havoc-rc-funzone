@@ -144,6 +144,8 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_name TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_slot TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
+  try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
+  try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
 
   // Ticket table simulator perks and perks metadata columns
   try { db.exec('ALTER TABLE tickets ADD COLUMN has_simulator_perk INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
@@ -519,15 +521,52 @@ export interface AdminUser {
   password_hash: string;
   name: string;
   role: string;
+  permissions?: string;
+  must_change_password?: number;
   created_at: string;
+}
+
+export function getAllAdminUsers(): Omit<AdminUser, 'password_hash'>[] {
+  return db.prepare('SELECT id, username, name, role, permissions, must_change_password, created_at FROM admin_users ORDER BY id ASC').all() as Omit<AdminUser, 'password_hash'>[];
+}
+
+export function getAdminUserById(id: number): AdminUser | undefined {
+  return db.prepare('SELECT * FROM admin_users WHERE id = ?').get(id) as AdminUser | undefined;
 }
 
 export function getAdminUserByUsername(username: string): AdminUser | undefined {
   return db.prepare('SELECT * FROM admin_users WHERE username = ?').get(username.trim()) as AdminUser | undefined;
 }
 
+export function createAdminStaffUser(username: string, passwordHash: string, name: string, role: string, permissions: string, mustChangePassword = 1) {
+  return db.prepare(`
+    INSERT INTO admin_users (username, password_hash, name, role, permissions, must_change_password)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(username.trim().toLowerCase(), passwordHash, name.trim(), role, permissions, mustChangePassword);
+}
+
+export function updateStaffRoleAndPerms(id: number, role: string, permissions: string) {
+  return db.prepare(`
+    UPDATE admin_users 
+    SET role = ?, permissions = ? 
+    WHERE id = ?
+  `).run(role, permissions, id);
+}
+
+export function resetStaffUserPassword(id: number, passwordHash: string, mustChangePassword = 1) {
+  return db.prepare(`
+    UPDATE admin_users 
+    SET password_hash = ?, must_change_password = ? 
+    WHERE id = ?
+  `).run(passwordHash, mustChangePassword, id);
+}
+
+export function deleteStaffUser(id: number) {
+  return db.prepare('DELETE FROM admin_users WHERE id = ?').run(id);
+}
+
 export function updateAdminPassword(username: string, passwordHash: string) {
-  return db.prepare('UPDATE admin_users SET password_hash = ? WHERE username = ?').run(passwordHash, username.trim());
+  return db.prepare('UPDATE admin_users SET password_hash = ?, must_change_password = 0 WHERE username = ?').run(passwordHash, username.trim());
 }
 
 // VIP Perks (Simulator options for VIP Participant pass)

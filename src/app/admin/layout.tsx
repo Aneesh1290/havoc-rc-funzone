@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users, Menu } from "lucide-react";
 import { logoutAction } from "../login/actions";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -15,9 +15,15 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const [tempName, setTempName] = useState(adminName);
   const [tempRole, setTempRole] = useState(adminRole);
   const [tempImage, setTempImage] = useState<string | null>(profileImage);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pathname = usePathname();
+
+  // Close mobile sidebar on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
 
   // Load from localStorage on mount
   useEffect(() => {
@@ -63,45 +69,67 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     return name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() || 'AU';
   };
 
+  const navLinks = [
+    { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },
+    { href: "/admin/tickets", label: "Ticket Types", icon: Ticket },
+    { href: "/admin/vip-perks", label: "VIP Perks (Sims)", icon: Sparkles },
+    { href: "/admin/slots", label: "Slots & Dates", icon: Clock },
+    { href: "/admin/coupons", label: "Coupons", icon: Tag },
+    { href: "/admin/staff", label: "Staff", icon: Users },
+    { href: "/admin/settings", label: "Settings", icon: Settings },
+  ];
+
   return (
     <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-[#0d1b2a] text-white flex flex-col shrink-0">
-        <div className="py-6 flex items-center justify-center border-b border-gray-800">
-          <Link href="/" className="flex items-center px-4 w-full">
-            <img src="/logo_dark.png" alt="Havoc RC Funzone Logo" className="w-full h-auto object-contain" />
+      {/* Mobile Backdrop Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          onClick={() => setIsMobileMenuOpen(false)}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden transition-opacity duration-200"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar - Desktop: fixed/relative w-64, Mobile: off-canvas drawer */}
+      <aside 
+        className={`fixed inset-y-0 left-0 z-50 w-72 lg:w-64 bg-[#0d1b2a] text-white flex flex-col shrink-0 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:z-auto ${
+          isMobileMenuOpen ? "translate-x-0 shadow-2xl" : "-translate-x-full"
+        }`}
+      >
+        <div className="h-20 flex items-center justify-between px-6 border-b border-gray-800">
+          <Link href="/" className="flex items-center w-full max-w-[170px]" onClick={() => setIsMobileMenuOpen(false)}>
+            <img src="/logo_dark.png" alt="Havoc RC Funzone Logo" className="w-full h-auto object-contain max-h-12" />
           </Link>
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(false)}
+            className="lg:hidden p-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+            aria-label="Close menu"
+          >
+            <X className="w-6 h-6" />
+          </button>
         </div>
 
-        <nav className="flex-grow py-6 px-4 space-y-2">
-          <Link href="/admin/bookings" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/bookings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <CalendarDays className={`w-5 h-5 ${pathname === '/admin/bookings' ? 'text-[#ff5a1f]' : ''}`} />
-            Bookings
-          </Link>
-          <Link href="/admin/tickets" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/tickets' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Ticket className={`w-5 h-5 ${pathname === '/admin/tickets' ? 'text-[#ff5a1f]' : ''}`} />
-            Ticket Types
-          </Link>
-          <Link href="/admin/vip-perks" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/vip-perks' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Sparkles className={`w-5 h-5 ${pathname === '/admin/vip-perks' ? 'text-[#ff5a1f]' : ''}`} />
-            VIP Perks (Sims)
-          </Link>
-          <Link href="/admin/slots" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/slots' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Clock className={`w-5 h-5 ${pathname === '/admin/slots' ? 'text-[#ff5a1f]' : ''}`} />
-            Slots &amp; Dates
-          </Link>
-          <Link href="/admin/coupons" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/coupons' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Tag className={`w-5 h-5 ${pathname === '/admin/coupons' ? 'text-[#ff5a1f]' : ''}`} />
-            Coupons
-          </Link>
-          <Link href="/admin/staff" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/staff' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Users className={`w-5 h-5 ${pathname === '/admin/staff' ? 'text-[#ff5a1f]' : ''}`} />
-            Staff
-          </Link>
-          <Link href="/admin/settings" className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${pathname === '/admin/settings' ? 'bg-white/10 text-white' : 'text-gray-400 hover:bg-white/5 hover:text-white'}`}>
-            <Settings className={`w-5 h-5 ${pathname === '/admin/settings' ? 'text-[#ff5a1f]' : ''}`} />
-            Settings
-          </Link>
+        <nav className="flex-grow py-6 px-4 space-y-1.5 overflow-y-auto">
+          {navLinks.map((item) => {
+            const Icon = item.icon;
+            const isActive = pathname === item.href || (item.href !== "/admin" && pathname.startsWith(item.href));
+            return (
+              <Link 
+                key={item.href}
+                href={item.href} 
+                onClick={() => setIsMobileMenuOpen(false)}
+                className={`flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
+                  isActive 
+                    ? 'bg-white/10 text-white font-semibold' 
+                    : 'text-gray-400 hover:bg-white/5 hover:text-white'
+                }`}
+              >
+                <Icon className={`w-5 h-5 shrink-0 ${isActive ? 'text-[#ff5a1f]' : ''}`} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </nav>
 
         <div className="p-4 border-t border-gray-800">
@@ -114,22 +142,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </div>
       </aside>
 
-      {/* Main Content */}
-      <main className="flex-grow flex flex-col min-w-0">
+      {/* Main Content Area */}
+      <main className="flex-grow flex flex-col min-w-0 w-full">
         {/* Top Header */}
-        <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-8 shrink-0">
-          <h2 className="text-xl font-bold text-gray-800">
-            {pathname.includes('/bookings') ? 'Bookings' : 
-             pathname.includes('/tickets') ? 'Ticket Types' : 
-             pathname.includes('/vip-perks') ? 'VIP Perks & Simulators' : 
-             pathname.includes('/slots') ? 'Slots & Dates' :
-             pathname.includes('/coupons') ? 'Coupons' : 
-             pathname.includes('/staff') ? 'Staff Accounts' :
-             pathname.includes('/settings') ? 'Settings' : 'Admin Portal'}
-          </h2>
-          <div className="flex items-center gap-4">
+        <header className="h-16 lg:h-20 bg-white border-b border-gray-200 flex items-center justify-between px-4 sm:px-6 lg:px-8 shrink-0 sticky top-0 z-30">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Hamburger button for mobile */}
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="lg:hidden p-2 -ml-2 rounded-xl text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors shrink-0"
+              aria-label="Open sidebar navigation"
+            >
+              <Menu className="w-6 h-6" />
+            </button>
+
+            <h2 className="text-base sm:text-xl font-bold text-gray-800 truncate">
+              {pathname.includes('/bookings') ? 'Bookings' : 
+               pathname.includes('/tickets') ? 'Ticket Types' : 
+               pathname.includes('/vip-perks') ? 'VIP Perks & Simulators' : 
+               pathname.includes('/slots') ? 'Slots & Dates' :
+               pathname.includes('/coupons') ? 'Coupons' : 
+               pathname.includes('/staff') ? 'Staff Accounts' :
+               pathname.includes('/settings') ? 'Settings' : 'Admin Portal'}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-3">
             <div 
-              className="flex items-center gap-4 cursor-pointer hover:bg-gray-100 p-2 rounded-lg -m-2 transition-colors"
+              className="flex items-center gap-2.5 sm:gap-3 cursor-pointer hover:bg-gray-100 p-1.5 sm:p-2 rounded-xl transition-colors"
               onClick={() => {
                 setTempName(adminName);
                 setTempRole(adminRole);
@@ -137,23 +178,23 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 setIsEditingProfile(true);
               }}
             >
-              <div className="w-10 h-10 rounded-full bg-gray-200 border-2 border-white shadow-sm overflow-hidden shrink-0 flex items-center justify-center text-sm font-medium text-gray-600">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 border-2 border-white shadow-sm overflow-hidden shrink-0 flex items-center justify-center text-xs sm:text-sm font-medium text-gray-600">
                 {profileImage ? (
                   <img src={profileImage} alt="Admin" className="w-full h-full object-cover" />
                 ) : (
                   getInitials(adminName)
                 )}
               </div>
-              <div className="text-sm">
-                <p className="font-bold text-gray-900">{adminName}</p>
-                <p className="text-gray-500">{adminRole}</p>
+              <div className="text-left hidden sm:block">
+                <p className="font-bold text-gray-900 text-sm leading-tight">{adminName}</p>
+                <p className="text-xs text-gray-500 leading-tight">{adminRole}</p>
               </div>
             </div>
           </div>
         </header>
 
         {/* Page Content */}
-        <div className="flex-grow p-8 overflow-y-auto relative">
+        <div className="flex-grow p-4 sm:p-6 lg:p-8 overflow-y-auto relative w-full min-w-0">
           {children}
         </div>
 

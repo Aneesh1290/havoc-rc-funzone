@@ -369,27 +369,27 @@ export default function BookingsPage() {
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-heading font-black text-gray-900 tracking-tight">Orders</h1>
-          <p className="text-gray-500 text-sm mt-0.5">Manage ticket reservations, payments, and fulfillment.</p>
+          <h1 className="text-2xl sm:text-3xl font-heading font-black text-gray-900 tracking-tight">Orders</h1>
+          <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Manage ticket reservations, payments, and fulfillment.</p>
         </div>
 
-        <div className="flex items-center gap-3 self-end sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           {/* Bulk Delete Button when items are selected */}
           {selectedIds.length > 0 && (
             <div className="flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150">
-              <span className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200">
-                {selectedIds.length} selected
+              <span className="text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200">
+                {selectedIds.length} sel
               </span>
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all shadow-red-600/20"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all shadow-red-600/20"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span>Delete ({selectedIds.length})</span>
               </button>
             </div>
@@ -400,7 +400,7 @@ export default function BookingsPage() {
             type="button"
             disabled={isExporting || isLoading || filteredOrders.length === 0}
             onClick={handleExportExcel}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
             title="Download Excel Report matching Havoc Sim Podium format"
           >
             {isExporting ? (
@@ -421,26 +421,26 @@ export default function BookingsPage() {
           {/* Filter button that opens the slide-over filter panel */}
           <button
             onClick={() => setIsFilterDrawerOpen(true)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all border shadow-sm ${
+            className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm ${
               activeFilterCount > 0 
                 ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-[#ff5a1f]/20" 
                 : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200"
             }`}
           >
-            <Filter className="w-4 h-4" />
+            <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             <span>Filter {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}</span>
-            <ChevronDown className="w-3.5 h-3.5 opacity-60" />
+            <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-60" />
           </button>
 
-          {/* Search box */}
-          <div className="relative w-64">
+          {/* Search box - full width on phone, fixed on tablet/desktop */}
+          <div className="relative w-full sm:w-64 order-last sm:order-none mt-1 sm:mt-0">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search orders..."
-              className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] transition-all shadow-sm"
+              className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2 sm:py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] transition-all shadow-sm"
             />
           </div>
         </div>

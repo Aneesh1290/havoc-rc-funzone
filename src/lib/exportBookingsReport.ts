@@ -68,112 +68,58 @@ function normalizeHex(hex?: string | null): string {
   return clean.toUpperCase();
 }
 
+// Format a date string (e.g. "Oct 18" or "2026-10-18") into a full display banner "OCTOBER 18 (SUNDAY)"
+function formatFullDateBanner(dateStr: string, fallbackTitle?: string): { bannerTitle: string; sheetTabName: string } {
+  if (!dateStr || dateStr === "UNASSIGNED") {
+    return { bannerTitle: fallbackTitle || "ALL BOOKINGS", sheetTabName: "All Bookings" };
+  }
+
+  // Attempt standard parsing
+  let d = new Date(dateStr);
+  // If "Oct 18" without year, append current year
+  if (isNaN(d.getTime())) {
+    d = new Date(`${dateStr} ${new Date().getFullYear()}`);
+  }
+
+  if (!isNaN(d.getTime())) {
+    const monthLong = d.toLocaleDateString("en-US", { month: "long" }).toUpperCase();
+    const dayNum = d.getDate();
+    const weekday = d.toLocaleDateString("en-US", { weekday: "long" }).toUpperCase();
+    const bannerTitle = `${monthLong} ${dayNum} (${weekday})`;
+    const monthShort = d.toLocaleDateString("en-US", { month: "short" });
+    const sheetTabName = `${monthShort} ${dayNum}`.slice(0, 31);
+    return { bannerTitle, sheetTabName };
+  }
+
+  const clean = dateStr.toUpperCase();
+  return { bannerTitle: clean, sheetTabName: dateStr.slice(0, 31) };
+}
+
+interface OrderData {
+  orderNo: number;
+  orderCode: string;
+  name: string;
+  phone: string;
+  email: string;
+  date: string;
+  timeSlot: string;
+  slotColor: string;
+  slotColorName: string;
+  payment_status: string;
+  fulfillment_status: string;
+  total_amount: number;
+  items: BookingExportItem[];
+}
+
 /**
- * Generates and downloads an Excel report matching the exact Havoc presentation format:
- * - Professional solid cell borders on all data cells and headers
- * - Distinct colored fill for "SLOT NO / COLOUR" cells matching that slot's wristband color
- * - Title Banner, Spanning Headers (NUMBER OF TICKETS, AMOUNT), and Total Footers
- * - Clean blank rows separating different time slots
+ * Renders a complete Havoc-formatted day report into a specific Worksheet
  */
-export async function generateBookingsExcelReport(
-  bookings: BookingExportItem[],
-  timeSlotsMetadata: { label: string; color?: string | null; color_name?: string | null; sort_order?: number }[] = [],
-  reportTitle?: string
+function renderDaySheet(
+  worksheet: ExcelJS.Worksheet,
+  bannerTitle: string,
+  ordersForDay: OrderData[],
+  slotMetaMap: Map<string, { slotIndex: number; colorHex: string; colorName: string }>
 ) {
-  if (!bookings || bookings.length === 0) {
-    throw new Error("No booking data available to export.");
-  }
-
-  // 1. Build a lookup for slot index/number, color hex, and color name
-  const slotMetaMap = new Map<string, { slotIndex: number; colorHex: string; colorName: string }>();
-  timeSlotsMetadata.forEach((ts, idx) => {
-    const slotIdx = ts.sort_order !== undefined && ts.sort_order > 0 ? ts.sort_order : idx + 1;
-    const cName = cleanColourName(ts.color_name, ts.color);
-    const band = getSlotWristbandColor(ts.label, ts.color, ts.color_name);
-    slotMetaMap.set(ts.label.trim().toUpperCase(), {
-      slotIndex: slotIdx,
-      colorHex: normalizeHex(band.hex),
-      colorName: cName
-    });
-  });
-
-  // Group items by order_number
-  const ordersMap = new Map<number, {
-    orderNo: number;
-    orderCode: string;
-    name: string;
-    phone: string;
-    email: string;
-    date: string;
-    timeSlot: string;
-    slotColor: string;
-    slotColorName: string;
-    payment_status: string;
-    fulfillment_status: string;
-    total_amount: number;
-    items: BookingExportItem[];
-  }>();
-
-  for (const b of bookings) {
-    const orderNum = b.order_number || b.id;
-    if (!ordersMap.has(orderNum)) {
-      ordersMap.set(orderNum, {
-        orderNo: orderNum,
-        orderCode: b.order_code || `#PAYDUE_FZ_${orderNum}`,
-        name: b.customer_name || "Guest",
-        phone: b.customer_phone || "",
-        email: b.customer_email || "",
-        date: b.booking_date || "",
-        timeSlot: b.time_slot || "",
-        slotColor: b.slot_color || "",
-        slotColorName: b.slot_color_name || "",
-        payment_status: b.payment_status || "Unpaid",
-        fulfillment_status: b.fulfillment_status || "Unfulfilled",
-        total_amount: Number(b.total_amount || 0),
-        items: []
-      });
-    }
-    ordersMap.get(orderNum)!.items.push(b);
-  }
-
-  // Group orders by Time Slot
-  const slotGroups = new Map<string, typeof ordersMap extends Map<any, infer V> ? V[] : never>();
-
-  for (const order of ordersMap.values()) {
-    const slotKey = order.timeSlot || "UNASSIGNED";
-    if (!slotGroups.has(slotKey)) {
-      slotGroups.set(slotKey, []);
-    }
-    slotGroups.get(slotKey)!.push(order);
-  }
-
-  // Sort slots chronologically
-  const sortedSlotKeys = Array.from(slotGroups.keys()).sort((a, b) => {
-    return getSlotStartMinutes(a) - getSlotStartMinutes(b);
-  });
-
-  // Create Excel Workbook and Sheet using exceljs
-  const workbook = new ExcelJS.Workbook();
-  workbook.creator = "Havoc RC Funzone";
-  workbook.created = new Date();
-
-  // Determine top title: e.g. "OCTOBER 18 (SUNDAY)"
-  let headerDateTitle = reportTitle;
-  if (!headerDateTitle) {
-    const distinctDates = Array.from(new Set(bookings.map(b => b.booking_date).filter(Boolean)));
-    if (distinctDates.length === 1) {
-      headerDateTitle = distinctDates[0].toUpperCase();
-    } else {
-      headerDateTitle = "ALL BOOKINGS REPORT";
-    }
-  }
-
-  const sheetName = (headerDateTitle.replace(/[^a-zA-Z0-9 ]/g, "").slice(0, 31)) || "Bookings Report";
-  const worksheet = workbook.addWorksheet(sheetName, {
-    views: [{ showGridLines: true }]
-  });
-
-  // Define Standard Borders
   const thinBorder: Partial<ExcelJS.Borders> = {
     top: { style: "thin", color: { argb: "FF000000" } },
     left: { style: "thin", color: { argb: "FF000000" } },
@@ -216,7 +162,7 @@ export async function generateBookingsExcelReport(
   ];
 
   // ROW 1: Main Title Banner (spanning A1 to P1)
-  const titleRow = worksheet.addRow([headerDateTitle]);
+  const titleRow = worksheet.addRow([bannerTitle]);
   titleRow.height = 30;
   worksheet.mergeCells("A1:P1");
   const titleCell = worksheet.getCell("A1");
@@ -253,9 +199,7 @@ export async function generateBookingsExcelReport(
   headerRow2.height = 22;
 
   // Merges for Table Header:
-  // J2:M2 -> "NUMBER OF TICKETS"
   worksheet.mergeCells("J2:M2");
-  // Multi-row merges for non-split headers: A2:A3, B2:B3, ... I2:I3, N2:N3, O2:O3, P2:P3
   const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P"];
   spanningCols.forEach(col => {
     worksheet.mergeCells(`${col}2:${col}3`);
@@ -276,6 +220,21 @@ export async function generateBookingsExcelReport(
       cell.border = thinBorder;
     }
   }
+
+  // Group this day's orders by Time Slot
+  const slotGroups = new Map<string, OrderData[]>();
+  for (const order of ordersForDay) {
+    const slotKey = order.timeSlot || "UNASSIGNED";
+    if (!slotGroups.has(slotKey)) {
+      slotGroups.set(slotKey, []);
+    }
+    slotGroups.get(slotKey)!.push(order);
+  }
+
+  // Sort slots chronologically
+  const sortedSlotKeys = Array.from(slotGroups.keys()).sort((a, b) => {
+    return getSlotStartMinutes(a) - getSlotStartMinutes(b);
+  });
 
   let totalSlCounter = 1;
   let grandTotalV = 0;
@@ -372,16 +331,12 @@ export async function generateBookingsExcelReport(
       ]);
       dataRow.height = 20;
 
-      // Apply solid borders and alignment to every cell in the row
+      // Apply solid borders and alignment
       for (let c = 1; c <= 16; c++) {
         const cell = dataRow.getCell(c);
         cell.border = thinBorder;
         cell.font = { name: "Calibri", size: 10 };
 
-        // Alignments:
-        // Text left-aligned for Name, Email, Order Code
-        // Center-aligned for SL, SN, Date, Slot, Ticket Quantities, Status
-        // Right-aligned for Currency amounts
         if (c === 3 || c === 4 || c === 6) {
           cell.alignment = { horizontal: "left", vertical: "middle" };
         } else if (c === 14 || c === 15) {
@@ -452,7 +407,6 @@ export async function generateBookingsExcelReport(
   ]);
   overallRow.height = 24;
 
-  // Merge J:M on the overall tickets row
   const overallRowNum = overallRow.number;
   worksheet.mergeCells(`J${overallRowNum}:M${overallRowNum}`);
 
@@ -467,6 +421,110 @@ export async function generateBookingsExcelReport(
       fgColor: { argb: "FFEAEAEA" }
     };
   }
+}
+
+/**
+ * Generates and downloads an Excel report matching the exact Havoc presentation format:
+ * - Each distinct booking date gets its own dedicated sheet tab (e.g. "Oct 18", "Oct 20", "Oct 21")
+ * - If only one date is selected, that date's sheet is generated.
+ * - If multiple dates are present, an additional "All Bookings" summary tab is also included.
+ */
+export async function generateBookingsExcelReport(
+  bookings: BookingExportItem[],
+  timeSlotsMetadata: { label: string; color?: string | null; color_name?: string | null; sort_order?: number }[] = [],
+  reportTitle?: string
+) {
+  if (!bookings || bookings.length === 0) {
+    throw new Error("No booking data available to export.");
+  }
+
+  // 1. Build a lookup for slot index/number, color hex, and color name
+  const slotMetaMap = new Map<string, { slotIndex: number; colorHex: string; colorName: string }>();
+  timeSlotsMetadata.forEach((ts, idx) => {
+    const slotIdx = ts.sort_order !== undefined && ts.sort_order > 0 ? ts.sort_order : idx + 1;
+    const cName = cleanColourName(ts.color_name, ts.color);
+    const band = getSlotWristbandColor(ts.label, ts.color, ts.color_name);
+    slotMetaMap.set(ts.label.trim().toUpperCase(), {
+      slotIndex: slotIdx,
+      colorHex: normalizeHex(band.hex),
+      colorName: cName
+    });
+  });
+
+  // Group items by order_number
+  const ordersMap = new Map<number, OrderData>();
+
+  for (const b of bookings) {
+    const orderNum = b.order_number || b.id;
+    if (!ordersMap.has(orderNum)) {
+      ordersMap.set(orderNum, {
+        orderNo: orderNum,
+        orderCode: b.order_code || `#PAYDUE_FZ_${orderNum}`,
+        name: b.customer_name || "Guest",
+        phone: b.customer_phone || "",
+        email: b.customer_email || "",
+        date: b.booking_date || "",
+        timeSlot: b.time_slot || "",
+        slotColor: b.slot_color || "",
+        slotColorName: b.slot_color_name || "",
+        payment_status: b.payment_status || "Unpaid",
+        fulfillment_status: b.fulfillment_status || "Unfulfilled",
+        total_amount: Number(b.total_amount || 0),
+        items: []
+      });
+    }
+    ordersMap.get(orderNum)!.items.push(b);
+  }
+
+  const allOrders = Array.from(ordersMap.values());
+
+  // Group orders by booking_date
+  const dateGroups = new Map<string, OrderData[]>();
+  for (const order of allOrders) {
+    const dKey = order.date || "UNASSIGNED";
+    if (!dateGroups.has(dKey)) {
+      dateGroups.set(dKey, []);
+    }
+    dateGroups.get(dKey)!.push(order);
+  }
+
+  // Sort distinct dates chronologically
+  const sortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
+    const timeA = new Date(a).getTime() || 0;
+    const timeB = new Date(b).getTime() || 0;
+    return timeA - timeB;
+  });
+
+  // Create Excel Workbook
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Havoc RC Funzone";
+  workbook.created = new Date();
+
+  // If there are multiple dates, also provide an "All Bookings" consolidated sheet first
+  if (sortedDates.length > 1) {
+    const allSheet = workbook.addWorksheet("All Bookings", { views: [{ showGridLines: true }] });
+    renderDaySheet(allSheet, "ALL BOOKINGS REPORT", allOrders, slotMetaMap);
+  }
+
+  // Create a separate sheet tab for each individual date
+  const usedTabNames = new Set<string>();
+  if (sortedDates.length > 1) usedTabNames.add("All Bookings");
+
+  for (const dateKey of sortedDates) {
+    const { bannerTitle, sheetTabName } = formatFullDateBanner(dateKey, reportTitle);
+
+    // Ensure tab name is unique and valid for Excel (max 31 chars, no invalid chars : \ / ? * [ ])
+    let cleanTab = sheetTabName.replace(/[:\\/?*\[\]]/g, "_").slice(0, 31);
+    let counter = 1;
+    while (usedTabNames.has(cleanTab)) {
+      cleanTab = `${sheetTabName.slice(0, 27)} (${counter++})`;
+    }
+    usedTabNames.add(cleanTab);
+
+    const daySheet = workbook.addWorksheet(cleanTab, { views: [{ showGridLines: true }] });
+    const ordersForThisDay = dateGroups.get(dateKey) || [];
+    renderDaySheet(daySheet, bannerTitle, ordersForThisDay, slotMetaMap);
+  }
 
   // Generate buffer and trigger browser download
   const buffer = await workbook.xlsx.writeBuffer();
@@ -477,7 +535,10 @@ export async function generateBookingsExcelReport(
   const url = window.URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url;
-  anchor.download = `Havoc_Funzone_Report_${headerDateTitle.replace(/\s+/g, "_")}.xlsx`;
+  const downloadFileName = sortedDates.length === 1 
+    ? `Havoc_Funzone_Report_${sortedDates[0].replace(/\s+/g, "_")}.xlsx`
+    : `Havoc_Funzone_Report_Multi_Day.xlsx`;
+  anchor.download = downloadFileName;
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);

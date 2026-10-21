@@ -33,9 +33,10 @@ import {
   fetchSiteSettingAction,
   updateSiteSettingAction,
   fetchOpenedSpecificDatesAction,
-  toggleOpenedSpecificDateAction
+  toggleOpenedSpecificDateAction,
+  fetchTicketsAction
 } from "@/app/actions/tickets";
-import type { BlockedSlotRow, TimeSlotRow } from "@/lib/db";
+import type { BlockedSlotRow, TimeSlotRow, TicketRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex, getWristbandBadgeStyle } from "@/lib/slotColors";
 
 const MONTH_NAMES = [
@@ -73,6 +74,10 @@ export default function SlotsManagementPage() {
   const [openedSpecificDates, setOpenedSpecificDates] = useState<string[]>([]);
   const [selectedSpecificMonday, setSelectedSpecificMonday] = useState("");
   const [isUpdatingSpecificDate, setIsUpdatingSpecificDate] = useState(false);
+
+  // Tickets state for per-ticket blocking
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [selectedTicketId, setSelectedTicketId] = useState<number | "ALL">("ALL");
 
   // Form states for Block
   const [blockType, setBlockType] = useState<'specific_slot' | 'entire_day' | 'slot_all_dates'>('specific_slot');
@@ -115,15 +120,17 @@ export default function SlotsManagementPage() {
     setIsLoadingSlots(true);
     setIsLoadingBlocked(true);
     try {
-      const [slotsData, blockedData, mondayVal, openedDatesList] = await Promise.all([
+      const [slotsData, blockedData, mondayVal, openedDatesList, ticketsData] = await Promise.all([
         fetchTimeSlotsAction(false),
         fetchBlockedSlotsAction(),
         fetchSiteSettingAction('monday_open', '0'),
-        fetchOpenedSpecificDatesAction()
+        fetchOpenedSpecificDatesAction(),
+        fetchTicketsAction()
       ]);
       const sortedSlots = [...slotsData].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour));
       setTimeSlots(sortedSlots);
       setBlockedList(blockedData);
+      setTickets(ticketsData || []);
       setIsMondayOpen(mondayVal === '1' || mondayVal.toLowerCase() === 'true');
       setOpenedSpecificDates(openedDatesList || []);
 
@@ -177,6 +184,11 @@ export default function SlotsManagementPage() {
 
     let targetDate = selectedDate;
 
+    const targetTicketId = selectedTicketId === "ALL" ? null : Number(selectedTicketId);
+    const ticketLabel = targetTicketId 
+      ? ` for ${(tickets.find(t => t.id === targetTicketId)?.name || 'Pass').replace(/_/g, ' ')}` 
+      : ' for all tickets';
+
     if (blockType === 'entire_day') {
       if (!targetDate) {
         setFeedback({ type: 'error', message: "Please select a date." });
@@ -184,11 +196,11 @@ export default function SlotsManagementPage() {
         return;
       }
       try {
-        const res = await blockSlotOrDateAction(targetDate, 'ALL_DAY', reason);
+        const res = await blockSlotOrDateAction(targetDate, 'ALL_DAY', reason, targetTicketId);
         if (res.success) {
           setFeedback({ 
             type: 'success', 
-            message: `Successfully blocked entire day for: ${targetDate}` 
+            message: `Successfully blocked entire day for: ${targetDate}${ticketLabel}` 
           });
           setReason("");
           const freshBlocked = await fetchBlockedSlotsAction();
@@ -207,11 +219,11 @@ export default function SlotsManagementPage() {
     if (blockType === 'slot_all_dates') {
       const slotToBlock = selectedSlots[0] || (timeSlots[0]?.label ?? "11AM-12PM");
       try {
-        const res = await blockSlotOrDateAction('ALL', slotToBlock, reason);
+        const res = await blockSlotOrDateAction('ALL', slotToBlock, reason, targetTicketId);
         if (res.success) {
           setFeedback({ 
             type: 'success', 
-            message: `Successfully blocked ${slotToBlock} across all dates.` 
+            message: `Successfully blocked ${slotToBlock} across all dates${ticketLabel}.` 
           });
           setReason("");
           const freshBlocked = await fetchBlockedSlotsAction();
@@ -241,11 +253,11 @@ export default function SlotsManagementPage() {
     }
 
     try {
-      const res = await blockMultipleSlotsAction(targetDate, selectedSlots, reason);
+      const res = await blockMultipleSlotsAction(targetDate, selectedSlots, reason, targetTicketId);
       if (res.success) {
         setFeedback({ 
           type: 'success', 
-          message: `Successfully blocked ${selectedSlots.length} slot${selectedSlots.length > 1 ? 's' : ''} on ${targetDate} (${selectedSlots.join(', ')})` 
+          message: `Successfully blocked ${selectedSlots.length} slot${selectedSlots.length > 1 ? 's' : ''} on ${targetDate} (${selectedSlots.join(', ')})${ticketLabel}` 
         });
         setReason("");
         const freshBlocked = await fetchBlockedSlotsAction();
@@ -373,6 +385,7 @@ export default function SlotsManagementPage() {
     return (
       item.booking_date.toLowerCase().includes(q) ||
       item.time_slot.toLowerCase().includes(q) ||
+      (item.ticket_name && item.ticket_name.toLowerCase().includes(q)) ||
       (item.reason && item.reason.toLowerCase().includes(q))
     );
   });
@@ -678,6 +691,31 @@ export default function SlotsManagementPage() {
                   </div>
                 </div>
 
+                {/* Ticket Pass Selector (All Tickets vs Specific Pass) */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2 flex items-center justify-between">
+                    <span>Applicable Ticket Pass</span>
+                    <span className="text-[10px] text-gray-400 font-semibold normal-case">Choose &ldquo;All Passes&rdquo; or a single ticket</span>
+                  </label>
+                  <select
+                    value={selectedTicketId}
+                    onChange={(e) => setSelectedTicketId(e.target.value === "ALL" ? "ALL" : Number(e.target.value))}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  >
+                    <option value="ALL">🌐 All Ticket Types (Entire Funzone)</option>
+                    {tickets.map(t => (
+                      <option key={t.id} value={t.id}>
+                        🎟️ {t.name.replace(/_/g, ' ')} (₹{t.price})
+                      </option>
+                    ))}
+                  </select>
+                  {selectedTicketId !== "ALL" && (
+                    <p className="text-[11px] text-[#ff5a1f] mt-1.5 font-medium">
+                      🎯 Only <strong className="font-bold">{(tickets.find(t => t.id === Number(selectedTicketId))?.name || 'this pass').replace(/_/g, ' ')}</strong> will be blocked for this slot. All other ticket passes will remain open.
+                    </p>
+                  )}
+                </div>
+
                 {/* Date Input */}
                 {blockType !== 'slot_all_dates' && (
                   <div>
@@ -865,6 +903,15 @@ export default function SlotsManagementPage() {
                               }`}>
                                 {isAllDay ? 'ENTIRE DAY BLOCKED' : item.time_slot}
                               </span>
+                              {item.ticket_name ? (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-black bg-purple-100 text-purple-800 border border-purple-200 flex items-center gap-1">
+                                  🎟️ {item.ticket_name.replace(/_/g, ' ')} Only
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-gray-200 text-gray-700">
+                                  🌐 All Passes
+                                </span>
+                              )}
                             </div>
                             {item.reason && (
                               <p className="text-xs text-gray-600 mt-1 italic">

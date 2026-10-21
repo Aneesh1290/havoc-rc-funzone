@@ -318,7 +318,16 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     !hasParticipantTimeConflict
   );
 
-  const canSubmit = type && date && time && maxAvailableCap > 0 && allSimsSelected;
+  // Check if currently selected date or time slot is blocked for the chosen ticket
+  const isSelectedSlotBlocked = Boolean(
+    date && time && blockedSlots.some(b => 
+      (b.booking_date === date || b.booking_date === 'ALL') && 
+      (b.time_slot === time || b.time_slot === 'ALL_DAY') &&
+      (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
+    )
+  );
+
+  const canSubmit = type && date && time && !isSelectedSlotBlocked && maxAvailableCap > 0 && allSimsSelected;
 
   // Reset quantity if it exceeds the available capacity
   useEffect(() => {
@@ -364,8 +373,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     const isExplicitlyOpened = openedSpecificDates.includes(val);
 
     // Check if the date is manually blocked by admin (ALL_DAY on this date, or ALL_DAY on ALL dates)
+    // If a ticket type is selected, check if blocked globally (ticket_id is null) OR blocked specifically for this pass
     const isDayBlockedByAdmin = blockedSlots.some(b => 
-      (b.booking_date === val || b.booking_date === 'ALL') && b.time_slot === 'ALL_DAY'
+      (b.booking_date === val || b.booking_date === 'ALL') && 
+      b.time_slot === 'ALL_DAY' &&
+      (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
     );
     // Closed on Monday unless all Mondays are enabled OR this specific date is explicitly opened
     const isClosedMonday = isMonday && !isMondayOpen && !isExplicitlyOpened;
@@ -498,10 +510,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                     return true;
                   })
                   .map(slot => {
-                    // Check if slot is blocked by admin
+                    // Check if slot is blocked by admin (globally OR specifically for selected ticket pass)
                     const isBlockedSlot = blockedSlots.some(b => 
                       (b.booking_date === date || b.booking_date === 'ALL') && 
-                      (b.time_slot === slot.label || b.time_slot === 'ALL_DAY')
+                      (b.time_slot === slot.label || b.time_slot === 'ALL_DAY') &&
+                      (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
                     );
                     
                     return (

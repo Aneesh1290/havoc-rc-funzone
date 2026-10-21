@@ -599,9 +599,9 @@ export async function fetchBlockedSlotsForDateAction(date: string): Promise<Bloc
   return getBlockedSlotsForDate(date);
 }
 
-export async function blockSlotOrDateAction(date: string, timeSlot: string, reason?: string) {
+export async function blockSlotOrDateAction(date: string, timeSlot: string, reason?: string, ticketId?: number | null) {
   try {
-    blockSlotOrDate(date, timeSlot, reason);
+    blockSlotOrDate(date, timeSlot, reason, ticketId);
     revalidatePath('/admin/slots');
     revalidatePath('/tickets');
     return { success: true };
@@ -611,10 +611,10 @@ export async function blockSlotOrDateAction(date: string, timeSlot: string, reas
   }
 }
 
-export async function blockMultipleSlotsAction(date: string, timeSlots: string[], reason?: string) {
+export async function blockMultipleSlotsAction(date: string, timeSlots: string[], reason?: string, ticketId?: number | null) {
   try {
     for (const slot of timeSlots) {
-      blockSlotOrDate(date, slot, reason);
+      blockSlotOrDate(date, slot, reason, ticketId);
     }
     revalidatePath('/admin/slots');
     revalidatePath('/tickets');

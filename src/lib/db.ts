@@ -145,6 +145,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_slot TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN order_number INTEGER'); } catch (e) {}
+  try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
 
@@ -742,28 +743,38 @@ export interface BlockedSlotRow {
   id: number;
   booking_date: string;
   time_slot: string;
+  ticket_id?: number | null;
+  ticket_name?: string | null;
   reason?: string | null;
   created_at?: string;
 }
 
 export function getBlockedSlots(): BlockedSlotRow[] {
-  return db.prepare('SELECT * FROM blocked_slots ORDER BY id DESC').all() as BlockedSlotRow[];
+  return db.prepare(`
+    SELECT b.*, t.name as ticket_name 
+    FROM blocked_slots b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    ORDER BY b.id DESC
+  `).all() as BlockedSlotRow[];
 }
 
 export function getBlockedSlotsForDate(date: string): BlockedSlotRow[] {
   return db.prepare(`
-    SELECT * FROM blocked_slots 
-    WHERE booking_date = ? OR booking_date = 'ALL'
+    SELECT b.*, t.name as ticket_name 
+    FROM blocked_slots b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    WHERE b.booking_date = ? OR b.booking_date = 'ALL'
   `).all(date.trim()) as BlockedSlotRow[];
 }
 
-export function isDateOrSlotBlocked(date: string, timeSlot?: string): boolean {
+export function isDateOrSlotBlocked(date: string, timeSlot?: string, ticketId?: number): boolean {
   if (timeSlot) {
     const res = db.prepare(`
       SELECT COUNT(*) as count FROM blocked_slots
       WHERE (booking_date = ? OR booking_date = 'ALL')
         AND (time_slot = ? OR time_slot = 'ALL_DAY')
-    `).get(date.trim(), timeSlot.trim()) as { count: number };
+        AND (ticket_id IS NULL OR ticket_id = ?)
+    `).get(date.trim(), timeSlot.trim(), ticketId || null) as { count: number };
     return res.count > 0;
   } else {
     // Check if entire date is blocked
@@ -771,27 +782,44 @@ export function isDateOrSlotBlocked(date: string, timeSlot?: string): boolean {
       SELECT COUNT(*) as count FROM blocked_slots
       WHERE (booking_date = ? OR booking_date = 'ALL')
         AND time_slot = 'ALL_DAY'
-    `).get(date.trim()) as { count: number };
+        AND (ticket_id IS NULL OR ticket_id = ?)
+    `).get(date.trim(), ticketId || null) as { count: number };
     return res.count > 0;
   }
 }
 
-export function blockSlotOrDate(bookingDate: string, timeSlot: string, reason?: string) {
+export function blockSlotOrDate(bookingDate: string, timeSlot: string, reason?: string, ticketId?: number | null) {
+  // If ticketId is specified, check for existing entry with same date, slot, and ticketId
+  const tid = ticketId && ticketId > 0 ? ticketId : null;
+  const existing = tid
+    ? db.prepare('SELECT id FROM blocked_slots WHERE booking_date = ? AND time_slot = ? AND ticket_id = ?').get(bookingDate.trim(), timeSlot.trim(), tid) as { id: number } | undefined
+    : db.prepare('SELECT id FROM blocked_slots WHERE booking_date = ? AND time_slot = ? AND ticket_id IS NULL').get(bookingDate.trim(), timeSlot.trim()) as { id: number } | undefined;
+
+  if (existing) {
+    return db.prepare('UPDATE blocked_slots SET reason = ? WHERE id = ?').run(reason?.trim() || null, existing.id);
+  }
+
   return db.prepare(`
-    INSERT INTO blocked_slots (booking_date, time_slot, reason)
-    VALUES (?, ?, ?)
-    ON CONFLICT(booking_date, time_slot) DO UPDATE SET reason = excluded.reason
-  `).run(bookingDate.trim(), timeSlot.trim(), reason?.trim() || null);
+    INSERT INTO blocked_slots (booking_date, time_slot, reason, ticket_id)
+    VALUES (?, ?, ?, ?)
+  `).run(bookingDate.trim(), timeSlot.trim(), reason?.trim() || null, tid);
 }
 
 export function unblockSlot(id: number) {
   return db.prepare('DELETE FROM blocked_slots WHERE id = ?').run(id);
 }
 
-export function unblockSpecificSlot(bookingDate: string, timeSlot: string) {
+export function unblockSpecificSlot(bookingDate: string, timeSlot: string, ticketId?: number | null) {
+  const tid = ticketId && ticketId > 0 ? ticketId : null;
+  if (tid) {
+    return db.prepare(`
+      DELETE FROM blocked_slots 
+      WHERE booking_date = ? AND time_slot = ? AND ticket_id = ?
+    `).run(bookingDate.trim(), timeSlot.trim(), tid);
+  }
   return db.prepare(`
     DELETE FROM blocked_slots 
-    WHERE booking_date = ? AND time_slot = ?
+    WHERE booking_date = ? AND time_slot = ? AND ticket_id IS NULL
   `).run(bookingDate.trim(), timeSlot.trim());
 }
 

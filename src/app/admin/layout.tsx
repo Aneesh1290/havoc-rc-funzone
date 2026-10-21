@@ -9,7 +9,7 @@ import { logoutAction } from "../login/actions";
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [adminName, setAdminName] = useState("Admin User");
   const [adminRole, setAdminRole] = useState("Administrator");
-  const [profileImage, setProfileImage] = useState<string | null>("https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?auto=format&fit=crop&q=80");
+  const [profileImage, setProfileImage] = useState<string | null>(null);
   
   const [isEditingProfile, setIsEditingProfile] = useState(false);
   const [tempName, setTempName] = useState(adminName);
@@ -50,7 +50,14 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         const parsed = JSON.parse(saved);
         if (parsed.name) setAdminName(parsed.name);
         if (parsed.role) setAdminRole(parsed.role);
-        if (parsed.image !== undefined) setProfileImage(parsed.image);
+        // Completely purge the unwanted unsplash photo if previously stored
+        if (parsed.image && typeof parsed.image === "string" && parsed.image.includes("unsplash.com")) {
+          parsed.image = null;
+          localStorage.setItem("havoc_admin_profile", JSON.stringify(parsed));
+          setProfileImage(null);
+        } else if (parsed.image !== undefined) {
+          setProfileImage(parsed.image);
+        }
       } catch (e) {
         console.error("Failed to parse profile data");
       }
@@ -209,7 +216,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                 setIsEditingProfile(true);
               }}
             >
-              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-200 border-2 border-white shadow-sm overflow-hidden shrink-0 flex items-center justify-center text-xs sm:text-sm font-medium text-gray-600">
+              <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-[#ff5a1f] to-[#e04812] text-white border-2 border-white shadow-sm overflow-hidden shrink-0 flex items-center justify-center text-xs sm:text-sm font-bold tracking-wider">
                 {profileImage ? (
                   <img src={profileImage} alt="Admin" className="w-full h-full object-cover" />
                 ) : (

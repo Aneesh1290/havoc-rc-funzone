@@ -13,7 +13,9 @@ import {
   Filter,
   ArrowUpDown,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  LayoutGrid,
+  Table as TableIcon
 } from "lucide-react";
 import { 
   fetchCouponsAction, 
@@ -33,6 +35,8 @@ export default function AdminCouponsPage() {
   const [message, setMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+  const [lastSelectedId, setLastSelectedId] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"table" | "cards">("table");
 
   // Single coupon form state
   const [singleCode, setSingleCode] = useState("");
@@ -251,10 +255,34 @@ export default function AdminCouponsPage() {
   };
 
 
-  const handleToggleSelectOne = (id: number) => {
-    setSelectedIds(prev => 
-      prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-    );
+  const handleToggleSelectOne = (id: number, shiftKey: boolean = false) => {
+    if (shiftKey && lastSelectedId !== null && lastSelectedId !== id) {
+      // Find range between lastSelectedId and current id in paginatedCoupons (or filteredAndSortedCoupons)
+      const list = paginatedCoupons;
+      const lastIndex = list.findIndex(c => c.id === lastSelectedId);
+      const currentIndex = list.findIndex(c => c.id === id);
+
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const rangeIds = list.slice(start, end + 1).map(c => c.id);
+
+        setSelectedIds(prev => Array.from(new Set([...prev, ...rangeIds])));
+        setLastSelectedId(id);
+        return;
+      }
+    }
+
+    // Normal toggle
+    setSelectedIds(prev => {
+      const isAlreadySelected = prev.includes(id);
+      if (isAlreadySelected) {
+        return prev.filter(x => x !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+    setLastSelectedId(id);
   };
 
   // Helper to extract series prefix or category
@@ -866,20 +894,52 @@ export default function AdminCouponsPage() {
               )}
             </div>
 
-            <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
-              <span className="text-gray-500 font-semibold">Per Page:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
-                className="bg-gray-50 border border-gray-200 text-gray-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
-              >
-                <option value={25}>25</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-                <option value={250}>250</option>
-                <option value={500}>500</option>
-                <option value={-1}>All ({filteredAndSortedCoupons.length})</option>
-              </select>
+            <div className="flex items-center gap-3 self-end sm:self-auto text-xs">
+              {/* View Mode Toggle: Table vs Cards */}
+              <div className="inline-flex items-center bg-gray-100 p-0.5 rounded-xl border border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("table")}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-xs transition-all ${
+                    viewMode === "table"
+                      ? "bg-white text-gray-900 shadow-xs"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                  title="Table View"
+                >
+                  <TableIcon className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Table</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("cards")}
+                  className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg font-bold text-xs transition-all ${
+                    viewMode === "cards"
+                      ? "bg-white text-[#ff5a1f] shadow-xs"
+                      : "text-gray-500 hover:text-gray-800"
+                  }`}
+                  title="Cards Grid View"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Cards</span>
+                </button>
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <span className="text-gray-500 font-semibold">Per Page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                  className="bg-gray-50 border border-gray-200 text-gray-900 text-xs font-bold rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                  <option value={-1}>All ({filteredAndSortedCoupons.length})</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -906,7 +966,7 @@ export default function AdminCouponsPage() {
               Reset Filters
             </button>
           </div>
-        ) : (
+        ) : viewMode === "table" ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
@@ -1001,7 +1061,8 @@ export default function AdminCouponsPage() {
                         <input 
                           type="checkbox"
                           checked={selectedIds.includes(coupon.id)}
-                          onChange={() => handleToggleSelectOne(coupon.id)}
+                          onClick={(e) => handleToggleSelectOne(coupon.id, e.shiftKey)}
+                          onChange={() => {}} // Controlled via onClick with shiftKey
                           className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
                         />
                       </td>
@@ -1048,6 +1109,101 @@ export default function AdminCouponsPage() {
                 })}
               </tbody>
             </table>
+          </div>
+        ) : (
+          /* Cards Grid View */
+          <div className="p-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {paginatedCoupons.map((coupon) => {
+                const isUsedUp = coupon.max_uses !== null && coupon.used_count >= coupon.max_uses;
+                const isExpired = Boolean(coupon.expiry_date && coupon.expiry_date < new Date().toISOString().split("T")[0]);
+                const isSelected = selectedIds.includes(coupon.id);
+                const cat = getCouponCategory(coupon.code);
+
+                return (
+                  <div 
+                    key={coupon.id}
+                    className={`relative rounded-2xl border transition-all p-4 flex flex-col justify-between select-none ${
+                      isSelected 
+                        ? "bg-gradient-to-br from-orange-50/90 to-amber-50/60 border-[#ff5a1f] ring-2 ring-[#ff5a1f]/20 shadow-md" 
+                        : "bg-white hover:bg-gray-50/80 border-gray-200/80 hover:border-gray-300 shadow-xs"
+                    }`}
+                  >
+                    {/* Top Row: Checkbox, Code & Delete */}
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <input 
+                            type="checkbox"
+                            checked={isSelected}
+                            onClick={(e) => handleToggleSelectOne(coupon.id, e.shiftKey)}
+                            onChange={() => {}}
+                            className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer w-4 h-4 mt-0.5"
+                          />
+                          <span className="font-mono font-extrabold text-sm text-gray-900 tracking-wider">
+                            {coupon.code}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(coupon.id, coupon.code);
+                          }}
+                          className="text-gray-400 hover:text-red-600 p-1 rounded-lg hover:bg-red-50 transition-colors"
+                          title="Delete coupon"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+
+                      {/* Status Badges */}
+                      <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                        <span className="text-[10px] font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200/60">
+                          {cat}
+                        </span>
+                        {isUsedUp && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-gray-200 text-gray-700 uppercase tracking-tight">
+                            Exhausted
+                          </span>
+                        )}
+                        {isExpired && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 text-red-700 uppercase tracking-tight">
+                            Expired
+                          </span>
+                        )}
+                        {!isUsedUp && !isExpired && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 uppercase tracking-tight">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Value Banner */}
+                    <div className="py-2.5 px-3 rounded-xl bg-gray-50 border border-gray-100 mb-3 flex items-center justify-between">
+                      <span className="text-xs text-gray-500 font-medium">Discount</span>
+                      <span className="font-extrabold text-base text-[#ff5a1f]">
+                        {coupon.discount_type === "percentage" ? `${coupon.value}% OFF` : `₹${coupon.value} FLAT`}
+                      </span>
+                    </div>
+
+                    {/* Bottom Metadata: Uses & Expiry */}
+                    <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-[11px] text-gray-500">
+                      <div>
+                        <span className="text-gray-400">Uses: </span>
+                        <strong className="text-gray-900 font-bold">{coupon.used_count}</strong>
+                        <span className="text-gray-400"> / {coupon.max_uses !== null ? coupon.max_uses : "∞"}</span>
+                      </div>
+                      <div>
+                        <span className="text-gray-400">Expires: </span>
+                        <strong className="text-gray-700 font-medium">{coupon.expiry_date || "Never"}</strong>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 

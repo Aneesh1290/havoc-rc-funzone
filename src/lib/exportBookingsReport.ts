@@ -564,11 +564,35 @@ export async function generateBookingsExcelReport(
     }
   }
 
+  // Today's start of day timestamp (midnight) to filter out past dates
+  const today = new Date();
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+
   // Sort distinct dates chronologically using accurate timestamps
-  const sortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
+  const allSortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
     const metaA = formatFullDateBanner(a, undefined, detectedYear);
     const metaB = formatFullDateBanner(b, undefined, detectedYear);
     return metaA.sortTimestamp - metaB.sortTimestamp;
+  });
+
+  // Filter out dates that are once gone (in the past):
+  // Keep present date orders (today) and future date orders.
+  // If the user explicitly filtered/selected orders that happen to only be past orders,
+  // we fallback to allSortedDates so the export isn't completely empty.
+  const upcomingAndPresentDates = allSortedDates.filter(dKey => {
+    const parsed = parseBookingDate(dKey, detectedYear);
+    if (!parsed) return true; // keep unassigned or custom labels
+    const dateMidnight = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+    return dateMidnight >= startOfToday;
+  });
+
+  const sortedDates = upcomingAndPresentDates.length > 0 ? upcomingAndPresentDates : allSortedDates;
+
+  // Filter allOrders for the "All Bookings" sheet to only include upcoming & present dates
+  const activeOrdersSet = new Set(sortedDates);
+  const filteredExportOrders = allOrders.filter(order => {
+    const dKey = order.date || "UNASSIGNED";
+    return activeOrdersSet.has(dKey);
   });
 
   // Create Excel Workbook
@@ -579,7 +603,7 @@ export async function generateBookingsExcelReport(
   // If there are multiple dates, also provide an "All Bookings" consolidated sheet first
   if (sortedDates.length > 1) {
     const allSheet = workbook.addWorksheet("All Bookings", { views: [{ showGridLines: true }] });
-    renderDaySheet(allSheet, "ALL BOOKINGS REPORT", allOrders, slotMetaMap);
+    renderDaySheet(allSheet, "ALL BOOKINGS REPORT", filteredExportOrders, slotMetaMap);
   }
 
   // Create a separate sheet tab for each individual date

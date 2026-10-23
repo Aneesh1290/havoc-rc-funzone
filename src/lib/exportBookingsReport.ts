@@ -600,15 +600,12 @@ export async function generateBookingsExcelReport(
   workbook.creator = "Havoc RC Funzone";
   workbook.created = new Date();
 
-  // If there are multiple dates, also provide an "All Bookings" consolidated sheet first
-  if (sortedDates.length > 1) {
-    const allSheet = workbook.addWorksheet("All Bookings", { views: [{ showGridLines: true }] });
-    renderDaySheet(allSheet, "ALL BOOKINGS REPORT", filteredExportOrders, slotMetaMap);
-  }
+  // 1. Always provide the "All Bookings" consolidated master sheet first
+  const allSheet = workbook.addWorksheet("All Bookings", { views: [{ showGridLines: true }] });
+  renderDaySheet(allSheet, "ALL BOOKINGS REPORT", filteredExportOrders, slotMetaMap);
 
-  // Create a separate sheet tab for each individual date
-  const usedTabNames = new Set<string>();
-  if (sortedDates.length > 1) usedTabNames.add("All Bookings");
+  // 2. Create a separate sheet tab for each individual current & future date
+  const usedTabNames = new Set<string>(["All Bookings"]);
 
   for (const dateKey of sortedDates) {
     const { bannerTitle, sheetTabName } = formatFullDateBanner(dateKey, reportTitle, detectedYear);

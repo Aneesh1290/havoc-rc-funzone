@@ -311,25 +311,25 @@ export default function DeskCheckInModal({
   const formatInr = (amt: number) => `₹${amt.toLocaleString("en-IN")}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-[#1c1d26] text-white border border-[#2e3144] rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto">
-        {/* Top Accent Gold/Orange Glow Bar */}
-        <div className="h-1.5 w-full bg-gradient-to-r from-[#e5b869] via-[#ff5a1f] to-[#10B981]" />
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-white text-gray-900 border border-gray-200 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto">
+        {/* Top Accent Orange/Gold Bar */}
+        <div className="h-1.5 w-full bg-gradient-to-r from-amber-500 via-[#ff5a1f] to-emerald-500" />
 
         {/* Modal Header */}
-        <div className="px-5 sm:px-7 pt-5 sm:pt-6 pb-4 border-b border-[#2a2c3d] flex items-center justify-between">
+        <div className="px-5 sm:px-7 pt-5 sm:pt-6 pb-4 border-b border-gray-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-gradient-to-br from-[#e5b869]/20 to-[#ff5a1f]/20 border border-[#e5b869]/40 flex items-center justify-center shadow-inner">
-              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6 text-[#e5b869]" />
+            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-50 border border-amber-200/80 flex items-center justify-center shadow-sm text-amber-700">
+              <ShieldCheck className="w-5 h-5 sm:w-6 sm:h-6" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-[10px] sm:text-xs font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-[#e5b869]/15 text-[#e5b869] border border-[#e5b869]/30 uppercase">
+                <span className="text-[10px] sm:text-xs font-mono font-bold tracking-wider px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200 uppercase">
                   Reception Desk
                 </span>
-                <span className="text-[11px] text-gray-400 font-medium">Havoc RC Fun Zone</span>
+                <span className="text-[11px] text-gray-500 font-medium">Havoc RC Fun Zone</span>
               </div>
-              <h2 className="text-lg sm:text-xl font-bold font-heading text-white tracking-tight mt-0.5">
+              <h2 className="text-lg sm:text-xl font-bold font-heading text-gray-900 tracking-tight mt-0.5">
                 Customer Desk Check-In & Verification
               </h2>
             </div>
@@ -338,7 +338,7 @@ export default function DeskCheckInModal({
           <button
             type="button"
             onClick={onClose}
-            className="p-2 rounded-xl text-gray-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             title="Close Modal"
           >
             <X className="w-5 h-5" />
@@ -346,23 +346,23 @@ export default function DeskCheckInModal({
         </div>
 
         {/* Stepper Progress Bar */}
-        <div className="px-5 sm:px-7 py-3 bg-[#161720] border-b border-[#2a2c3d] flex items-center justify-between text-xs font-semibold">
+        <div className="px-5 sm:px-7 py-3 bg-gray-50/80 border-b border-gray-100 flex items-center justify-between text-xs font-semibold">
           <div
             className={`flex items-center gap-2 ${
               currentStep === 1
-                ? "text-[#e5b869]"
+                ? "text-amber-800 font-bold"
                 : currentStep > 1
-                ? "text-emerald-400"
-                : "text-gray-500"
+                ? "text-emerald-700 font-bold"
+                : "text-gray-400"
             }`}
           >
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                 currentStep === 1
-                  ? "bg-[#e5b869] text-black"
+                  ? "bg-amber-500 text-white shadow-sm"
                   : currentStep > 1
-                  ? "bg-emerald-500 text-black"
-                  : "bg-gray-800 text-gray-400"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-gray-200 text-gray-500"
               }`}
             >
               {currentStep > 1 ? "✓" : "1"}
@@ -370,24 +370,24 @@ export default function DeskCheckInModal({
             <span>1. Phone Lookup</span>
           </div>
 
-          <div className="w-8 sm:w-16 h-0.5 bg-[#2a2c3d]" />
+          <div className="w-8 sm:w-16 h-0.5 bg-gray-200" />
 
           <div
             className={`flex items-center gap-2 ${
               currentStep === 2
-                ? "text-[#e5b869]"
+                ? "text-amber-800 font-bold"
                 : currentStep > 2
-                ? "text-emerald-400"
-                : "text-gray-500"
+                ? "text-emerald-700 font-bold"
+                : "text-gray-400"
             }`}
           >
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                 currentStep === 2
-                  ? "bg-[#e5b869] text-black"
+                  ? "bg-amber-500 text-white shadow-sm"
                   : currentStep > 2
-                  ? "bg-emerald-500 text-black"
-                  : "bg-gray-800 text-gray-400"
+                  ? "bg-emerald-600 text-white"
+                  : "bg-gray-200 text-gray-500"
               }`}
             >
               {currentStep > 2 ? "✓" : "2"}
@@ -395,16 +395,16 @@ export default function DeskCheckInModal({
             <span>2. WhatsApp OTP</span>
           </div>
 
-          <div className="w-8 sm:w-16 h-0.5 bg-[#2a2c3d]" />
+          <div className="w-8 sm:w-16 h-0.5 bg-gray-200" />
 
           <div
             className={`flex items-center gap-2 ${
-              currentStep === 3 ? "text-emerald-400" : "text-gray-500"
+              currentStep === 3 ? "text-emerald-700 font-bold" : "text-gray-400"
             }`}
           >
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                currentStep === 3 ? "bg-emerald-500 text-black" : "bg-gray-800 text-gray-400"
+                currentStep === 3 ? "bg-emerald-600 text-white shadow-sm" : "bg-gray-200 text-gray-500"
               }`}
             >
               3
@@ -414,21 +414,21 @@ export default function DeskCheckInModal({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 sm:p-7 max-h-[75vh] overflow-y-auto">
+        <div className="p-5 sm:p-7 max-h-[75vh] overflow-y-auto bg-white">
           {/* ========================================================================= */}
           {/* STEP 1: PHONE LOOKUP                                                      */}
           {/* ========================================================================= */}
           {currentStep === 1 && (
             <div className="space-y-5 animate-in fade-in duration-200">
               <div>
-                <label className="block text-xs uppercase tracking-wider font-bold text-gray-300 mb-2">
+                <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-2">
                   Customer Mobile Number
                 </label>
                 <form onSubmit={handlePhoneLookup} className="flex gap-2 sm:gap-3">
                   <div className="relative flex-1">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-gray-300 pointer-events-none border-r border-[#3a3d52] pr-2.5">
+                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-gray-500 pointer-events-none border-r border-gray-200 pr-2.5">
                       <span className="text-base">🇮🇳</span>
-                      <span className="font-mono font-bold text-sm text-white">+91</span>
+                      <span className="font-mono font-bold text-sm text-gray-800">+91</span>
                     </div>
                     <input
                       ref={phoneInputRef}
@@ -438,72 +438,72 @@ export default function DeskCheckInModal({
                       onChange={(e) => cleanPhoneInput(e.target.value)}
                       placeholder="98765 43210"
                       maxLength={10}
-                      className="w-full bg-[#12131a] text-white font-mono font-bold text-base sm:text-lg pl-24 pr-4 py-3 rounded-xl border border-[#34374a] focus:border-[#e5b869] focus:outline-none focus:ring-2 focus:ring-[#e5b869]/20 transition-all placeholder:text-gray-600"
+                      className="w-full bg-white text-gray-900 font-mono font-bold text-base sm:text-lg pl-24 pr-4 py-3 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
                     />
                   </div>
 
                   <button
                     type="submit"
                     disabled={isLookingUp || phoneNumber.length !== 10}
-                    className="px-4 sm:px-6 py-3 rounded-xl font-semibold text-xs sm:text-sm bg-gradient-to-r from-[#e5b869] to-[#d4a34b] text-black hover:brightness-110 active:scale-[0.98] transition-all shadow-md shadow-[#e5b869]/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
+                    className="px-4 sm:px-6 py-3 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.98] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
                   >
                     {isLookingUp ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin text-black" />
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
                         <span>Searching...</span>
                       </>
                     ) : (
                       <>
-                        <Phone className="w-4 h-4 text-black" />
+                        <Phone className="w-4 h-4 text-white" />
                         <span>Verify Customer Number</span>
                       </>
                     )}
                   </button>
                 </form>
-                <p className="text-[11px] text-gray-400 mt-2 flex items-center gap-1">
-                  <Info className="w-3.5 h-3.5 text-[#e5b869]" />
+                <p className="text-[11px] text-gray-500 mt-2 flex items-center gap-1">
+                  <Info className="w-3.5 h-3.5 text-amber-600" />
                   <span>Strict filter: Only displays sessions scheduled for <strong>TODAY</strong>.</span>
                 </p>
               </div>
 
               {/* Error Message Alert */}
               {lookupError && (
-                <div className="p-3.5 sm:p-4 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-150">
-                  <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-400 shrink-0 mt-0.5" />
+                <div className="p-3.5 sm:p-4 rounded-xl bg-red-50 border border-red-200 text-red-800 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in duration-150">
+                  <AlertCircle className="w-4 h-4 sm:w-5 sm:h-5 text-red-500 shrink-0 mt-0.5" />
                   <div>
-                    <strong className="block font-semibold text-red-300">No Eligible Bookings Found</strong>
-                    <span className="text-red-200/90 leading-relaxed">{lookupError}</span>
+                    <strong className="block font-semibold text-red-900">No Eligible Bookings Found</strong>
+                    <span className="text-red-800/90 leading-relaxed">{lookupError}</span>
                   </div>
                 </div>
               )}
 
               {/* Result Preview (Customer Found) */}
               {foundSessions.length > 0 && (
-                <div className="space-y-4 pt-2 border-t border-[#2a2c3d] animate-in fade-in slide-in-from-bottom-2 duration-200">
+                <div className="space-y-4 pt-2 border-t border-gray-100 animate-in fade-in slide-in-from-bottom-2 duration-200">
                   {/* Customer Meta Banner */}
-                  <div className="p-4 rounded-2xl bg-[#14151e] border border-[#2a2d3f] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
-                        <span className="text-xs uppercase font-mono font-bold tracking-wider text-emerald-400">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <span className="text-xs uppercase font-mono font-bold tracking-wider text-emerald-700">
                           Active Customer Found
                         </span>
                       </div>
-                      <h3 className="text-base sm:text-lg font-bold text-white mt-1">
+                      <h3 className="text-base sm:text-lg font-bold text-gray-900 mt-1">
                         {foundCustomerName}
                       </h3>
-                      <p className="text-xs text-gray-400 font-mono mt-0.5">
+                      <p className="text-xs text-gray-500 font-mono mt-0.5">
                         +91 {phoneNumber} • {foundSessions.length} Session(s) Scheduled Today
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
                       {unpaidCount > 0 ? (
-                        <div className="px-3 py-1.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs font-semibold">
-                          Desk Pay Due: <strong className="font-mono text-white ml-1">{formatInr(totalDue)}</strong>
+                        <div className="px-3 py-1.5 rounded-xl bg-amber-100/80 border border-amber-300 text-amber-900 text-xs font-semibold">
+                          Desk Pay Due: <strong className="font-mono text-amber-950 ml-1">{formatInr(totalDue)}</strong>
                         </div>
                       ) : (
-                        <div className="px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-semibold">
+                        <div className="px-3 py-1.5 rounded-xl bg-emerald-100/80 border border-emerald-300 text-emerald-900 text-xs font-semibold">
                           All Sessions Paid Online
                         </div>
                       )}
@@ -512,8 +512,8 @@ export default function DeskCheckInModal({
 
                   {/* Sessions List */}
                   <div className="space-y-2.5">
-                    <div className="text-xs uppercase font-bold tracking-wider text-gray-400 flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-[#e5b869]" />
+                    <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-amber-600" />
                       <span>Today&apos;s Booked Vehicles & Slots</span>
                     </div>
 
@@ -531,18 +531,18 @@ export default function DeskCheckInModal({
                         return (
                           <div
                             key={session.id}
-                            className="p-3 sm:p-3.5 rounded-xl bg-[#12131b] border border-[#2a2c3d] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 hover:border-[#3d4057] transition-colors"
+                            className="p-3 sm:p-3.5 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 hover:border-gray-300 shadow-sm transition-colors"
                           >
                             <div className="flex items-start sm:items-center gap-3">
-                              <div className="w-9 h-9 rounded-lg bg-[#1f212f] border border-[#34374a] flex items-center justify-center shrink-0">
-                                <Car className="w-4 h-4 text-[#e5b869]" />
+                              <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0">
+                                <Car className="w-4 h-4 text-amber-700" />
                               </div>
                               <div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-sm text-white">
+                                  <span className="font-bold text-sm text-gray-900">
                                     {session.ticket_name}
                                   </span>
-                                  <span className="text-xs text-gray-400 font-mono">
+                                  <span className="text-xs text-gray-500 font-mono">
                                     x {session.quantity}
                                   </span>
                                   {/* Wristband badge */}
@@ -553,12 +553,12 @@ export default function DeskCheckInModal({
                                     {wristband.name}
                                   </span>
                                 </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-400 font-mono mt-0.5">
-                                  <span className="text-gray-300 font-semibold">{session.time_slot}</span>
+                                <div className="flex items-center gap-2 text-xs text-gray-500 font-mono mt-0.5">
+                                  <span className="text-gray-700 font-semibold">{session.time_slot}</span>
                                   {session.simulator_name && (
                                     <>
                                       <span>•</span>
-                                      <span className="text-[#e5b869]">
+                                      <span className="text-amber-700 font-medium">
                                         {session.simulator_name} ({session.simulator_slot || "Auto"})
                                       </span>
                                     </>
@@ -568,7 +568,7 @@ export default function DeskCheckInModal({
                             </div>
 
                             <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                              <span className="font-mono font-bold text-sm text-white">
+                              <span className="font-mono font-bold text-sm text-gray-900">
                                 {formatInr(session.total_amount)}
                               </span>
 
@@ -576,8 +576,8 @@ export default function DeskCheckInModal({
                               <span
                                 className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
                                   isPaid
-                                    ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                    : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                    : "bg-amber-50 text-amber-700 border border-amber-200"
                                 }`}
                               >
                                 {isPaid ? "PAID" : "UNPAID"}
@@ -587,8 +587,8 @@ export default function DeskCheckInModal({
                               <span
                                 className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
                                   isFulfilled
-                                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
-                                    : "bg-gray-800 text-gray-400 border border-gray-700"
+                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-gray-100 text-gray-600 border border-gray-200"
                                 }`}
                               >
                                 {isFulfilled ? "ATTENDED" : "UNFULFILLED"}
@@ -606,16 +606,16 @@ export default function DeskCheckInModal({
                       type="button"
                       disabled={isSendingOtp}
                       onClick={handleSendOtp}
-                      className="w-full py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/20 active:scale-[0.99] transition-all disabled:opacity-50"
+                      className="w-full py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50"
                     >
                       {isSendingOtp ? (
                         <>
-                          <Loader2 className="w-5 h-5 animate-spin text-black" />
+                          <Loader2 className="w-5 h-5 animate-spin text-white" />
                           <span>Generating WhatsApp OTP...</span>
                         </>
                       ) : (
                         <>
-                          <Send className="w-5 h-5 text-black" />
+                          <Send className="w-5 h-5 text-white" />
                           <span>📲 Customer Found — Send WhatsApp OTP</span>
                         </>
                       )}
@@ -633,27 +633,27 @@ export default function DeskCheckInModal({
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* Dev Test Banner (if dev_otp is provided or in dev mode) */}
               {devOtp && (
-                <div className="p-4 rounded-2xl bg-amber-950/40 border border-amber-500/50 text-amber-200 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-lg shadow-amber-900/10">
+                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
                   <div className="flex items-start gap-2.5">
-                    <Sparkles className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <Sparkles className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong className="block font-bold text-amber-300">
+                      <strong className="block font-bold text-amber-900">
                         🧪 Development Testing Mode Active
                       </strong>
-                      <span className="text-amber-200/90 text-xs">
+                      <span className="text-amber-800 text-xs">
                         WhatsApp API key is not configured in .env. Use generated code below:
                       </span>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-lg font-black px-3 py-1 bg-amber-400 text-black rounded-lg tracking-widest shadow">
+                    <span className="font-mono text-lg font-black px-3 py-1 bg-amber-200 text-amber-950 rounded-lg tracking-widest shadow-sm border border-amber-300">
                       {devOtp}
                     </span>
                     <button
                       type="button"
                       onClick={() => setOtpCode(devOtp)}
-                      className="text-xs px-2.5 py-1 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/20 transition-colors whitespace-nowrap"
+                      className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors whitespace-nowrap shadow-sm"
                     >
                       Auto-fill
                     </button>
@@ -662,14 +662,14 @@ export default function DeskCheckInModal({
               )}
 
               {/* Top Banner showing target phone */}
-              <div className="p-4 rounded-2xl bg-[#14151f] border border-[#2a2d3f] text-center">
-                <span className="text-xs font-mono uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 text-center">
+                <span className="text-xs font-mono uppercase tracking-wider text-emerald-700 font-bold block mb-1">
                   WhatsApp Verification
                 </span>
-                <p className="text-sm text-gray-300">
+                <p className="text-sm text-gray-600">
                   Enter the 4-digit verification code sent to customer:
                 </p>
-                <div className="text-lg font-mono font-black text-white mt-1">
+                <div className="text-lg font-mono font-black text-gray-900 mt-1">
                   +91 {phoneNumber}
                 </div>
               </div>
@@ -677,7 +677,7 @@ export default function DeskCheckInModal({
               {/* 4-Digit OTP Input Form */}
               <form onSubmit={handleConfirmOtp} className="space-y-5">
                 <div>
-                  <label className="block text-center text-xs uppercase tracking-wider font-bold text-gray-400 mb-2">
+                  <label className="block text-center text-xs uppercase tracking-wider font-bold text-gray-600 mb-2">
                     4-Digit Verification Code
                   </label>
                   <div className="max-w-xs mx-auto">
@@ -696,14 +696,14 @@ export default function DeskCheckInModal({
                         }
                       }}
                       placeholder="• • • •"
-                      className="w-full bg-[#12131a] text-white font-mono font-bold text-3xl sm:text-4xl text-center py-4 rounded-2xl border-2 border-[#34374a] focus:border-[#e5b869] focus:outline-none focus:ring-4 focus:ring-[#e5b869]/20 tracking-[0.4em] sm:tracking-[0.6em] transition-all placeholder:text-gray-700"
+                      className="w-full bg-white text-gray-900 font-mono font-bold text-3xl sm:text-4xl text-center py-4 rounded-2xl border-2 border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-500/15 tracking-[0.4em] sm:tracking-[0.6em] transition-all placeholder:text-gray-300 shadow-sm"
                     />
                   </div>
                 </div>
 
                 {otpError && (
-                  <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs sm:text-sm text-center flex items-center justify-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm text-center flex items-center justify-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
                     <span>{otpError}</span>
                   </div>
                 )}
@@ -717,7 +717,7 @@ export default function DeskCheckInModal({
                       setOtpCode("");
                       setOtpError(null);
                     }}
-                    className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs sm:text-sm bg-[#1e202c] hover:bg-[#252837] text-gray-300 border border-[#34374a] flex items-center justify-center gap-2 transition-colors"
+                    className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs sm:text-sm bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center justify-center gap-2 transition-colors shadow-sm"
                   >
                     <ArrowLeft className="w-4 h-4" />
                     <span>← Change Number</span>
@@ -726,16 +726,16 @@ export default function DeskCheckInModal({
                   <button
                     type="submit"
                     disabled={isVerifyingOtp || otpCode.length !== 4}
-                    className="flex-1 py-3 px-4 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-black flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="flex-1 py-3 px-4 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     {isVerifyingOtp ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin text-black" />
+                        <Loader2 className="w-4 h-4 animate-spin text-white" />
                         <span>Verifying Code...</span>
                       </>
                     ) : (
                       <>
-                        <CheckCircle2 className="w-4 h-4 text-black" />
+                        <CheckCircle2 className="w-4 h-4 text-white" />
                         <span>✓ Verify & Check-In</span>
                       </>
                     )}
@@ -751,26 +751,26 @@ export default function DeskCheckInModal({
           {currentStep === 3 && (
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* Success Header */}
-              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 flex items-start gap-3.5">
-                <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0 mt-0.5">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-400" />
+              <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3.5">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 border border-emerald-300 flex items-center justify-center shrink-0 mt-0.5 text-emerald-700">
+                  <CheckCircle2 className="w-6 h-6" />
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-emerald-400/20 text-emerald-300 border border-emerald-400/30">
+                    <span className="text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
                       OTP Confirmed
                     </span>
-                    <span className="text-xs text-emerald-200/80 font-mono">
+                    <span className="text-xs text-emerald-800 font-mono">
                       {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
-                  <h3 className="text-lg font-bold text-white mt-1">
+                  <h3 className="text-lg font-bold text-gray-900 mt-1">
                     Customer Verified ✅
                   </h3>
-                  <p className="text-xs text-gray-300 mt-0.5 font-medium">
+                  <p className="text-xs text-gray-600 mt-0.5 font-medium">
                     {foundCustomerName} • +91 {phoneNumber}
                   </p>
-                  <p className="text-xs text-emerald-400 mt-1 font-semibold">
+                  <p className="text-xs text-emerald-700 mt-1 font-semibold">
                     ✓ Online-paid sessions automatically marked as ATTENDED.
                   </p>
                 </div>
@@ -778,8 +778,8 @@ export default function DeskCheckInModal({
 
               {/* Verified Sessions Preview */}
               <div className="space-y-2">
-                <div className="text-xs uppercase font-bold tracking-wider text-gray-400 flex items-center gap-1.5">
-                  <Receipt className="w-3.5 h-3.5 text-[#e5b869]" />
+                <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
+                  <Receipt className="w-3.5 h-3.5 text-amber-600" />
                   <span>Verified Sessions Status</span>
                 </div>
 
@@ -796,31 +796,31 @@ export default function DeskCheckInModal({
                     return (
                       <div
                         key={session.id}
-                        className="p-3 rounded-xl bg-[#12131b] border border-[#2a2c3d] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs"
+                        className="p-3 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs shadow-sm"
                       >
                         <div className="flex items-center gap-2.5">
-                          <Car className="w-4 h-4 text-[#e5b869]" />
+                          <Car className="w-4 h-4 text-amber-600" />
                           <div>
                             <div className="flex items-center gap-2">
-                              <span className="font-bold text-white">{session.ticket_name}</span>
-                              <span className="text-gray-400 font-mono">x {session.quantity}</span>
+                              <span className="font-bold text-gray-900">{session.ticket_name}</span>
+                              <span className="text-gray-500 font-mono">x {session.quantity}</span>
                               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded" style={bandStyle}>
                                 {wristband.name}
                               </span>
                             </div>
-                            <div className="text-[11px] text-gray-400 font-mono">
+                            <div className="text-[11px] text-gray-500 font-mono">
                               {session.time_slot} {session.payment_ref ? `(Ref: ${session.payment_ref})` : ""}
                             </div>
                           </div>
                         </div>
 
                         <div className="flex items-center justify-between sm:justify-end gap-2">
-                          <span className="font-mono font-bold text-white">{formatInr(session.total_amount)}</span>
+                          <span className="font-mono font-bold text-gray-900">{formatInr(session.total_amount)}</span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                               isPaid
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                : "bg-amber-50 text-amber-700 border border-amber-200"
                             }`}
                           >
                             {isPaid ? "PAID" : "UNPAID"}
@@ -828,8 +828,8 @@ export default function DeskCheckInModal({
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                               isFulfilled
-                                ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
-                                : "bg-gray-800 text-gray-400"
+                                ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                : "bg-gray-100 text-gray-600 border border-gray-200"
                             }`}
                           >
                             {isFulfilled ? "ATTENDED" : "UNFULFILLED"}
@@ -843,25 +843,25 @@ export default function DeskCheckInModal({
 
               {/* DESK PAYMENT COLLECTION BOX (if any session is UNPAID / Cash / Pay at Desk) */}
               {totalDue > 0 && !paymentSuccess ? (
-                <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#201c18] to-[#17151a] border-2 border-amber-500/40 shadow-xl space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-amber-500/20">
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border-2 border-amber-300 shadow-sm space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-amber-200">
                     <div className="flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-amber-400" />
+                      <CreditCard className="w-5 h-5 text-amber-700" />
                       <div>
-                        <h4 className="text-sm sm:text-base font-bold text-white">
+                        <h4 className="text-sm sm:text-base font-bold text-gray-900">
                           Desk Payment Collection Required
                         </h4>
-                        <p className="text-xs text-amber-200/80">
+                        <p className="text-xs text-amber-800">
                           Customer has unpaid / pay-at-desk sessions today.
                         </p>
                       </div>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[11px] uppercase tracking-wider font-mono text-amber-300 font-bold block">
+                    <div className="text-left sm:text-right">
+                      <span className="text-[11px] uppercase tracking-wider font-mono text-amber-800 font-bold block">
                         Total Amount Due
                       </span>
-                      <span className="text-xl sm:text-2xl font-mono font-black text-amber-400">
+                      <span className="text-xl sm:text-2xl font-mono font-black text-amber-900">
                         {formatInr(totalDue)}
                       </span>
                     </div>
@@ -871,8 +871,8 @@ export default function DeskCheckInModal({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       {/* Input 1: Transaction Ref / Note */}
                       <div>
-                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-300 mb-1.5">
-                          Transaction Ref / Note <span className="text-red-400">*</span>
+                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
+                          Transaction Ref / Note <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="text"
@@ -880,17 +880,17 @@ export default function DeskCheckInModal({
                           value={deskTransactionRef}
                           onChange={(e) => setDeskTransactionRef(e.target.value)}
                           placeholder="e.g. UPI Ref / Cash / POS Slip #"
-                          className="w-full bg-[#12131a] text-white font-medium text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-[#3a3d52] focus:border-[#e5b869] focus:outline-none focus:ring-2 focus:ring-[#e5b869]/20 transition-all placeholder:text-gray-600"
+                          className="w-full bg-white text-gray-900 font-medium text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
                         />
-                        <span className="text-[10px] text-gray-400 mt-1 block">
+                        <span className="text-[10px] text-gray-500 mt-1 block">
                           Required for audit reconciliation.
                         </span>
                       </div>
 
                       {/* Input 2: Amount Collected */}
                       <div>
-                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-300 mb-1.5">
-                          Amount Collected (₹) <span className="text-red-400">*</span>
+                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
+                          Amount Collected (₹) <span className="text-red-500">*</span>
                         </label>
                         <input
                           type="number"
@@ -898,19 +898,19 @@ export default function DeskCheckInModal({
                           value={deskAmountCollected}
                           onChange={(e) => setDeskAmountCollected(e.target.value)}
                           placeholder={String(totalDue)}
-                          className="w-full bg-[#12131a] text-white font-mono font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-[#3a3d52] focus:border-[#e5b869] focus:outline-none focus:ring-2 focus:ring-[#e5b869]/20 transition-all placeholder:text-gray-600"
+                          className="w-full bg-white text-gray-900 font-mono font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
                         />
                         <div className="text-[10px] mt-1">
                           {deskAmountCollected === "" ? (
-                            <span className="text-gray-400">
+                            <span className="text-gray-500">
                               Must exactly match {formatInr(totalDue)}.
                             </span>
                           ) : Number(deskAmountCollected) === totalDue ? (
-                            <span className="text-emerald-400 font-semibold">
+                            <span className="text-emerald-700 font-semibold">
                               ✓ Exact match! Ready to confirm.
                             </span>
                           ) : (
-                            <span className="text-red-400 font-semibold">
+                            <span className="text-red-600 font-semibold">
                               ⚠️ Amount must equal {formatInr(totalDue)} (Diff: {formatInr(Math.abs(Number(deskAmountCollected) - totalDue))})
                             </span>
                           )}
@@ -919,8 +919,8 @@ export default function DeskCheckInModal({
                     </div>
 
                     {paymentError && (
-                      <div className="p-3 rounded-xl bg-red-950/40 border border-red-500/40 text-red-200 text-xs flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
                         <span>{paymentError}</span>
                       </div>
                     )}
@@ -933,16 +933,16 @@ export default function DeskCheckInModal({
                         !deskTransactionRef.trim() ||
                         Number(deskAmountCollected) !== totalDue
                       }
-                      className="w-full py-3 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-[#e5b869] to-[#d4a34b] text-black hover:brightness-110 active:scale-[0.99] transition-all shadow-lg shadow-[#e5b869]/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      className="w-full py-3 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.99] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                     >
                       {isCollectingPayment ? (
                         <>
-                          <Loader2 className="w-4 h-4 animate-spin text-black" />
+                          <Loader2 className="w-4 h-4 animate-spin text-white" />
                           <span>Fulfilling & Recording Payment...</span>
                         </>
                       ) : (
                         <>
-                          <CheckCircle2 className="w-4 h-4 text-black" />
+                          <CheckCircle2 className="w-4 h-4 text-white" />
                           <span>Confirm & Mark as Paid & Fulfilled ({formatInr(totalDue)})</span>
                         </>
                       )}
@@ -951,14 +951,14 @@ export default function DeskCheckInModal({
                 </div>
               ) : (
                 /* All Paid Banner */
-                <div className="p-4 rounded-2xl bg-emerald-950/30 border border-emerald-500/40 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-emerald-500/20 text-emerald-400 mx-auto flex items-center justify-center border border-emerald-500/30">
+                <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center border border-emerald-300">
                     <CheckCircle2 className="w-6 h-6" />
                   </div>
-                  <h4 className="text-base font-bold text-white">
+                  <h4 className="text-base font-bold text-gray-900">
                     Track Entry Authorized! 🎉
                   </h4>
-                  <p className="text-xs text-emerald-200/90 max-w-md mx-auto">
+                  <p className="text-xs text-gray-600 max-w-md mx-auto">
                     All sessions for this customer are verified, fully paid, and marked ATTENDED in the system. Customer is cleared to receive wristbands and enter the track.
                   </p>
 
@@ -966,7 +966,7 @@ export default function DeskCheckInModal({
                     <button
                       type="button"
                       onClick={onClose}
-                      className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-black hover:bg-gray-100 transition-colors shadow-sm"
+                      className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
                     >
                       Done / Close Modal
                     </button>
@@ -978,16 +978,16 @@ export default function DeskCheckInModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 sm:px-7 py-3.5 bg-[#14151e] border-t border-[#2a2c3d] flex items-center justify-between text-xs text-gray-400">
+        <div className="px-5 sm:px-7 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-4 h-4 text-[#e5b869]" />
+            <ShieldCheck className="w-4 h-4 text-amber-600" />
             <span>Havoc Sim Podium Desk Verification Engine</span>
           </div>
 
           <button
             type="button"
             onClick={onClose}
-            className="text-gray-400 hover:text-white transition-colors"
+            className="text-gray-500 hover:text-gray-800 font-medium transition-colors"
           >
             Close
           </button>

@@ -401,11 +401,13 @@ export default function BookingsPage() {
           <button
             type="button"
             onClick={() => setIsDeskCheckInOpen(true)}
-            className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-gradient-to-r from-[#1c1d26] to-[#282a3a] hover:from-[#282a3a] hover:to-[#33374c] text-[#e5b869] border-[#e5b869]/40 hover:border-[#e5b869] shadow-[#e5b869]/10 whitespace-nowrap active:scale-[0.98]"
+            className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-white hover:bg-amber-50/70 text-amber-900 border-amber-300/80 hover:border-amber-400 shadow-amber-900/5 whitespace-nowrap active:scale-[0.98]"
             title="Customer Desk Check-in & WhatsApp OTP Verification"
           >
-            <ShieldCheck className="w-4 h-4 text-[#e5b869]" />
-            <span>🛡️ Customer Desk Check-In</span>
+            <div className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
+              <ShieldCheck className="w-3.5 h-3.5" />
+            </div>
+            <span>Customer Desk Check-In</span>
           </button>
 
           {/* Export Report Excel Button */}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, Plus, TrendingUp, Copy, Check, ExternalLink } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -41,6 +41,10 @@ export default function BookingsPage() {
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
+  const [isPaymentLinkModalOpen, setIsPaymentLinkModalOpen] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [paymentCustomerPhone, setPaymentCustomerPhone] = useState("");
+  const [paymentCustomerName, setPaymentCustomerName] = useState("");
   const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
 
@@ -379,8 +383,30 @@ export default function BookingsPage() {
     }
   };
 
-  const totalSales = groupedOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
-  const totalOrders = groupedOrders.length;
+  const handleCopyBookingLink = () => {
+    const url = typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets";
+    if (navigator?.clipboard) {
+      navigator.clipboard.writeText(url);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
+  };
+
+  const handleSendWhatsAppPaymentLink = () => {
+    const cleanPhone = paymentCustomerPhone.replace(/\D/g, "");
+    if (!cleanPhone) {
+      alert("Please enter a valid customer phone number.");
+      return;
+    }
+    const phoneWithCode = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+    const url = typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets";
+    const nameGreeting = paymentCustomerName.trim() ? `Hi ${paymentCustomerName.trim()}, ` : "Hi, ";
+    const msg = encodeURIComponent(`${nameGreeting}here is your booking and payment link for Havoc RC Fun Zone:\n\n${url}\n\nWe look forward to seeing you!`);
+    window.open(`https://wa.me/${phoneWithCode}?text=${msg}`, "_blank");
+  };
+
+  const totalSales = filteredOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
+  const totalOrders = filteredOrders.length;
   const avgOrder = totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : "0.00";
 
   const MONTHS_LIST = [
@@ -400,11 +426,15 @@ export default function BookingsPage() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {/* Header */}
+      {/* 1. Header Row - Matching placement from reference */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-heading font-black text-gray-900 tracking-tight">Orders</h1>
-          <p className="text-gray-500 text-xs sm:text-sm mt-0.5">Manage ticket reservations, payments, and fulfillment.</p>
+        <div className="flex items-center gap-2.5">
+          <h1 className="text-2xl sm:text-3xl font-heading font-black text-gray-900 tracking-tight">
+            Bookings
+          </h1>
+          <span className="text-base sm:text-xl font-bold text-gray-400">
+            {totalOrders}
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
@@ -417,7 +447,7 @@ export default function BookingsPage() {
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirm(true)}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all shadow-red-600/20"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-full text-xs sm:text-sm font-semibold bg-red-600 hover:bg-red-700 text-white shadow-sm transition-all shadow-red-600/20"
               >
                 <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 <span>Delete ({selectedIds.length})</span>
@@ -425,34 +455,43 @@ export default function BookingsPage() {
             </div>
           )}
 
-          {/* Desk Customer Check-in Button - only if user has permission */}
+          {/* 1. Verify & Check-In Customer Button - green pill */}
           {canDeskCheckIn && (
             <button
               type="button"
               onClick={() => setIsDeskCheckInOpen(true)}
-              className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-white hover:bg-amber-50/70 text-amber-900 border-amber-300/80 hover:border-amber-400 shadow-amber-900/5 whitespace-nowrap active:scale-[0.98]"
+              className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 whitespace-nowrap active:scale-[0.98]"
               title="Customer Desk Check-in & WhatsApp OTP Verification"
             >
-              <div className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
-                <ShieldCheck className="w-3.5 h-3.5" />
-              </div>
-              <span>Customer Desk Check-In</span>
+              <ShieldCheck className="w-4 h-4" />
+              <span>Verify & Check-In Customer</span>
             </button>
           )}
 
-          {/* Export Report Excel Button - only if user has permission */}
+          {/* 2. + Create Payment Link Button - amber pill */}
+          <button
+            type="button"
+            onClick={() => setIsPaymentLinkModalOpen(true)}
+            className="flex items-center justify-center gap-1.5 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-[#eab308] hover:bg-[#ca8a04] text-black shadow-sm shadow-amber-400/20 whitespace-nowrap active:scale-[0.98]"
+            title="Create and share customer payment/booking link"
+          >
+            <Plus className="w-4 h-4 font-bold" />
+            <span>Create Payment Link</span>
+          </button>
+
+          {/* 3. Export Report Excel Button - blue pill */}
           {canExport && (
             <button
               type="button"
               disabled={isExporting || isLoading || filteredOrders.length === 0}
               onClick={handleExportExcel}
-              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-              title="Download Excel Report matching Havoc Sim Podium format"
+              className="flex items-center justify-center gap-1.5 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-[#2563eb] hover:bg-[#1d4ed8] text-white shadow-sm shadow-blue-600/20 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap active:scale-[0.98]"
+              title="Download Excel Report"
             >
               {isExporting ? (
-                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                <Loader2 className="w-4 h-4 animate-spin text-white" />
               ) : (
-                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <Download className="w-4 h-4 text-white" />
               )}
               <span>
                 {isExporting 
@@ -464,31 +503,66 @@ export default function BookingsPage() {
               </span>
             </button>
           )}
+        </div>
+      </div>
 
-          {/* Filter button that opens the slide-over filter panel */}
-          <button
-            onClick={() => setIsFilterDrawerOpen(true)}
-            className={`flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm ${
-              activeFilterCount > 0 
-                ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-[#ff5a1f]/20" 
-                : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200"
-            }`}
-          >
-            <Filter className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-            <span>Filter {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}</span>
-            <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 opacity-60" />
-          </button>
+      {/* 2. Metrics Bar - Matching screenshot placement */}
+      <div className="bg-white rounded-2xl border border-gray-200/90 shadow-sm px-5 py-3.5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex flex-wrap items-center gap-6 sm:gap-10 text-xs sm:text-sm">
+          {/* Sales */}
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Sales</span>
+            <span className="font-heading font-black text-gray-900 text-sm sm:text-base">
+              ₹{totalSales.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+            <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+              <TrendingUp className="w-3 h-3 mr-0.5" />
+              100%
+            </span>
+          </div>
 
-          {/* Search box - full width on phone, fixed on tablet/desktop */}
-          <div className="relative w-full sm:w-64 order-last sm:order-none mt-1 sm:mt-0">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search orders..."
-              className="w-full bg-white border border-gray-200 rounded-xl pl-10 pr-4 py-2 sm:py-2.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] transition-all shadow-sm"
-            />
+          {/* Orders */}
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Orders</span>
+            <span className="font-heading font-black text-gray-900 text-sm sm:text-base">
+              {totalOrders}
+            </span>
+            <span className="inline-flex items-center text-xs font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">
+              <TrendingUp className="w-3 h-3 mr-0.5" />
+              100%
+            </span>
+          </div>
+
+          {/* Avg. Order Value */}
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500 font-medium">Avg. order value</span>
+            <span className="font-heading font-black text-gray-900 text-sm sm:text-base">
+              ₹{avgOrder}
+            </span>
+          </div>
+        </div>
+
+        {/* Date Filter Dropdown on Right */}
+        <div className="flex items-center self-end md:self-auto">
+          <div className="relative">
+            <select
+              value={filterDateCreated}
+              onChange={(e) => {
+                const val = e.target.value;
+                setFilterDateCreated(val);
+                if (val === "custom") {
+                  setIsFilterDrawerOpen(true);
+                }
+              }}
+              className="appearance-none bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl pl-3.5 pr-8 py-1.5 text-xs sm:text-sm font-semibold text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 cursor-pointer transition-colors"
+            >
+              <option value="lastMonth">Last 30 days</option>
+              <option value="7days">Last 7 days</option>
+              <option value="14days">Last 14 days</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom</option>
+            </select>
+            <ChevronDown className="w-3.5 h-3.5 text-gray-400 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
         </div>
       </div>
@@ -768,6 +842,35 @@ export default function BookingsPage() {
       )}
       {/* Orders Table Container */}
       <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+        {/* Table Toolbar (Filter & Search right-aligned above columns matching reference) */}
+        <div className="px-5 py-3 border-b border-gray-100 flex flex-wrap items-center justify-end gap-2.5 bg-white">
+          {/* Filter button that opens slide-over filter panel */}
+          <button
+            type="button"
+            onClick={() => setIsFilterDrawerOpen(true)}
+            className={`flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm ${
+              activeFilterCount > 0 
+                ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-[#ff5a1f]/20" 
+                : "bg-white text-gray-700 hover:bg-gray-50 border-gray-200"
+            }`}
+          >
+            <Filter className="w-3.5 h-3.5" />
+            <span>Filter {activeFilterCount > 0 ? `(${activeFilterCount})` : ""}</span>
+          </button>
+
+          {/* Search box right beside Filter */}
+          <div className="relative w-48 sm:w-64">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search..."
+              className="w-full bg-gray-50/70 hover:bg-white focus:bg-white border border-gray-200 rounded-xl pl-9 pr-3.5 py-1.5 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] transition-all shadow-sm"
+            />
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
             {/* Table Header matching exact column layout */}
@@ -956,6 +1059,101 @@ export default function BookingsPage() {
           </table>
         </div>
       </div>
+
+      {/* Create Payment Link Modal */}
+      {isPaymentLinkModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 text-gray-900 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                  <Plus className="w-5 h-5 font-bold" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 leading-tight">Create Payment Link</h3>
+                  <p className="text-xs text-gray-500">Share booking checkout with customer</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPaymentLinkModalOpen(false)}
+                className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Public Booking & Checkout URL
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets"}
+                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-700 select-all"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyBookingLink}
+                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gray-900 hover:bg-black text-white shrink-0 transition-all shadow-sm"
+                  >
+                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedLink ? "Copied!" : "Copy"}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-gray-100 space-y-3">
+                <span className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                  Or Send Directly via WhatsApp
+                </span>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Customer Name (optional)</label>
+                  <input
+                    type="text"
+                    value={paymentCustomerName}
+                    onChange={(e) => setPaymentCustomerName(e.target.value)}
+                    placeholder="e.g. John Doe"
+                    className="w-full border border-gray-200 rounded-xl px-3.5 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">WhatsApp Phone Number</label>
+                  <input
+                    type="tel"
+                    value={paymentCustomerPhone}
+                    onChange={(e) => setPaymentCustomerPhone(e.target.value)}
+                    placeholder="10-digit mobile number"
+                    className="w-full border border-gray-200 rounded-xl px-3.5 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleSendWhatsAppPaymentLink}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm shadow-emerald-600/20"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  <span>Send Booking Link via WhatsApp</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 pt-3 border-t border-gray-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsPaymentLinkModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

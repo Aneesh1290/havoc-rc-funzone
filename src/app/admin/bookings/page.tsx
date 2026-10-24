@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, Plus, TrendingUp, Copy, Check, ExternalLink } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -41,10 +41,6 @@ export default function BookingsPage() {
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
-  const [isPaymentLinkModalOpen, setIsPaymentLinkModalOpen] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [paymentCustomerPhone, setPaymentCustomerPhone] = useState("");
-  const [paymentCustomerName, setPaymentCustomerName] = useState("");
   const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
 
@@ -383,28 +379,6 @@ export default function BookingsPage() {
     }
   };
 
-  const handleCopyBookingLink = () => {
-    const url = typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets";
-    if (navigator?.clipboard) {
-      navigator.clipboard.writeText(url);
-      setCopiedLink(true);
-      setTimeout(() => setCopiedLink(false), 2000);
-    }
-  };
-
-  const handleSendWhatsAppPaymentLink = () => {
-    const cleanPhone = paymentCustomerPhone.replace(/\D/g, "");
-    if (!cleanPhone) {
-      alert("Please enter a valid customer phone number.");
-      return;
-    }
-    const phoneWithCode = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-    const url = typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets";
-    const nameGreeting = paymentCustomerName.trim() ? `Hi ${paymentCustomerName.trim()}, ` : "Hi, ";
-    const msg = encodeURIComponent(`${nameGreeting}here is your booking and payment link for Havoc RC Fun Zone:\n\n${url}\n\nWe look forward to seeing you!`);
-    window.open(`https://wa.me/${phoneWithCode}?text=${msg}`, "_blank");
-  };
-
   const totalSales = filteredOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
   const totalOrders = filteredOrders.length;
   const avgOrder = totalOrders > 0 ? (totalSales / totalOrders).toFixed(2) : "0.00";
@@ -467,17 +441,6 @@ export default function BookingsPage() {
               <span>Verify & Check-In Customer</span>
             </button>
           )}
-
-          {/* 2. + Create Payment Link Button - amber pill */}
-          <button
-            type="button"
-            onClick={() => setIsPaymentLinkModalOpen(true)}
-            className="flex items-center justify-center gap-1.5 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-[#eab308] hover:bg-[#ca8a04] text-black shadow-sm shadow-amber-400/20 whitespace-nowrap active:scale-[0.98]"
-            title="Create and share customer payment/booking link"
-          >
-            <Plus className="w-4 h-4 font-bold" />
-            <span>Create Payment Link</span>
-          </button>
 
           {/* 3. Export Report Excel Button - blue pill */}
           {canExport && (
@@ -1059,101 +1022,6 @@ export default function BookingsPage() {
           </table>
         </div>
       </div>
-
-      {/* Create Payment Link Modal */}
-      {isPaymentLinkModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 text-gray-900 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between mb-4 pb-3 border-b border-gray-100">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                  <Plus className="w-5 h-5 font-bold" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 leading-tight">Create Payment Link</h3>
-                  <p className="text-xs text-gray-500">Share booking checkout with customer</p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsPaymentLinkModalOpen(false)}
-                className="w-8 h-8 rounded-lg flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Public Booking & Checkout URL
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    readOnly
-                    value={typeof window !== "undefined" ? `${window.location.origin}/tickets` : "https://havocrcfunzone.com/tickets"}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-700 select-all"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleCopyBookingLink}
-                    className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-gray-900 hover:bg-black text-white shrink-0 transition-all shadow-sm"
-                  >
-                    {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                    <span>{copiedLink ? "Copied!" : "Copy"}</span>
-                  </button>
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-gray-100 space-y-3">
-                <span className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                  Or Send Directly via WhatsApp
-                </span>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Customer Name (optional)</label>
-                  <input
-                    type="text"
-                    value={paymentCustomerName}
-                    onChange={(e) => setPaymentCustomerName(e.target.value)}
-                    placeholder="e.g. John Doe"
-                    className="w-full border border-gray-200 rounded-xl px-3.5 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">WhatsApp Phone Number</label>
-                  <input
-                    type="tel"
-                    value={paymentCustomerPhone}
-                    onChange={(e) => setPaymentCustomerPhone(e.target.value)}
-                    placeholder="10-digit mobile number"
-                    className="w-full border border-gray-200 rounded-xl px-3.5 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  onClick={handleSendWhatsAppPaymentLink}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition-all shadow-sm shadow-emerald-600/20"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Send Booking Link via WhatsApp</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 pt-3 border-t border-gray-100 flex justify-end">
-              <button
-                type="button"
-                onClick={() => setIsPaymentLinkModalOpen(false)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 transition-colors"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

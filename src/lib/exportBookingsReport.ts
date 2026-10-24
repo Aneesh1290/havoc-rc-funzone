@@ -325,6 +325,14 @@ function renderDaySheet(
   sortedDates.forEach((dateKey, dateIdx) => {
     const slotGroups = dateToSlotsMap.get(dateKey)!;
 
+    // Track per-day totals
+    let dayV = 0;
+    let dayP = 0;
+    let dayVV = 0;
+    let dayVP = 0;
+    let dayAmountReceived = 0;
+    let dayAmountDue = 0;
+
     // Sort slots chronologically within this date
     const sortedSlotKeys = Array.from(slotGroups.keys()).sort((a, b) => {
       return getSlotStartMinutes(a) - getSlotStartMinutes(b);
@@ -346,14 +354,20 @@ function renderDaySheet(
       
       const sCell = worksheet.getCell(`A${sectionRowNum}`);
       sCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF0D1B2A" } };
-      sCell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      sCell.alignment = { horizontal: "center", vertical: "middle" };
       sCell.fill = {
         type: "pattern",
         pattern: "solid",
         fgColor: { argb: "FFE9ECEF" }
       };
       for (let c = 1; c <= 16; c++) {
-        worksheet.getRow(sectionRowNum).getCell(c).border = thinBorder;
+        const cCell = worksheet.getRow(sectionRowNum).getCell(c);
+        cCell.border = thinBorder;
+        cCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFE9ECEF" }
+        };
       }
     }
 
@@ -409,6 +423,13 @@ function renderDaySheet(
           }
         }
 
+        // Accumulate Day Totals
+        dayV += vCount;
+        dayP += pCount;
+        dayVV += vvCount;
+        dayVP += vpCount;
+
+        // Accumulate Grand Totals
         grandTotalV += vCount;
         grandTotalP += pCount;
         grandTotalVV += vvCount;
@@ -419,6 +440,9 @@ function renderDaySheet(
         const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
         const received = isPaid ? totalAmt : 0;
         const due = isPaid ? 0 : totalAmt;
+
+        dayAmountReceived += received;
+        dayAmountDue += due;
 
         grandTotalAmountReceived += received;
         grandTotalAmountDue += due;
@@ -473,22 +497,90 @@ function renderDaySheet(
         };
       });
     });
+
+    // If multiple dates are present (like in "All Bookings"), output the TOTAL for this specific day right here
+    if (sortedDates.length > 1) {
+      const dayTickets = dayV + dayP + dayVV + dayVP;
+
+      // Small blank separator before Day Totals
+      const preDayTotalGap = worksheet.addRow([]);
+      preDayTotalGap.height = 8;
+
+      // ROW: Day Category Totals (TOTAL row)
+      const dayTotalRow = worksheet.addRow([
+        "", "", "", "", "", "", "", "",
+        "TOTAL",
+        dayV > 0 ? dayV : "",
+        dayP > 0 ? dayP : "",
+        dayVV > 0 ? dayVV : "",
+        dayVP > 0 ? dayVP : "",
+        dayAmountReceived > 0 ? `₹ ${dayAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+        dayAmountDue > 0 ? `₹ ${dayAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+        ""
+      ]);
+      dayTotalRow.height = 24;
+
+      for (let c = 1; c <= 16; c++) {
+        const cell = dayTotalRow.getCell(c);
+        if (c >= 9 && c <= 15) {
+          cell.border = thinBorder;
+          cell.font = { name: "Calibri", size: 10, bold: true };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFF0F0F0" }
+          };
+          if (c === 14 || c === 15) {
+            cell.alignment = { horizontal: "right", vertical: "middle" };
+          } else {
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+          }
+        }
+      }
+
+      // ROW: Total Tickets for this day
+      const dayOverallRow = worksheet.addRow([
+        "", "", "", "", "", "", "", "",
+        "TOTAL TICKETS",
+        dayTickets,
+        "", "", "", "", "", ""
+      ]);
+      dayOverallRow.height = 24;
+
+      const dayOverallRowNum = dayOverallRow.number;
+      worksheet.mergeCells(`J${dayOverallRowNum}:M${dayOverallRowNum}`);
+
+      for (let c = 9; c <= 13; c++) {
+        const cell = dayOverallRow.getCell(c);
+        cell.border = doubleBottomBorder;
+        cell.font = { name: "Calibri", size: 11, bold: true };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEAEAEA" }
+        };
+      }
+    }
   });
 
-  // Blank separator before Totals
+  // Blank separator before Sheet Totals
   const preTotalGap = worksheet.addRow([]);
-  preTotalGap.height = 10;
+  preTotalGap.height = 12;
 
-  // ROW: Category Totals (TOTAL row)
+  // ROW: Sheet Totals (TOTAL / GRAND TOTAL row)
+  const totalRowLabel = sortedDates.length > 1 ? "GRAND TOTAL" : "TOTAL";
+  const overallTicketLabel = sortedDates.length > 1 ? "GRAND TOTAL TICKETS" : "TOTAL TICKETS";
+
   const totalRow = worksheet.addRow([
     "", "", "", "", "", "", "", "",
-    "TOTAL",
-    grandTotalV,
-    grandTotalP,
-    grandTotalVV,
-    grandTotalVP,
-    `₹ ${grandTotalAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
-    `₹ ${grandTotalAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}`,
+    totalRowLabel,
+    grandTotalV > 0 ? grandTotalV : "",
+    grandTotalP > 0 ? grandTotalP : "",
+    grandTotalVV > 0 ? grandTotalVV : "",
+    grandTotalVP > 0 ? grandTotalVP : "",
+    grandTotalAmountReceived > 0 ? `₹ ${grandTotalAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+    grandTotalAmountDue > 0 ? `₹ ${grandTotalAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
     ""
   ]);
   totalRow.height = 24;
@@ -501,7 +593,7 @@ function renderDaySheet(
       cell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: "FFF0F0F0" }
+        fgColor: { argb: "FFE0E0E0" }
       };
       if (c === 14 || c === 15) {
         cell.alignment = { horizontal: "right", vertical: "middle" };
@@ -514,7 +606,7 @@ function renderDaySheet(
   // ROW: Overall Total Tickets
   const overallRow = worksheet.addRow([
     "", "", "", "", "", "", "", "",
-    "TOTAL TICKETS",
+    overallTicketLabel,
     grandTotalTickets,
     "", "", "", "", "", ""
   ]);
@@ -531,7 +623,7 @@ function renderDaySheet(
     cell.fill = {
       type: "pattern",
       pattern: "solid",
-      fgColor: { argb: "FFEAEAEA" }
+      fgColor: { argb: "FFD6D6D6" }
     };
   }
 }

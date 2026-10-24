@@ -201,6 +201,9 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
             name: templateName,
             languageCode: "en",
             bodyValues: [otp],
+            buttonValues: {
+              "0": [otp],
+            },
           },
         }),
       });

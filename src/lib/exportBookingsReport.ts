@@ -285,19 +285,29 @@ function renderDaySheet(
     }
   }
 
-  // Group this day's orders by Time Slot
-  const slotGroups = new Map<string, OrderData[]>();
+  // Group orders by Date first, then within each Date group by Time Slot
+  // This ensures that "All Bookings" groups and sorts all orders by Date first (e.g. Oct 20 orders together, then Oct 21 orders together),
+  // instead of mixing different dates into the same time slot!
+  const dateToSlotsMap = new Map<string, Map<string, OrderData[]>>();
+
   for (const order of ordersForDay) {
-    const slotKey = order.timeSlot || "UNASSIGNED";
-    if (!slotGroups.has(slotKey)) {
-      slotGroups.set(slotKey, []);
+    const dKey = order.date || "UNASSIGNED";
+    if (!dateToSlotsMap.has(dKey)) {
+      dateToSlotsMap.set(dKey, new Map<string, OrderData[]>());
     }
-    slotGroups.get(slotKey)!.push(order);
+    const slotMap = dateToSlotsMap.get(dKey)!;
+    const slotKey = order.timeSlot || "UNASSIGNED";
+    if (!slotMap.has(slotKey)) {
+      slotMap.set(slotKey, []);
+    }
+    slotMap.get(slotKey)!.push(order);
   }
 
-  // Sort slots chronologically
-  const sortedSlotKeys = Array.from(slotGroups.keys()).sort((a, b) => {
-    return getSlotStartMinutes(a) - getSlotStartMinutes(b);
+  // Sort dates chronologically
+  const sortedDates = Array.from(dateToSlotsMap.keys()).sort((a, b) => {
+    const timeA = parseBookingDate(a)?.getTime() || 0;
+    const timeB = parseBookingDate(b)?.getTime() || 0;
+    return timeA - timeB;
   });
 
   let totalSlCounter = 1;
@@ -309,120 +319,159 @@ function renderDaySheet(
   let grandTotalAmountReceived = 0;
   let grandTotalAmountDue = 0;
 
-  // Populate Data Rows Grouped by Slot
-  sortedSlotKeys.forEach((slotKey, slotIndex) => {
-    // Add an empty gap row between different time slots (without borders)
-    if (slotIndex > 0) {
-      const gapRow = worksheet.addRow([]);
-      gapRow.height = 14;
-    }
+  let isFirstSection = true;
 
-    const ordersInSlot = slotGroups.get(slotKey)!;
-    ordersInSlot.sort((a, b) => a.orderNo - b.orderNo);
+  // Populate Data Rows: Date by Date, and within each Date Slot by Slot
+  sortedDates.forEach((dateKey, dateIdx) => {
+    const slotGroups = dateToSlotsMap.get(dateKey)!;
 
-    // Get slot meta, number, and color
-    const meta = slotMetaMap.get(slotKey.trim().toUpperCase());
-    const slotNum = meta ? meta.slotIndex : (slotIndex + 1);
+    // Sort slots chronologically within this date
+    const sortedSlotKeys = Array.from(slotGroups.keys()).sort((a, b) => {
+      return getSlotStartMinutes(a) - getSlotStartMinutes(b);
+    });
 
-    const firstOrder = ordersInSlot[0];
-    const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
-    const slotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
-
-    // Color hex for this slot
-    const slotHex = meta?.colorHex || normalizeHex(firstOrder?.slotColor) || "06B6D4";
-    const contrastTextColor = getContrastTextColor(slotHex);
-
-    ordersInSlot.forEach((order, snIdx) => {
-      const sn = snIdx + 1;
-      const currentSl = totalSlCounter++;
-
-      // Count quantities per pass type
-      let vCount = 0;
-      let pCount = 0;
-      let vvCount = 0;
-      let vpCount = 0;
-      let calculatedBaseAmount = 0;
-
-      for (const item of order.items) {
-        const tName = (item.ticket_name || "").toUpperCase();
-        const qty = item.quantity || 1;
-        calculatedBaseAmount += (item.ticket_price || 0) * qty;
-
-        if (tName.includes("VIP_PARTICIPANT") || tName.includes("VIP PARTICIPANT")) {
-          vpCount += qty;
-        } else if (tName.includes("VIP_VISITOR") || tName.includes("VIP VISITOR")) {
-          vvCount += qty;
-        } else if (tName.includes("PARTICIPANT")) {
-          pCount += qty;
-        } else if (tName.includes("VISITOR")) {
-          vCount += qty;
-        } else {
-          pCount += qty;
-        }
+    // If multiple dates are present (like in "All Bookings"), add a clear Date Section Divider Header
+    if (sortedDates.length > 1) {
+      // Add gap row before next date section (unless very top)
+      if (!isFirstSection) {
+        const dateGapRow = worksheet.addRow([]);
+        dateGapRow.height = 18;
       }
 
-      grandTotalV += vCount;
-      grandTotalP += pCount;
-      grandTotalVV += vvCount;
-      grandTotalVP += vpCount;
-      grandTotalTickets += (vCount + pCount + vvCount + vpCount);
-
-      const isPaid = order.payment_status.toLowerCase() === "paid";
-      const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
-      const received = isPaid ? totalAmt : 0;
-      const due = isPaid ? 0 : totalAmt;
-
-      grandTotalAmountReceived += received;
-      grandTotalAmountDue += due;
-
-      const dataRow = worksheet.addRow([
-        currentSl,
-        sn,
-        order.orderCode,
-        order.name,
-        order.phone,
-        order.email,
-        order.date,
-        order.timeSlot,
-        slotDisplayText,
-        vCount > 0 ? vCount : "",
-        pCount > 0 ? pCount : "",
-        vvCount > 0 ? vvCount : "",
-        vpCount > 0 ? vpCount : "",
-        received > 0 ? `₹ ${received.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
-        due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
-        order.fulfillment_status
-      ]);
-      dataRow.height = 20;
-
-      // Apply solid borders and alignment
-      for (let c = 1; c <= 16; c++) {
-        const cell = dataRow.getCell(c);
-        cell.border = thinBorder;
-        cell.font = { name: "Calibri", size: 10 };
-
-        if (c === 3 || c === 4 || c === 6) {
-          cell.alignment = { horizontal: "left", vertical: "middle" };
-        } else if (c === 14 || c === 15) {
-          cell.alignment = { horizontal: "right", vertical: "middle" };
-        } else {
-          cell.alignment = { horizontal: "center", vertical: "middle" };
-        }
-      }
-
-      // Fill Column 9 (SLOT NO / COLOUR) with that specific slot's color
-      const slotCell = dataRow.getCell(9);
-      slotCell.fill = {
+      const { bannerTitle: dateBanner } = formatFullDateBanner(dateKey);
+      const sectionRow = worksheet.addRow([`DATE: ${dateBanner}`]);
+      sectionRow.height = 24;
+      const sectionRowNum = sectionRow.number;
+      worksheet.mergeCells(`A${sectionRowNum}:P${sectionRowNum}`);
+      
+      const sCell = worksheet.getCell(`A${sectionRowNum}`);
+      sCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF0D1B2A" } };
+      sCell.alignment = { horizontal: "left", vertical: "middle", indent: 1 };
+      sCell.fill = {
         type: "pattern",
         pattern: "solid",
-        fgColor: { argb: `FF${slotHex}` }
+        fgColor: { argb: "FFE9ECEF" }
       };
-      slotCell.font = {
-        name: "Calibri",
-        size: 10,
-        bold: true,
-        color: { argb: `FF${contrastTextColor}` }
-      };
+      for (let c = 1; c <= 16; c++) {
+        worksheet.getRow(sectionRowNum).getCell(c).border = thinBorder;
+      }
+    }
+
+    sortedSlotKeys.forEach((slotKey, slotIndex) => {
+      // Add an empty gap row between different time slots (without borders)
+      if (slotIndex > 0 || (sortedDates.length === 1 && !isFirstSection)) {
+        const gapRow = worksheet.addRow([]);
+        gapRow.height = 14;
+      }
+      isFirstSection = false;
+
+      const ordersInSlot = slotGroups.get(slotKey)!;
+      ordersInSlot.sort((a, b) => a.orderNo - b.orderNo);
+
+      // Get slot meta, number, and color
+      const meta = slotMetaMap.get(slotKey.trim().toUpperCase());
+      const slotNum = meta ? meta.slotIndex : (slotIndex + 1);
+
+      const firstOrder = ordersInSlot[0];
+      const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
+      const slotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
+
+      // Color hex for this slot
+      const slotHex = meta?.colorHex || normalizeHex(firstOrder?.slotColor) || "06B6D4";
+      const contrastTextColor = getContrastTextColor(slotHex);
+
+      ordersInSlot.forEach((order, snIdx) => {
+        const sn = snIdx + 1;
+        const currentSl = totalSlCounter++;
+
+        // Count quantities per pass type
+        let vCount = 0;
+        let pCount = 0;
+        let vvCount = 0;
+        let vpCount = 0;
+        let calculatedBaseAmount = 0;
+
+        for (const item of order.items) {
+          const tName = (item.ticket_name || "").toUpperCase();
+          const qty = item.quantity || 1;
+          calculatedBaseAmount += (item.ticket_price || 0) * qty;
+
+          if (tName.includes("VIP_PARTICIPANT") || tName.includes("VIP PARTICIPANT")) {
+            vpCount += qty;
+          } else if (tName.includes("VIP_VISITOR") || tName.includes("VIP VISITOR")) {
+            vvCount += qty;
+          } else if (tName.includes("PARTICIPANT")) {
+            pCount += qty;
+          } else if (tName.includes("VISITOR")) {
+            vCount += qty;
+          } else {
+            pCount += qty;
+          }
+        }
+
+        grandTotalV += vCount;
+        grandTotalP += pCount;
+        grandTotalVV += vvCount;
+        grandTotalVP += vpCount;
+        grandTotalTickets += (vCount + pCount + vvCount + vpCount);
+
+        const isPaid = order.payment_status.toLowerCase() === "paid";
+        const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
+        const received = isPaid ? totalAmt : 0;
+        const due = isPaid ? 0 : totalAmt;
+
+        grandTotalAmountReceived += received;
+        grandTotalAmountDue += due;
+
+        const dataRow = worksheet.addRow([
+          currentSl,
+          sn,
+          order.orderCode,
+          order.name,
+          order.phone,
+          order.email,
+          order.date,
+          order.timeSlot,
+          slotDisplayText,
+          vCount > 0 ? vCount : "",
+          pCount > 0 ? pCount : "",
+          vvCount > 0 ? vvCount : "",
+          vpCount > 0 ? vpCount : "",
+          received > 0 ? `₹ ${received.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+          due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+          order.fulfillment_status
+        ]);
+        dataRow.height = 20;
+
+        // Apply solid borders and alignment
+        for (let c = 1; c <= 16; c++) {
+          const cell = dataRow.getCell(c);
+          cell.border = thinBorder;
+          cell.font = { name: "Calibri", size: 10 };
+
+          if (c === 3 || c === 4 || c === 6) {
+            cell.alignment = { horizontal: "left", vertical: "middle" };
+          } else if (c === 14 || c === 15) {
+            cell.alignment = { horizontal: "right", vertical: "middle" };
+          } else {
+            cell.alignment = { horizontal: "center", vertical: "middle" };
+          }
+        }
+
+        // Fill Column 9 (SLOT NO / COLOUR) with that specific slot's color
+        const slotCell = dataRow.getCell(9);
+        slotCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: `FF${slotHex}` }
+        };
+        slotCell.font = {
+          name: "Calibri",
+          size: 10,
+          bold: true,
+          color: { argb: `FF${contrastTextColor}` }
+        };
+      });
     });
   });
 

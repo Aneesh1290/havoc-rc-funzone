@@ -981,7 +981,7 @@ export default function DeskCheckInModal({
         <div className="px-5 sm:px-7 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="w-4 h-4 text-amber-600" />
-            <span>Havoc Sim Podium Desk Verification Engine</span>
+            <span>Havoc RC Fun Zone Desk Verification Engine</span>
           </div>
 
           <button

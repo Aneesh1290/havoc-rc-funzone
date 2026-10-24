@@ -78,7 +78,7 @@ export default function OrderDetailPage() {
   const effectiveOrderNumber = booking.order_number || booking.id;
   const orderCode = formatOrderNumber(effectiveOrderNumber, booking.created_at, booking.payment_status);
   const isPaid = (booking.payment_status || "Paid").toLowerCase() === "paid";
-  const isFulfilled = (booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
+  const isFulfilled = (booking.fulfillment_status || "").toLowerCase() === "fulfilled" || (booking.fulfillment_status || "").toLowerCase() === "attended";
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
   

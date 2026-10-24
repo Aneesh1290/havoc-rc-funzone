@@ -146,6 +146,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN order_number INTEGER'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN payment_ref TEXT'); } catch (e) {}
+  try { db.exec("UPDATE bookings SET fulfillment_status = 'Fulfilled' WHERE LOWER(fulfillment_status) = 'attended'"); } catch (e) {}
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
@@ -472,10 +473,10 @@ export function attendPaidBookings(bookingIds: number[]) {
   const placeholders = bookingIds.map(() => '?').join(',');
   return db.prepare(`
     UPDATE bookings 
-    SET fulfillment_status = 'ATTENDED' 
-    WHERE id IN (${placeholders}) 
+    SET fulfillment_status = 'Fulfilled' 
+    WHERE (id IN (${placeholders}) OR order_number IN (${placeholders}))
       AND LOWER(payment_status) = 'paid'
-  `).run(...bookingIds);
+  `).run(...bookingIds, ...bookingIds);
 }
 
 export function collectAndFulfillBookings(bookingIds: number[], paymentRef: string) {
@@ -483,9 +484,9 @@ export function collectAndFulfillBookings(bookingIds: number[], paymentRef: stri
   const placeholders = bookingIds.map(() => '?').join(',');
   return db.prepare(`
     UPDATE bookings 
-    SET payment_status = 'Paid', fulfillment_status = 'ATTENDED', payment_ref = ?
-    WHERE id IN (${placeholders})
-  `).run(paymentRef, ...bookingIds);
+    SET payment_status = 'Paid', fulfillment_status = 'Fulfilled', payment_ref = ?
+    WHERE id IN (${placeholders}) OR order_number IN (${placeholders})
+  `).run(paymentRef, ...bookingIds, ...bookingIds);
 }
 
 export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string, fulfillmentStatus?: string) {

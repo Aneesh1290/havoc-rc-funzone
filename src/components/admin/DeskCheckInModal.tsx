@@ -117,6 +117,11 @@ export default function DeskCheckInModal({
     }
   }, [currentStep]);
 
+  const handleClose = () => {
+    onSuccess();
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   // Clean phone string (10 digits only)
@@ -285,12 +290,12 @@ export default function DeskCheckInModal({
       }
 
       setPaymentSuccess(true);
-      // Mark all sessions locally as Paid & ATTENDED
+      // Mark all sessions locally as Paid & Fulfilled
       setVerifiedSessions((prev) =>
         prev.map((s) => ({
           ...s,
           payment_status: "Paid",
-          fulfillment_status: "ATTENDED",
+          fulfillment_status: "Fulfilled",
           payment_ref: deskTransactionRef.trim(),
         }))
       );
@@ -337,7 +342,7 @@ export default function DeskCheckInModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="p-2 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
             title="Close Modal"
           >
@@ -965,7 +970,7 @@ export default function DeskCheckInModal({
                   <div className="pt-2">
                     <button
                       type="button"
-                      onClick={onClose}
+                      onClick={handleClose}
                       className="px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
                     >
                       Done / Close Modal
@@ -986,7 +991,7 @@ export default function DeskCheckInModal({
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-gray-500 hover:text-gray-800 font-medium transition-colors"
           >
             Close

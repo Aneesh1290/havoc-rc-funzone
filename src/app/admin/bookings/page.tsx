@@ -53,6 +53,7 @@ export default function BookingsPage() {
       })
       .catch((err) => console.error(err))
       .finally(() => setIsLoading(false));
+    router.refresh();
   };
 
   useEffect(() => {
@@ -97,6 +98,12 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
+        const isItemFulfilled = 
+          (b.fulfillment_status || "").toLowerCase() === "fulfilled" || 
+          (b.fulfillment_status || "").toLowerCase() === "attended";
+        if (isItemFulfilled) {
+          existing.fulfillment_status = "Fulfilled";
+        }
         if (b.tags && !existing.tags.includes(b.tags)) {
           existing.tags = existing.tags ? `${existing.tags}, ${b.tags}` : b.tags;
         }
@@ -784,7 +791,9 @@ export default function BookingsPage() {
                 filteredOrders.map((order) => {
                   const isSelected = selectedIds.includes(order.primaryId);
                   const isPaid = (order.payment_status || "Paid").toLowerCase() === "paid";
-                  const isFulfilled = (order.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
+                  const isFulfilled = 
+                    (order.fulfillment_status || "").toLowerCase() === "fulfilled" ||
+                    (order.fulfillment_status || "").toLowerCase() === "attended";
                   const totalFormatted = order.total_amount > 0 ? `₹${order.total_amount.toFixed(2)}` : "₹0.00";
 
                   return (

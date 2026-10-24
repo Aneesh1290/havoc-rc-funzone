@@ -17,6 +17,7 @@ import {
   Clock,
   Car,
   ChevronRight,
+  ChevronDown,
   Info,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -347,6 +348,8 @@ export default function DeskCheckInModal({
   // Format currency
   const formatInr = (amt: number) => `₹${amt.toLocaleString("en-IN")}`;
 
+  const selectedCountry = COUNTRY_CODES.find((c) => c.code === countryCode) || COUNTRY_CODES[0];
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
       <div className="relative w-full max-w-2xl bg-white text-gray-900 border border-gray-200 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto">
@@ -463,7 +466,12 @@ export default function DeskCheckInModal({
                 </label>
                 <form onSubmit={handlePhoneLookup} className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                   <div className="flex-1 flex rounded-xl border border-gray-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/20 shadow-sm transition-all overflow-hidden">
-                    <div className="relative flex items-center bg-gray-50 border-r border-gray-200 px-2 sm:px-3 text-gray-700 hover:bg-gray-100 transition-colors">
+                    <div className="relative flex items-center bg-gray-50 border-r border-gray-200 px-3 hover:bg-gray-100 transition-colors shrink-0">
+                      <div className="flex items-center gap-1.5 pointer-events-none select-none">
+                        <span className="text-base leading-none">{selectedCountry.flag}</span>
+                        <span className="font-mono font-bold text-sm text-gray-800">{countryCode}</span>
+                        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                      </div>
                       <select
                         value={countryCode}
                         onChange={(e) => {
@@ -471,11 +479,11 @@ export default function DeskCheckInModal({
                           setLookupError(null);
                           setSendOtpError(null);
                         }}
-                        className="bg-transparent text-gray-900 font-mono font-bold text-xs sm:text-sm cursor-pointer focus:outline-none pr-1 py-3"
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-base"
                         title="Select Country Code"
                       >
                         {COUNTRY_CODES.map((c) => (
-                          <option key={c.code} value={c.code} className="bg-white text-gray-900 font-sans font-medium">
+                          <option key={c.code} value={c.code} className="text-gray-900 font-sans font-medium">
                             {c.flag} {c.code} ({c.name})
                           </option>
                         ))}

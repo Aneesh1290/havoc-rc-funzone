@@ -145,6 +145,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN simulator_slot TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN order_number INTEGER'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN payment_ref TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
@@ -411,7 +412,7 @@ export function getAllBookings() {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -425,7 +426,7 @@ export function getBookingById(id: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -439,7 +440,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -448,6 +449,43 @@ export function getBookingsByOrderNumber(orderNum: number) {
     WHERE b.order_number = ? OR (b.order_number IS NULL AND b.id = ?)
     ORDER BY b.id ASC
   `).all(orderNum, orderNum);
+}
+
+export function getBookingsByPhone(phoneQuery: string) {
+  const cleanPhone = phoneQuery.replace(/\D/g, '').slice(-10);
+  return db.prepare(`
+    SELECT 
+      b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref,
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      s.color as slot_color, s.color_name as slot_color_name
+    FROM bookings b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
+    WHERE REPLACE(REPLACE(REPLACE(REPLACE(b.customer_phone, ' ', ''), '-', ''), '+', ''), '(', '') LIKE '%' || ? || '%'
+    ORDER BY b.id ASC
+  `).all(cleanPhone) as any[];
+}
+
+export function attendPaidBookings(bookingIds: number[]) {
+  if (!bookingIds || bookingIds.length === 0) return { changes: 0 };
+  const placeholders = bookingIds.map(() => '?').join(',');
+  return db.prepare(`
+    UPDATE bookings 
+    SET fulfillment_status = 'ATTENDED' 
+    WHERE id IN (${placeholders}) 
+      AND LOWER(payment_status) = 'paid'
+  `).run(...bookingIds);
+}
+
+export function collectAndFulfillBookings(bookingIds: number[], paymentRef: string) {
+  if (!bookingIds || bookingIds.length === 0) return { changes: 0 };
+  const placeholders = bookingIds.map(() => '?').join(',');
+  return db.prepare(`
+    UPDATE bookings 
+    SET payment_status = 'Paid', fulfillment_status = 'ATTENDED', payment_ref = ?
+    WHERE id IN (${placeholders})
+  `).run(paymentRef, ...bookingIds);
 }
 
 export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string, fulfillmentStatus?: string) {

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
+import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
 import type { TimeSlotRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -37,6 +38,7 @@ export default function BookingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
+  const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
   const router = useRouter();
 
   const loadBookings = () => {
@@ -395,6 +397,17 @@ export default function BookingsPage() {
             </div>
           )}
 
+          {/* Desk Customer Check-in Button */}
+          <button
+            type="button"
+            onClick={() => setIsDeskCheckInOpen(true)}
+            className="flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-gradient-to-r from-[#1c1d26] to-[#282a3a] hover:from-[#282a3a] hover:to-[#33374c] text-[#e5b869] border-[#e5b869]/40 hover:border-[#e5b869] shadow-[#e5b869]/10 whitespace-nowrap active:scale-[0.98]"
+            title="Customer Desk Check-in & WhatsApp OTP Verification"
+          >
+            <ShieldCheck className="w-4 h-4 text-[#e5b869]" />
+            <span>🛡️ Customer Desk Check-In</span>
+          </button>
+
           {/* Export Report Excel Button */}
           <button
             type="button"
@@ -445,6 +458,13 @@ export default function BookingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Customer Desk Check-In & Verification Modal */}
+      <DeskCheckInModal
+        isOpen={isDeskCheckInOpen}
+        onClose={() => setIsDeskCheckInOpen(false)}
+        onSuccess={() => loadBookings()}
+      />
 
       {/* Bulk Delete Confirmation Modal */}
       {showDeleteConfirm && (

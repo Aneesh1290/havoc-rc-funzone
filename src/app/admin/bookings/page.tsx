@@ -6,6 +6,7 @@ import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } fr
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
+import { hasUserPermission } from "@/lib/permissions";
 import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
 import type { TimeSlotRow } from "@/lib/db";
 import Link from "next/link";
@@ -39,7 +40,21 @@ export default function BookingsPage() {
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
+  const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.user) setSessionUser(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const canDelete = hasUserPermission(sessionUser, "bookings:delete");
+  const canDeskCheckIn = hasUserPermission(sessionUser, "bookings:checkin");
+  const canExport = hasUserPermission(sessionUser, "bookings:export");
 
   const loadBookings = () => {
     setIsLoading(true);
@@ -387,8 +402,8 @@ export default function BookingsPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          {/* Bulk Delete Button when items are selected */}
-          {selectedIds.length > 0 && (
+          {/* Bulk Delete Button when items are selected - only if user has permission */}
+          {canDelete && selectedIds.length > 0 && (
             <div className="flex items-center gap-2 animate-in fade-in zoom-in-95 duration-150">
               <span className="text-xs font-semibold px-2 sm:px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 border border-red-200">
                 {selectedIds.length} sel
@@ -404,41 +419,45 @@ export default function BookingsPage() {
             </div>
           )}
 
-          {/* Desk Customer Check-in Button */}
-          <button
-            type="button"
-            onClick={() => setIsDeskCheckInOpen(true)}
-            className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-white hover:bg-amber-50/70 text-amber-900 border-amber-300/80 hover:border-amber-400 shadow-amber-900/5 whitespace-nowrap active:scale-[0.98]"
-            title="Customer Desk Check-in & WhatsApp OTP Verification"
-          >
-            <div className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
-              <ShieldCheck className="w-3.5 h-3.5" />
-            </div>
-            <span>Customer Desk Check-In</span>
-          </button>
+          {/* Desk Customer Check-in Button - only if user has permission */}
+          {canDeskCheckIn && (
+            <button
+              type="button"
+              onClick={() => setIsDeskCheckInOpen(true)}
+              className="flex items-center justify-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all border shadow-sm bg-white hover:bg-amber-50/70 text-amber-900 border-amber-300/80 hover:border-amber-400 shadow-amber-900/5 whitespace-nowrap active:scale-[0.98]"
+              title="Customer Desk Check-in & WhatsApp OTP Verification"
+            >
+              <div className="w-5 h-5 rounded-md bg-amber-100 border border-amber-300/80 flex items-center justify-center text-amber-700 shrink-0">
+                <ShieldCheck className="w-3.5 h-3.5" />
+              </div>
+              <span>Customer Desk Check-In</span>
+            </button>
+          )}
 
-          {/* Export Report Excel Button */}
-          <button
-            type="button"
-            disabled={isExporting || isLoading || filteredOrders.length === 0}
-            onClick={handleExportExcel}
-            className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-            title="Download Excel Report matching Havoc Sim Podium format"
-          >
-            {isExporting ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-            ) : (
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-            )}
-            <span>
-              {isExporting 
-                ? "Exporting..." 
-                : selectedIds.length > 0 
-                  ? `Export (${selectedIds.length})` 
-                  : "Export Report"
-              }
-            </span>
-          </button>
+          {/* Export Report Excel Button - only if user has permission */}
+          {canExport && (
+            <button
+              type="button"
+              disabled={isExporting || isLoading || filteredOrders.length === 0}
+              onClick={handleExportExcel}
+              className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all border shadow-sm bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-200 hover:border-emerald-300 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              title="Download Excel Report matching Havoc Sim Podium format"
+            >
+              {isExporting ? (
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+              ) : (
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              )}
+              <span>
+                {isExporting 
+                  ? "Exporting..." 
+                  : selectedIds.length > 0 
+                    ? `Export (${selectedIds.length})` 
+                    : "Export Report"
+                }
+              </span>
+            </button>
+          )}
 
           {/* Filter button that opens the slide-over filter panel */}
           <button

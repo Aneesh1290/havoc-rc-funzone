@@ -17,7 +17,11 @@ import {
   Settings,
   Lock,
   X,
-  Copy
+  Copy,
+  CreditCard,
+  CheckCircle2,
+  QrCode,
+  FileSpreadsheet
 } from "lucide-react";
 import { 
   fetchStaffUsersAction, 
@@ -37,13 +41,21 @@ interface StaffUser {
   created_at?: string;
 }
 
-const AVAILABLE_PERMISSIONS = [
+const MODULE_PERMISSIONS = [
   { key: "bookings", label: "Bookings", icon: Calendar },
   { key: "tickets", label: "Ticket Types", icon: Ticket },
   { key: "vip-perks", label: "VIP Perks", icon: Sparkles },
   { key: "slots", label: "Slots & Dates", icon: Clock },
   { key: "coupons", label: "Coupons", icon: Tag },
   { key: "settings", label: "Settings", icon: Settings },
+];
+
+const BOOKING_ACTION_PERMISSIONS = [
+  { key: "bookings:payment", label: "Collect Payment", icon: CreditCard, desc: "Can mark orders as Paid / Unpaid in order details" },
+  { key: "bookings:status", label: "Order Actions (Fulfill / Cancel)", icon: CheckCircle2, desc: "Can mark orders as Fulfilled / Unfulfilled or Cancel orders" },
+  { key: "bookings:checkin", label: "Desk Check-In", icon: QrCode, desc: "Can run customer OTP desk check-in" },
+  { key: "bookings:export", label: "Export Reports", icon: FileSpreadsheet, desc: "Can download Excel reports of orders" },
+  { key: "bookings:delete", label: "Delete Orders", icon: Trash2, desc: "Can delete single or bulk orders from bookings list" },
 ];
 
 export default function StaffManagementPage() {
@@ -55,7 +67,14 @@ export default function StaffManagementPage() {
   const [username, setUsername] = useState("");
   const [name, setName] = useState("");
   const [role, setRole] = useState<"staff" | "super_admin">("staff");
-  const [selectedPerms, setSelectedPerms] = useState<string[]>(["bookings", "slots"]);
+  const [selectedPerms, setSelectedPerms] = useState<string[]>([
+    "bookings", 
+    "slots", 
+    "bookings:payment", 
+    "bookings:status", 
+    "bookings:checkin", 
+    "bookings:export"
+  ]);
   const [customPassword, setCustomPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -299,33 +318,72 @@ export default function StaffManagementPage() {
                           {isMainAdmin || isSuperAdmin ? (
                             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200/80">
                               <ShieldCheck className="w-3.5 h-3.5 text-amber-600" />
-                              Full Access (All Tabs)
+                              Full Access (All Tabs &amp; Actions)
                             </span>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5 max-w-sm">
-                              {AVAILABLE_PERMISSIONS.map((perm) => {
-                                const isChecked = currentPerms.includes(perm.key);
-                                const IconComponent = perm.icon;
-                                return (
-                                  <label
-                                    key={perm.key}
-                                    className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold cursor-pointer border transition-all ${
-                                      isChecked
-                                        ? "bg-orange-50 border-orange-200 text-[#ff5a1f]"
-                                        : "bg-gray-50 border-gray-200 text-gray-500 opacity-70 hover:opacity-100"
-                                    }`}
-                                  >
-                                    <input
-                                      type="checkbox"
-                                      checked={isChecked}
-                                      onChange={() => handleTogglePerm(u, perm.key)}
-                                      className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] w-3.5 h-3.5"
-                                    />
-                                    <IconComponent className="w-3 h-3" />
-                                    <span>{perm.label}</span>
-                                  </label>
-                                );
-                              })}
+                            <div className="space-y-2.5 max-w-sm">
+                              {/* Page / Tab Permissions */}
+                              <div>
+                                <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">
+                                  Allowed Pages
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {MODULE_PERMISSIONS.map((perm) => {
+                                    const isChecked = currentPerms.includes(perm.key);
+                                    const IconComponent = perm.icon;
+                                    return (
+                                      <button
+                                        key={perm.key}
+                                        type="button"
+                                        onClick={() => handleTogglePerm(u, perm.key)}
+                                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-xs font-semibold border transition-all ${
+                                          isChecked
+                                            ? "bg-orange-50 border-orange-200 text-[#ff5a1f] font-bold shadow-xs"
+                                            : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600 line-through opacity-55"
+                                        }`}
+                                        title={isChecked ? `Click to revoke ${perm.label} tab access` : `Click to grant ${perm.label} tab access`}
+                                      >
+                                        <IconComponent className="w-3 h-3" />
+                                        <span>{perm.label}</span>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Bookings Actions & Restrictions */}
+                              {currentPerms.includes("bookings") && (
+                                <div className="pt-1 border-t border-gray-100">
+                                  <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">
+                                    Bookings Page Permissions
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {BOOKING_ACTION_PERMISSIONS.map((perm) => {
+                                      const isChecked = currentPerms.includes(perm.key);
+                                      const IconComponent = perm.icon;
+                                      const isDelete = perm.key === "bookings:delete";
+                                      return (
+                                        <button
+                                          key={perm.key}
+                                          type="button"
+                                          onClick={() => handleTogglePerm(u, perm.key)}
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-all ${
+                                            isChecked
+                                              ? isDelete 
+                                                ? "bg-red-50 border-red-200 text-red-600 shadow-xs"
+                                                : "bg-blue-50 border-blue-200 text-blue-700 shadow-xs"
+                                              : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600 line-through opacity-50"
+                                          }`}
+                                          title={isChecked ? `Allowed: Click to restrict ${perm.label}` : `Restricted: Click to allow ${perm.label}`}
+                                        >
+                                          <IconComponent className="w-2.5 h-2.5" />
+                                          <span>{perm.label}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -433,36 +491,82 @@ export default function StaffManagementPage() {
               </p>
             </div>
 
-            {/* Allowed Tabs / Permissions Checklist */}
+            {/* Allowed Tabs & Granular Permissions */}
             {role === "staff" && (
-              <div className="pt-2">
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
-                  Select Allowed Tabs &amp; Modules
-                </label>
-                <div className="grid grid-cols-2 gap-2 bg-gray-50/70 p-3 rounded-xl border border-gray-200/70">
-                  {AVAILABLE_PERMISSIONS.map((perm) => {
-                    const isChecked = selectedPerms.includes(perm.key);
-                    const IconComponent = perm.icon;
-                    return (
-                      <label key={perm.key} className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700 select-none">
-                        <input
-                          type="checkbox"
-                          checked={isChecked}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedPerms(prev => [...prev, perm.key]);
-                            } else {
-                              setSelectedPerms(prev => prev.filter(k => k !== perm.key));
-                            }
-                          }}
-                          className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] w-3.5 h-3.5"
-                        />
-                        <IconComponent className="w-3.5 h-3.5 text-gray-500" />
-                        <span>{perm.label}</span>
-                      </label>
-                    );
-                  })}
+              <div className="space-y-4 pt-2">
+                {/* 1. Pages */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
+                    Allowed Pages &amp; Modules
+                  </label>
+                  <div className="grid grid-cols-2 gap-2 bg-gray-50/70 p-3 rounded-xl border border-gray-200/70">
+                    {MODULE_PERMISSIONS.map((perm) => {
+                      const isChecked = selectedPerms.includes(perm.key);
+                      const IconComponent = perm.icon;
+                      return (
+                        <label key={perm.key} className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedPerms(prev => [...prev, perm.key]);
+                              } else {
+                                setSelectedPerms(prev => prev.filter(k => k !== perm.key));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] w-3.5 h-3.5"
+                          />
+                          <IconComponent className="w-3.5 h-3.5 text-gray-500" />
+                          <span>{perm.label}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
+
+                {/* 2. Bookings Granular Actions */}
+                {selectedPerms.includes("bookings") && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
+                      Bookings Actions Allowed
+                    </label>
+                    <div className="space-y-2 bg-gray-50/70 p-3 rounded-xl border border-gray-200/70">
+                      {BOOKING_ACTION_PERMISSIONS.map((perm) => {
+                        const isChecked = selectedPerms.includes(perm.key);
+                        const IconComponent = perm.icon;
+                        const isDelete = perm.key === "bookings:delete";
+                        return (
+                          <label key={perm.key} className="flex items-start gap-2.5 cursor-pointer text-xs font-medium text-gray-700 select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPerms(prev => [...prev, perm.key]);
+                                } else {
+                                  setSelectedPerms(prev => prev.filter(k => k !== perm.key));
+                                }
+                              }}
+                              className={`rounded border-gray-300 mt-0.5 w-3.5 h-3.5 ${
+                                isDelete ? "text-red-600 focus:ring-red-500" : "text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                              }`}
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5 font-bold">
+                                <IconComponent className={`w-3.5 h-3.5 ${isDelete ? "text-red-500" : "text-gray-500"}`} />
+                                <span className={isDelete ? "text-red-700" : "text-gray-900"}>{perm.label}</span>
+                              </div>
+                              <p className="text-[11px] text-gray-400 font-normal leading-tight mt-0.5">
+                                {perm.desc}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

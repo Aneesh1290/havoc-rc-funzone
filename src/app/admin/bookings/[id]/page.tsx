@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
+import { hasUserPermission } from "@/lib/permissions";
 import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
@@ -25,6 +26,7 @@ export default function OrderDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [paymentMenuOpen, setPaymentMenuOpen] = useState(false);
+  const [sessionUser, setSessionUser] = useState<any>(null);
 
   // Tags editing
   const [isEditingTags, setIsEditingTags] = useState(false);
@@ -51,6 +53,18 @@ export default function OrderDetailPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.user) setSessionUser(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const canManageStatus = hasUserPermission(sessionUser, "bookings:status");
+  const canCollectPayment = hasUserPermission(sessionUser, "bookings:payment");
 
   useEffect(() => {
     loadBooking();
@@ -182,80 +196,84 @@ export default function OrderDetailPage() {
           </p>
         </div>
 
-        {/* Action Buttons */}
+        {/* Action Buttons - rendered based on permissions */}
         <div className="flex items-center gap-3">
-          {/* More Actions dropdown matching screenshot */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setActionMenuOpen(!actionMenuOpen);
-                setPaymentMenuOpen(false);
-              }}
-              className="px-4 py-2.5 rounded-full bg-[#18202f] hover:bg-[#222d40] text-white font-bold text-sm flex items-center gap-1.5 shadow-sm transition-all border border-gray-700/50"
-            >
-              <span>More Actions</span>
-              <span className="text-xs text-gray-400">∨</span>
-            </button>
+          {/* More Actions dropdown matching screenshot - only if user has status/fulfillment permission */}
+          {canManageStatus && (
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setActionMenuOpen(!actionMenuOpen);
+                  setPaymentMenuOpen(false);
+                }}
+                className="px-4 py-2.5 rounded-full bg-[#18202f] hover:bg-[#222d40] text-white font-bold text-sm flex items-center gap-1.5 shadow-sm transition-all border border-gray-700/50"
+              >
+                <span>More Actions</span>
+                <span className="text-xs text-gray-400">∨</span>
+              </button>
 
-            {actionMenuOpen && (
-              <div className="absolute right-0 mt-2 w-52 bg-[#1c2433] border border-gray-700/80 rounded-2xl shadow-2xl z-30 py-2 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                <button
-                  onClick={() => handleToggleFulfillment("Fulfilled")}
-                  className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
-                >
-                  <span className="text-white font-black text-sm">✓</span>
-                  <span>Mark as fulfilled</span>
-                </button>
-                <button
-                  onClick={() => handleToggleFulfillment("Unfulfilled")}
-                  className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
-                >
-                  <span className="text-white font-black text-sm">✕</span>
-                  <span>Mark as unfulfilled</span>
-                </button>
-                <button
-                  onClick={handleCancelOrder}
-                  className="w-full text-left px-4 py-2.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold flex items-center gap-2.5 transition-colors"
-                >
-                  <span className="text-red-400 font-black text-sm">✕</span>
-                  <span>Cancel order</span>
-                </button>
-              </div>
-            )}
-          </div>
+              {actionMenuOpen && (
+                <div className="absolute right-0 mt-2 w-52 bg-[#1c2433] border border-gray-700/80 rounded-2xl shadow-2xl z-30 py-2 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                  <button
+                    onClick={() => handleToggleFulfillment("Fulfilled")}
+                    className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <span className="text-white font-black text-sm">✓</span>
+                    <span>Mark as fulfilled</span>
+                  </button>
+                  <button
+                    onClick={() => handleToggleFulfillment("Unfulfilled")}
+                    className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <span className="text-white font-black text-sm">✕</span>
+                    <span>Mark as unfulfilled</span>
+                  </button>
+                  <button
+                    onClick={handleCancelOrder}
+                    className="w-full text-left px-4 py-2.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <span className="text-red-400 font-black text-sm">✕</span>
+                    <span>Cancel order</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Collect Payment dropdown matching screenshot */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setPaymentMenuOpen(!paymentMenuOpen);
-                setActionMenuOpen(false);
-              }}
-              className="px-5 py-2.5 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-sm flex items-center gap-1.5 shadow-md shadow-blue-500/20 transition-all"
-            >
-              <span>Collect Payment</span>
-              <span className="text-xs">∨</span>
-            </button>
+          {/* Collect Payment dropdown matching screenshot - only if user has payment permission */}
+          {canCollectPayment && (
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setPaymentMenuOpen(!paymentMenuOpen);
+                  setActionMenuOpen(false);
+                }}
+                className="px-5 py-2.5 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-sm flex items-center gap-1.5 shadow-md shadow-blue-500/20 transition-all"
+              >
+                <span>Collect Payment</span>
+                <span className="text-xs">∨</span>
+              </button>
 
-            {paymentMenuOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-[#1c2433] border border-gray-700/80 rounded-2xl shadow-2xl z-30 py-2 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-                <button
-                  onClick={() => handleTogglePayment("Paid")}
-                  className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
-                >
-                  <span className="text-white font-black text-sm">✓</span>
-                  <span>Mark as paid</span>
-                </button>
-                <button
-                  onClick={() => handleTogglePayment("Unpaid")}
-                  className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
-                >
-                  <span className="text-white font-black text-sm">✕</span>
-                  <span>Mark as unpaid</span>
-                </button>
-              </div>
-            )}
-          </div>
+              {paymentMenuOpen && (
+                <div className="absolute right-0 mt-2 w-48 bg-[#1c2433] border border-gray-700/80 rounded-2xl shadow-2xl z-30 py-2 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+                  <button
+                    onClick={() => handleTogglePayment("Paid")}
+                    className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <span className="text-white font-black text-sm">✓</span>
+                    <span>Mark as paid</span>
+                  </button>
+                  <button
+                    onClick={() => handleTogglePayment("Unpaid")}
+                    className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <span className="text-white font-black text-sm">✕</span>
+                    <span>Mark as unpaid</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

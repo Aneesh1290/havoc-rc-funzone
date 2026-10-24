@@ -74,6 +74,8 @@ import {
 import { formatOrderNumber } from "@/lib/order-utils";
 import { sendBookingConfirmationEmail } from "@/lib/email";
 import { sendBookingConfirmationWhatsApp } from "@/lib/whatsapp";
+import { checkSessionAction } from "@/app/login/actions";
+import { hasUserPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 
 // Ensure DB is initialized
@@ -343,6 +345,14 @@ export async function fetchBookingsByOrderNumberAction(orderNum: number) {
 }
 
 export async function updateBookingStatusAction(id: number, paymentStatus?: string, fulfillmentStatus?: string) {
+  const session = await checkSessionAction();
+  if (paymentStatus && !hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to modify payment status." };
+  }
+  if (fulfillmentStatus && !hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: You do not have permission to modify order fulfillment status." };
+  }
+
   // Update all tickets under this booking's order_number if present
   const booking = getBookingById(id) as any;
   const targetNum = (booking && booking.order_number) ? booking.order_number : id;
@@ -361,6 +371,11 @@ export async function updateBookingTagsAction(id: number, tags: string) {
 }
 
 export async function cancelBookingAction(id: number) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: You do not have permission to cancel orders." };
+  }
+
   const booking = getBookingById(id) as any;
   const targetNum = (booking && booking.order_number) ? booking.order_number : id;
   const groupRows = getBookingsByOrderNumber(targetNum) as any[];
@@ -383,6 +398,11 @@ export async function cancelBookingAction(id: number) {
 }
 
 export async function deleteBookingsAction(ids: number[]) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:delete")) {
+    return { success: false, error: "Access denied: You do not have permission to delete bookings/orders." };
+  }
+
   if (!ids || ids.length === 0) return { success: true, count: 0 };
   
   // Find all distinct order numbers represented by these IDs

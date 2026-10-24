@@ -15,7 +15,6 @@ import {
   Loader2,
   Calendar,
   Clock,
-  Sparkles,
   Car,
   ChevronRight,
   Info,
@@ -68,7 +67,6 @@ export default function DeskCheckInModal({
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
   const [otpError, setOtpError] = useState<string | null>(null);
-  const [devOtp, setDevOtp] = useState<string | null>(null);
   const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
 
   // Step 3 State
@@ -95,7 +93,6 @@ export default function DeskCheckInModal({
       setTotalDue(0);
       setOtpCode("");
       setOtpError(null);
-      setDevOtp(null);
       setOtpSuccessMessage(null);
       setDeskTransactionRef("");
       setDeskAmountCollected("");
@@ -176,7 +173,6 @@ export default function DeskCheckInModal({
   const handleSendOtp = async () => {
     setIsSendingOtp(true);
     setOtpError(null);
-    setDevOtp(null);
 
     try {
       const res = await fetch("/api/admin/verify/generate-otp", {
@@ -192,9 +188,6 @@ export default function DeskCheckInModal({
         return;
       }
 
-      if (data.dev_otp) {
-        setDevOtp(data.dev_otp);
-      }
       setOtpSuccessMessage(data.message || "OTP code sent via WhatsApp.");
       setCurrentStep(2);
     } catch (err: any) {
@@ -636,36 +629,6 @@ export default function DeskCheckInModal({
           {/* ========================================================================= */}
           {currentStep === 2 && (
             <div className="space-y-6 animate-in fade-in duration-200">
-              {/* Dev Test Banner (if dev_otp is provided or in dev mode) */}
-              {devOtp && (
-                <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-sm">
-                  <div className="flex items-start gap-2.5">
-                    <Sparkles className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="block font-bold text-amber-900">
-                        🧪 Development Testing Mode Active
-                      </strong>
-                      <span className="text-amber-800 text-xs">
-                        WhatsApp API key is not configured in .env. Use generated code below:
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-lg font-black px-3 py-1 bg-amber-200 text-amber-950 rounded-lg tracking-widest shadow-sm border border-amber-300">
-                      {devOtp}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setOtpCode(devOtp)}
-                      className="text-xs px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-lg transition-colors whitespace-nowrap shadow-sm"
-                    >
-                      Auto-fill
-                    </button>
-                  </div>
-                </div>
-              )}
-
               {/* Top Banner showing target phone */}
               <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 text-center">
                 <span className="text-xs font-mono uppercase tracking-wider text-emerald-700 font-bold block mb-1">

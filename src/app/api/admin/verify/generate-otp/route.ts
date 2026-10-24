@@ -32,14 +32,20 @@ export async function POST(req: NextRequest) {
     // Save in 10-minute expiry store
     saveDeskOtp(cleanPhone, otp, 10 * 60 * 1000);
 
-    // Send WhatsApp notification / fallback to dev_otp
+    // Send WhatsApp notification
     const result = await sendWhatsAppOtp(cleanPhone, otp);
+
+    if (!result.sent) {
+      return NextResponse.json(
+        { success: false, error: result.message || "Failed to send WhatsApp OTP. Please check API keys." },
+        { status: 500 }
+      );
+    }
 
     return NextResponse.json({
       success: true,
       phone: cleanPhone,
-      sent: result.sent,
-      dev_otp: result.dev_otp,
+      sent: true,
       message: result.message,
     });
   } catch (error: any) {

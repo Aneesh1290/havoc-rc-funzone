@@ -170,9 +170,8 @@ export function isBookingForToday(dateStr?: string | null): boolean {
 
 /**
  * Sends WhatsApp OTP using Interakt API or WhatsApp Cloud API.
- * If credentials are not configured, returns dev_otp for development testing.
  */
-export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sent: boolean; dev_otp?: string; message: string }> {
+export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sent: boolean; message: string; error?: string }> {
   const cleanPhone = normalizePhone(phone);
   const interaktApiKey = process.env.INTERAKT_API_KEY;
   const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_API_KEY;
@@ -203,13 +202,12 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
         return { sent: true, message: `OTP sent successfully to +91 ${cleanPhone} via WhatsApp.` };
       } else {
         const errText = await response.text();
-        console.warn("[Desk OTP Interakt Error]", errText);
-        // Fallback to dev_otp so desk staff is never blocked
-        return { sent: false, dev_otp: otp, message: "Interakt dispatch failed. Test code enabled." };
+        console.error("[Desk OTP Interakt Error]", errText);
+        return { sent: false, message: "Failed to deliver WhatsApp message via Interakt.", error: errText };
       }
     } catch (err: any) {
       console.error("[Desk OTP Interakt Exception]", err);
-      return { sent: false, dev_otp: otp, message: "Interakt network error. Test code enabled." };
+      return { sent: false, message: "Network error connecting to Interakt API.", error: err.message };
     }
   }
 
@@ -243,20 +241,18 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
         return { sent: true, message: `OTP sent to +91 ${cleanPhone} via WhatsApp Cloud.` };
       } else {
         const errText = await response.text();
-        console.warn("[Desk OTP WhatsApp Cloud Error]", errText);
-        return { sent: false, dev_otp: otp, message: "WhatsApp Cloud API failed. Test code enabled." };
+        console.error("[Desk OTP WhatsApp Cloud Error]", errText);
+        return { sent: false, message: "WhatsApp Cloud API failed to send message.", error: errText };
       }
     } catch (err: any) {
       console.error("[Desk OTP WhatsApp Exception]", err);
-      return { sent: false, dev_otp: otp, message: "WhatsApp network error. Test code enabled." };
+      return { sent: false, message: "Network error connecting to WhatsApp Cloud API.", error: err.message };
     }
   }
 
-  // Development / Test mode banner
-  console.info(`[Desk Check-in DEV OTP] For +91 ${cleanPhone}: OTP code is [${otp}]`);
   return {
     sent: false,
-    dev_otp: otp,
-    message: "WhatsApp API key not configured. Development testing mode active.",
+    message: "WhatsApp API is not configured. Please add INTERAKT_API_KEY in Render environment settings.",
+    error: "MISSING_WHATSAPP_API_KEY",
   };
 }

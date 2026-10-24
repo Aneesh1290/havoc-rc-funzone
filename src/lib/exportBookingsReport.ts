@@ -705,9 +705,10 @@ export async function generateBookingsExcelReport(
     }
   }
 
-  // Today's start of day timestamp (midnight) to filter out past dates
+  // Reference timestamps for today and previous day (yesterday)
   const today = new Date();
   const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
+  const startOfYesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1).getTime();
 
   // Sort distinct dates chronologically using accurate timestamps
   const allSortedDates = Array.from(dateGroups.keys()).sort((a, b) => {
@@ -716,25 +717,46 @@ export async function generateBookingsExcelReport(
     return metaA.sortTimestamp - metaB.sortTimestamp;
   });
 
-  // Filter out dates that are once gone (in the past):
-  // Keep present date orders (today) and future date orders.
-  // If the user explicitly filtered/selected orders that happen to only be past orders,
-  // we fallback to allSortedDates so the export isn't completely empty.
-  const upcomingAndPresentDates = allSortedDates.filter(dKey => {
+  // Separate dates into past dates and present/future dates
+  const pastDates: string[] = [];
+  const presentAndFutureDates: string[] = [];
+
+  for (const dKey of allSortedDates) {
     const parsed = parseBookingDate(dKey, detectedYear);
-    if (!parsed) return true; // keep unassigned or custom labels
+    if (!parsed) {
+      // Keep unassigned or custom labels in present/future
+      presentAndFutureDates.push(dKey);
+      continue;
+    }
     const dateMidnight = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-    return dateMidnight >= startOfToday;
+    if (dateMidnight < startOfToday) {
+      pastDates.push(dKey);
+    } else {
+      presentAndFutureDates.push(dKey);
+    }
+  }
+
+  // Include the previous day:
+  // 1. Any past date that falls on calendar yesterday (startOfYesterday <= date < startOfToday)
+  // 2. If yesterday had no bookings, include the immediate prior day that has bookings (last in pastDates)
+  const yesterdayDates = pastDates.filter(dKey => {
+    const parsed = parseBookingDate(dKey, detectedYear);
+    if (!parsed) return false;
+    const dateMidnight = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
+    return dateMidnight >= startOfYesterday && dateMidnight < startOfToday;
   });
 
-  const sortedDates = upcomingAndPresentDates.length > 0 ? upcomingAndPresentDates : allSortedDates;
+  const selectedPreviousDates = yesterdayDates.length > 0
+    ? yesterdayDates
+    : (pastDates.length > 0 ? [pastDates[pastDates.length - 1]] : []);
 
-  // Filter allOrders for the "All Bookings" sheet to only include upcoming & present dates
-  const activeOrdersSet = new Set(sortedDates);
-  const filteredExportOrders = allOrders.filter(order => {
-    const dKey = order.date || "UNASSIGNED";
-    return activeOrdersSet.has(dKey);
-  });
+  // Ordered day tabs: Previous Day -> Present Day (Today) -> Future Dates
+  const targetDayDates = [...selectedPreviousDates, ...presentAndFutureDates];
+
+  // If the user explicitly filtered for historical dates (all in past with no yesterday/today/future),
+  // fallback to allSortedDates so historical exports are preserved.
+  const isHistoricalOnly = presentAndFutureDates.length === 0 && yesterdayDates.length === 0;
+  const sortedDates = isHistoricalOnly ? allSortedDates : (targetDayDates.length > 0 ? targetDayDates : allSortedDates);
 
   // Create Excel Workbook
   const workbook = new ExcelJS.Workbook();

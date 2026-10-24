@@ -73,6 +73,7 @@ import {
 } from "@/lib/simulator-db";
 import { formatOrderNumber } from "@/lib/order-utils";
 import { sendBookingConfirmationEmail } from "@/lib/email";
+import { sendBookingConfirmationWhatsApp } from "@/lib/whatsapp";
 import { revalidatePath } from "next/cache";
 
 // Ensure DB is initialized
@@ -175,6 +176,34 @@ export async function addBookingAction(
     }
   }
 
+  // Send WhatsApp Booking Confirmation via Interakt
+  if (result?.id && customerPhone) {
+    try {
+      const orderId = formatOrderNumber(result.id, result.createdAt);
+      const allTickets = getTickets();
+      const ticketObj = allTickets.find(t => t.id === ticketId);
+      const ticketName = ticketObj?.name || 'RC Fun Zone Pass';
+
+      sendBookingConfirmationWhatsApp({
+        orderId,
+        customerName,
+        customerPhone,
+        ticketName,
+        quantity,
+        date,
+        timeSlot,
+        totalAmount,
+        simulatorName,
+        simulatorSlot,
+        paymentStatus: 'Unpaid'
+      }).catch(err => {
+        console.error("Async confirmation WhatsApp error:", err);
+      });
+    } catch (waErr) {
+      console.error("Failed to trigger confirmation WhatsApp:", waErr);
+    }
+  }
+
   revalidatePath('/tickets');
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
@@ -253,6 +282,38 @@ export async function createBatchOrderAction(
       });
     } catch (emailErr) {
       console.error("Failed to trigger batch confirmation email:", emailErr);
+    }
+  }
+
+  // Send Consolidated WhatsApp Confirmation for all tickets under this order
+  if (customerPhone) {
+    try {
+      const allTickets = getTickets();
+      const orderItems = items.map(item => {
+        const tObj = allTickets.find(t => t.id === item.ticketId);
+        return {
+          ticketName: tObj?.name || 'RC Fun Zone Pass',
+          quantity: item.quantity,
+          date: item.date,
+          timeSlot: item.timeSlot,
+          itemTotal: item.itemTotal,
+          simulatorName: item.simulatorName,
+          simulatorSlot: item.simulatorSlot
+        };
+      });
+
+      sendBookingConfirmationWhatsApp({
+        orderId,
+        customerName,
+        customerPhone,
+        totalAmount,
+        paymentStatus: 'Unpaid',
+        items: orderItems
+      }).catch(err => {
+        console.error("Async batch confirmation WhatsApp error:", err);
+      });
+    } catch (waErr) {
+      console.error("Failed to trigger batch confirmation WhatsApp:", waErr);
     }
   }
 

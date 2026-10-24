@@ -47,36 +47,36 @@ interface SessionBooking {
 }
 
 export const COUNTRY_CODES = [
-  { code: "+91", flag: "🇮🇳", name: "India" },
-  { code: "+971", flag: "🇦🇪", name: "UAE" },
-  { code: "+1", flag: "🇺🇸", name: "USA/Canada" },
-  { code: "+44", flag: "🇬🇧", name: "UK" },
-  { code: "+65", flag: "🇸🇬", name: "Singapore" },
-  { code: "+61", flag: "🇦🇺", name: "Australia" },
-  { code: "+966", flag: "🇸🇦", name: "Saudi Arabia" },
-  { code: "+974", flag: "🇶🇦", name: "Qatar" },
-  { code: "+965", flag: "🇰🇼", name: "Kuwait" },
-  { code: "+968", flag: "🇴🇲", name: "Oman" },
-  { code: "+973", flag: "🇧🇭", name: "Bahrain" },
-  { code: "+60", flag: "🇲🇾", name: "Malaysia" },
-  { code: "+49", flag: "🇩🇪", name: "Germany" },
-  { code: "+33", flag: "🇫🇷", name: "France" },
-  { code: "+94", flag: "🇱🇰", name: "Sri Lanka" },
-  { code: "+977", flag: "🇳🇵", name: "Nepal" },
-  { code: "+880", flag: "🇧🇩", name: "Bangladesh" },
-  { code: "+64", flag: "🇳🇿", name: "New Zealand" },
-  { code: "+7", flag: "🇷🇺", name: "Russia" },
-  { code: "+81", flag: "🇯🇵", name: "Japan" },
-  { code: "+82", flag: "🇰🇷", name: "South Korea" },
-  { code: "+86", flag: "🇨🇳", name: "China" },
-  { code: "+62", flag: "🇮🇩", name: "Indonesia" },
-  { code: "+63", flag: "🇵🇭", name: "Philippines" },
-  { code: "+66", flag: "🇹🇭", name: "Thailand" },
-  { code: "+27", flag: "🇿🇦", name: "South Africa" },
-  { code: "+31", flag: "🇳🇱", name: "Netherlands" },
-  { code: "+41", flag: "🇨🇭", name: "Switzerland" },
-  { code: "+39", flag: "🇮🇹", name: "Italy" },
-  { code: "+34", flag: "🇪🇸", name: "Spain" },
+  { code: "+91", iso: "IN", name: "India" },
+  { code: "+971", iso: "AE", name: "UAE" },
+  { code: "+1", iso: "US", name: "USA / Canada" },
+  { code: "+44", iso: "GB", name: "UK" },
+  { code: "+65", iso: "SG", name: "Singapore" },
+  { code: "+61", iso: "AU", name: "Australia" },
+  { code: "+966", iso: "SA", name: "Saudi Arabia" },
+  { code: "+974", iso: "QA", name: "Qatar" },
+  { code: "+965", iso: "KW", name: "Kuwait" },
+  { code: "+968", iso: "OM", name: "Oman" },
+  { code: "+973", iso: "BH", name: "Bahrain" },
+  { code: "+60", iso: "MY", name: "Malaysia" },
+  { code: "+49", iso: "DE", name: "Germany" },
+  { code: "+33", iso: "FR", name: "France" },
+  { code: "+94", iso: "LK", name: "Sri Lanka" },
+  { code: "+977", iso: "NP", name: "Nepal" },
+  { code: "+880", iso: "BD", name: "Bangladesh" },
+  { code: "+64", iso: "NZ", name: "New Zealand" },
+  { code: "+7", iso: "RU", name: "Russia" },
+  { code: "+81", iso: "JP", name: "Japan" },
+  { code: "+82", iso: "KR", name: "South Korea" },
+  { code: "+86", iso: "CN", name: "China" },
+  { code: "+62", iso: "ID", name: "Indonesia" },
+  { code: "+63", iso: "PH", name: "Philippines" },
+  { code: "+66", iso: "TH", name: "Thailand" },
+  { code: "+27", iso: "ZA", name: "South Africa" },
+  { code: "+31", iso: "NL", name: "Netherlands" },
+  { code: "+41", iso: "CH", name: "Switzerland" },
+  { code: "+39", iso: "IT", name: "Italy" },
+  { code: "+34", iso: "ES", name: "Spain" },
 ];
 
 export default function DeskCheckInModal({
@@ -466,10 +466,14 @@ export default function DeskCheckInModal({
                 </label>
                 <form onSubmit={handlePhoneLookup} className="flex flex-col sm:flex-row gap-2 sm:gap-3">
                   <div className="flex-1 flex rounded-xl border border-gray-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/20 shadow-sm transition-all overflow-hidden">
-                    <div className="relative flex items-center bg-gray-50 border-r border-gray-200 px-3 hover:bg-gray-100 transition-colors shrink-0">
+                    <div className="relative flex items-center bg-gray-50/90 border-r border-gray-200 px-3 hover:bg-gray-100 transition-colors shrink-0 cursor-pointer">
                       <div className="flex items-center gap-1.5 pointer-events-none select-none">
-                        <span className="text-base leading-none">{selectedCountry.flag}</span>
-                        <span className="font-mono font-bold text-sm text-gray-800">{countryCode}</span>
+                        <span className="px-1.5 py-0.5 rounded text-[11px] font-bold font-mono tracking-wider bg-gray-200/80 text-gray-700 uppercase">
+                          {selectedCountry.iso}
+                        </span>
+                        <span className="font-mono font-bold text-sm text-gray-900 tracking-tight">
+                          {selectedCountry.code}
+                        </span>
                         <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
                       </div>
                       <select
@@ -484,7 +488,7 @@ export default function DeskCheckInModal({
                       >
                         {COUNTRY_CODES.map((c) => (
                           <option key={c.code} value={c.code} className="text-gray-900 font-sans font-medium">
-                            {c.flag} {c.code} ({c.name})
+                            {c.iso} ({c.code}) — {c.name}
                           </option>
                         ))}
                       </select>

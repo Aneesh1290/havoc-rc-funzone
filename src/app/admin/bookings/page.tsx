@@ -24,6 +24,7 @@ export interface GroupedOrder {
   tags: string;
   total_amount: number;
   total_quantity: number;
+  payment_ref?: string;
   bookingIds: number[];
   primaryId: number;
   items: any[];
@@ -98,6 +99,7 @@ export default function BookingsPage() {
           tags: b.tags || "",
           total_amount: effectiveAmount,
           total_quantity: b.quantity || 1,
+          payment_ref: b.payment_ref || "",
           bookingIds: [b.id],
           primaryId: b.id,
           items: [b],
@@ -113,6 +115,9 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
+        if (b.payment_ref && !existing.payment_ref) {
+          existing.payment_ref = b.payment_ref;
+        }
         const isItemFulfilled = 
           (b.fulfillment_status || "").toLowerCase() === "fulfilled" || 
           (b.fulfillment_status || "").toLowerCase() === "attended";
@@ -347,7 +352,8 @@ export default function BookingsPage() {
             customer_email: order.customer_email,
             payment_status: order.payment_status,
             fulfillment_status: order.fulfillment_status,
-            total_amount: order.total_amount
+            total_amount: order.total_amount,
+            payment_ref: item.payment_ref || order.payment_ref || ""
           });
         }
       }

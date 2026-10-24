@@ -19,6 +19,8 @@ export interface BookingExportItem {
   slot_color?: string;
   slot_color_name?: string;
   created_at?: string;
+  payment_ref?: string;
+  transaction_id?: string;
 }
 
 // Convert "11AM-12PM" or "3PM-4PM" into start minutes from midnight for chronological sorting
@@ -172,6 +174,7 @@ interface OrderData {
   payment_status: string;
   fulfillment_status: string;
   total_amount: number;
+  payment_ref?: string;
   items: BookingExportItem[];
 }
 
@@ -205,7 +208,7 @@ function renderDaySheet(
     right: { style: "thin", color: { argb: "FF000000" } }
   };
 
-  // Configure Column Widths (A to P -> 16 columns)
+  // Configure Column Widths (A to Q -> 17 columns)
   worksheet.columns = [
     { key: "totalSl", width: 10 },        // A: TOTAL SL
     { key: "sn", width: 7 },             // B: SN
@@ -222,17 +225,18 @@ function renderDaySheet(
     { key: "vp", width: 6 },             // M: VP
     { key: "amtReceived", width: 18 },   // N: AMOUNT RECEIVED
     { key: "amtDue", width: 18 },        // O: AMOUNT DUE
-    { key: "status", width: 14 }         // P: STATUS
+    { key: "status", width: 14 },        // P: STATUS
+    { key: "transactionId", width: 22 }  // Q: TRANSACTION ID
   ];
 
-  // ROW 1: Main Title Banner (spanning A1 to P1)
+  // ROW 1: Main Title Banner (spanning A1 to Q1)
   const titleRow = worksheet.addRow([bannerTitle]);
   titleRow.height = 30;
-  worksheet.mergeCells("A1:P1");
+  worksheet.mergeCells("A1:Q1");
   const titleCell = worksheet.getCell("A1");
   titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF000000" } };
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  for (let col = 1; col <= 16; col++) {
+  for (let col = 1; col <= 17; col++) {
     worksheet.getRow(1).getCell(col).border = mediumBorder;
   }
 
@@ -250,7 +254,8 @@ function renderDaySheet(
     "NUMBER OF TICKETS", "", "", "", // cols 10, 11, 12, 13
     "AMOUNT RECEIVED",
     "AMOUNT DUE",
-    "STATUS"
+    "STATUS",
+    "TRANSACTION ID"
   ]);
   headerRow1.height = 24;
 
@@ -258,13 +263,13 @@ function renderDaySheet(
   const headerRow2 = worksheet.addRow([
     "", "", "", "", "", "", "", "", "",
     "V", "P", "VV", "VP",
-    "", "", ""
+    "", "", "", ""
   ]);
   headerRow2.height = 22;
 
   // Merges for Table Header:
   worksheet.mergeCells("J2:M2");
-  const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P"];
+  const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P", "Q"];
   spanningCols.forEach(col => {
     worksheet.mergeCells(`${col}2:${col}3`);
   });
@@ -272,7 +277,7 @@ function renderDaySheet(
   // Style Header Rows (Rows 2 & 3)
   for (let r = 2; r <= 3; r++) {
     const row = worksheet.getRow(r);
-    for (let c = 1; c <= 16; c++) {
+    for (let c = 1; c <= 17; c++) {
       const cell = row.getCell(c);
       cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
       cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
@@ -350,7 +355,7 @@ function renderDaySheet(
       const sectionRow = worksheet.addRow([`DATE: ${dateBanner}`]);
       sectionRow.height = 24;
       const sectionRowNum = sectionRow.number;
-      worksheet.mergeCells(`A${sectionRowNum}:P${sectionRowNum}`);
+      worksheet.mergeCells(`A${sectionRowNum}:Q${sectionRowNum}`);
       
       const sCell = worksheet.getCell(`A${sectionRowNum}`);
       sCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF0D1B2A" } };
@@ -360,7 +365,7 @@ function renderDaySheet(
         pattern: "solid",
         fgColor: { argb: "FFE9ECEF" }
       };
-      for (let c = 1; c <= 16; c++) {
+      for (let c = 1; c <= 17; c++) {
         const cCell = worksheet.getRow(sectionRowNum).getCell(c);
         cCell.border = thinBorder;
         cCell.fill = {
@@ -463,17 +468,18 @@ function renderDaySheet(
           vpCount > 0 ? vpCount : "",
           received > 0 ? `₹ ${received.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
-          order.fulfillment_status
+          order.fulfillment_status,
+          order.payment_ref || ""
         ]);
         dataRow.height = 20;
 
         // Apply solid borders and alignment
-        for (let c = 1; c <= 16; c++) {
+        for (let c = 1; c <= 17; c++) {
           const cell = dataRow.getCell(c);
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10 };
 
-          if (c === 3 || c === 4 || c === 6) {
+          if (c === 3 || c === 4 || c === 6 || c === 17) {
             cell.alignment = { horizontal: "left", vertical: "middle" };
           } else if (c === 14 || c === 15) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
@@ -516,11 +522,12 @@ function renderDaySheet(
         dayVP > 0 ? dayVP : "",
         dayAmountReceived > 0 ? `₹ ${dayAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
         dayAmountDue > 0 ? `₹ ${dayAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+        "",
         ""
       ]);
       dayTotalRow.height = 24;
 
-      for (let c = 1; c <= 16; c++) {
+      for (let c = 1; c <= 17; c++) {
         const cell = dayTotalRow.getCell(c);
         if (c >= 9 && c <= 15) {
           cell.border = thinBorder;
@@ -581,11 +588,12 @@ function renderDaySheet(
     grandTotalVP > 0 ? grandTotalVP : "",
     grandTotalAmountReceived > 0 ? `₹ ${grandTotalAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
     grandTotalAmountDue > 0 ? `₹ ${grandTotalAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
+    "",
     ""
   ]);
   totalRow.height = 24;
 
-  for (let c = 1; c <= 16; c++) {
+  for (let c = 1; c <= 17; c++) {
     const cell = totalRow.getCell(c);
     if (c >= 9 && c <= 15) {
       cell.border = thinBorder;
@@ -675,8 +683,14 @@ export async function generateBookingsExcelReport(
         payment_status: b.payment_status || "Unpaid",
         fulfillment_status: b.fulfillment_status || "Unfulfilled",
         total_amount: Number(b.total_amount || 0),
+        payment_ref: b.payment_ref || b.transaction_id || "",
         items: []
       });
+    } else {
+      const existing = ordersMap.get(orderNum)!;
+      if ((b.payment_ref || b.transaction_id) && !existing.payment_ref) {
+        existing.payment_ref = b.payment_ref || b.transaction_id;
+      }
     }
     ordersMap.get(orderNum)!.items.push(b);
   }

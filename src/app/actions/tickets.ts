@@ -28,6 +28,7 @@ import {
   getBookingsByOrderNumber,
   updateBookingStatus,
   updateOrderGroupStatus,
+  updateOrderGroupPaymentRef,
   updateBookingTags,
   updateOrderGroupTags,
   cancelBooking,
@@ -344,10 +345,10 @@ export async function fetchBookingsByOrderNumberAction(orderNum: number) {
   return getBookingsByOrderNumber(orderNum);
 }
 
-export async function updateBookingStatusAction(id: number, paymentStatus?: string, fulfillmentStatus?: string) {
+export async function updateBookingStatusAction(id: number, paymentStatus?: string, fulfillmentStatus?: string, paymentRef?: string) {
   const session = await checkSessionAction();
-  if (paymentStatus && !hasUserPermission(session, "bookings:payment")) {
-    return { success: false, error: "Access denied: You do not have permission to modify payment status." };
+  if ((paymentStatus || paymentRef !== undefined) && !hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to modify payment status or transaction reference." };
   }
   if (fulfillmentStatus && !hasUserPermission(session, "bookings:status")) {
     return { success: false, error: "Access denied: You do not have permission to modify order fulfillment status." };
@@ -356,7 +357,21 @@ export async function updateBookingStatusAction(id: number, paymentStatus?: stri
   // Update all tickets under this booking's order_number if present
   const booking = getBookingById(id) as any;
   const targetNum = (booking && booking.order_number) ? booking.order_number : id;
-  updateOrderGroupStatus(targetNum, paymentStatus, fulfillmentStatus);
+  updateOrderGroupStatus(targetNum, paymentStatus, fulfillmentStatus, paymentRef);
+  revalidatePath('/admin/bookings');
+  revalidatePath('/admin');
+  return { success: true };
+}
+
+export async function updateBookingPaymentRefAction(id: number, paymentRef: string) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to modify transaction reference." };
+  }
+
+  const booking = getBookingById(id) as any;
+  const targetNum = (booking && booking.order_number) ? booking.order_number : id;
+  updateOrderGroupPaymentRef(targetNum, paymentRef.trim());
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true };

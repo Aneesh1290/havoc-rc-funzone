@@ -490,7 +490,10 @@ export function collectAndFulfillBookings(bookingIds: number[], paymentRef: stri
   `).run(paymentRef, ...bookingIds, ...bookingIds);
 }
 
-export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string, fulfillmentStatus?: string) {
+export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string, fulfillmentStatus?: string, paymentRef?: string) {
+  if (paymentRef !== undefined) {
+    db.prepare('UPDATE bookings SET payment_ref = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(paymentRef, orderNum, orderNum);
+  }
   if (paymentStatus && fulfillmentStatus) {
     return db.prepare('UPDATE bookings SET payment_status = ?, fulfillment_status = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(paymentStatus, fulfillmentStatus, orderNum, orderNum);
   } else if (paymentStatus) {
@@ -498,6 +501,10 @@ export function updateOrderGroupStatus(orderNum: number, paymentStatus?: string,
   } else if (fulfillmentStatus) {
     return db.prepare('UPDATE bookings SET fulfillment_status = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(fulfillmentStatus, orderNum, orderNum);
   }
+}
+
+export function updateOrderGroupPaymentRef(orderNum: number, paymentRef: string) {
+  return db.prepare('UPDATE bookings SET payment_ref = ? WHERE order_number = ? OR (order_number IS NULL AND id = ?)').run(paymentRef, orderNum, orderNum);
 }
 
 export function updateOrderGroupTags(orderNum: number, tags: string) {

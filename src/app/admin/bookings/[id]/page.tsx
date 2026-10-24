@@ -6,6 +6,7 @@ import {
   fetchBookingByIdAction, 
   fetchBookingsByOrderNumberAction,
   updateBookingStatusAction, 
+  updateBookingPaymentRefAction,
   updateBookingTagsAction,
   cancelBookingAction
 } from "@/app/actions/tickets";
@@ -28,9 +29,12 @@ export default function OrderDetailPage() {
   const [paymentMenuOpen, setPaymentMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
 
-  // Tags editing
+  // Tags and Transaction ID editing
   const [isEditingTags, setIsEditingTags] = useState(false);
   const [tagsInput, setTagsInput] = useState("");
+  const [isEditingPaymentRef, setIsEditingPaymentRef] = useState(false);
+  const [paymentRefInput, setPaymentRefInput] = useState("");
+  const [isSavingRef, setIsSavingRef] = useState(false);
 
   const loadBooking = async () => {
     if (!id) return;
@@ -40,6 +44,7 @@ export default function OrderDetailPage() {
       if (data) {
         setBooking(data);
         if (data.tags) setTagsInput(data.tags);
+        if (data.payment_ref) setPaymentRefInput(data.payment_ref);
         const orderNum = data.order_number || data.id;
         const allItems: any[] = await fetchBookingsByOrderNumberAction(orderNum);
         setOrderItems(allItems && allItems.length > 0 ? allItems : [data]);
@@ -114,7 +119,22 @@ export default function OrderDetailPage() {
 
   const handleTogglePayment = async (status: string) => {
     setPaymentMenuOpen(false);
-    await updateBookingStatusAction(booking.id, status, undefined);
+    let refToSave: string | undefined = undefined;
+    if (status.toLowerCase() === "paid" && !booking.payment_ref) {
+      const enteredRef = prompt("Enter Transaction ID / Payment Reference (e.g. UPI Ref, POS Slip, Cash):", "");
+      if (enteredRef !== null && enteredRef.trim()) {
+        refToSave = enteredRef.trim();
+      }
+    }
+    await updateBookingStatusAction(booking.id, status, undefined, refToSave);
+    loadBooking();
+  };
+
+  const handleSavePaymentRef = async () => {
+    setIsSavingRef(true);
+    await updateBookingPaymentRefAction(booking.id, paymentRefInput);
+    setIsSavingRef(false);
+    setIsEditingPaymentRef(false);
     loadBooking();
   };
 
@@ -405,6 +425,65 @@ export default function OrderDetailPage() {
               <span className={amountDue > 0 ? "text-amber-600 font-bold" : "text-gray-900 font-medium"}>
                 ₹{amountDue.toFixed(2)}
               </span>
+            </div>
+
+            {/* Transaction ID / Payment Reference Section */}
+            <div className="pt-3 border-t border-gray-100 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                  Transaction ID / Payment Ref
+                </span>
+                {canCollectPayment && !isEditingPaymentRef && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentRefInput(booking.payment_ref || "");
+                      setIsEditingPaymentRef(true);
+                    }}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>{booking.payment_ref ? "Edit" : "+ Add Transaction ID"}</span>
+                  </button>
+                )}
+              </div>
+
+              {isEditingPaymentRef ? (
+                <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-150">
+                  <input
+                    type="text"
+                    value={paymentRefInput}
+                    onChange={(e) => setPaymentRefInput(e.target.value)}
+                    placeholder="e.g. UPI Ref / Cash / POS Slip"
+                    className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    disabled={isSavingRef}
+                    onClick={handleSavePaymentRef}
+                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs disabled:opacity-50"
+                  >
+                    {isSavingRef ? "Saving..." : "Save"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingPaymentRef(false);
+                      setPaymentRefInput(booking.payment_ref || "");
+                    }}
+                    className="px-2.5 py-1.5 text-gray-500 hover:text-gray-700 text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-gray-50/80 border border-gray-200/80 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-800 flex items-center justify-between">
+                  <span className="truncate">
+                    {booking.payment_ref ? booking.payment_ref : <span className="font-sans text-gray-400 font-normal italic">No transaction reference recorded</span>}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 

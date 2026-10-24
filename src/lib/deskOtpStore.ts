@@ -22,11 +22,19 @@ if (process.env.NODE_ENV !== "production") {
 }
 
 /**
- * Normalizes phone number to 10 digits
+ * Normalizes phone number digits
  */
 export function normalizePhone(phone: string): string {
-  const digits = (phone || "").replace(/\D/g, "");
-  return digits.slice(-10);
+  return (phone || "").replace(/\D/g, "");
+}
+
+/**
+ * Creates unique store key incorporating country code and phone digits
+ */
+export function getOtpStoreKey(phone: string, countryCode: string = "+91"): string {
+  const cleanPhone = normalizePhone(phone);
+  const cleanCode = (countryCode || "+91").replace(/\D/g, "");
+  return `${cleanCode}_${cleanPhone}`;
 }
 
 /**
@@ -39,27 +47,39 @@ export function generate4DigitOtp(): string {
 /**
  * Saves OTP to store with 10-minute TTL
  */
-export function saveDeskOtp(phone: string, otp: string, ttlMs: number = 10 * 60 * 1000): void {
+export function saveDeskOtp(
+  phone: string,
+  otp: string,
+  ttlMs: number = 10 * 60 * 1000,
+  countryCode: string = "+91"
+): void {
   const clean = normalizePhone(phone);
-  if (!clean || clean.length !== 10) return;
+  if (!clean || clean.length < 5 || clean.length > 15) return;
 
-  otpStore.set(clean, {
+  const entry: DeskOtpEntry = {
     otp: otp.trim(),
     expiresAt: Date.now() + ttlMs,
     phone: clean,
     createdAt: Date.now(),
-  });
+  };
+
+  const key = getOtpStoreKey(clean, countryCode);
+  otpStore.set(key, entry);
+  // Also store under clean phone directly as fallback
+  otpStore.set(clean, entry);
 }
 
 /**
- * Verifies OTP for phone
+ * Verifies OTP for phone & countryCode
  */
-export function verifyDeskOtp(phone: string, inputOtp: string): boolean {
+export function verifyDeskOtp(phone: string, inputOtp: string, countryCode: string = "+91"): boolean {
   const clean = normalizePhone(phone);
-  const entry = otpStore.get(clean);
+  const key = getOtpStoreKey(clean, countryCode);
+  const entry = otpStore.get(key) || otpStore.get(clean);
   if (!entry) return false;
 
   if (Date.now() > entry.expiresAt) {
+    otpStore.delete(key);
     otpStore.delete(clean);
     return false;
   }
@@ -70,8 +90,10 @@ export function verifyDeskOtp(phone: string, inputOtp: string): boolean {
 /**
  * Deletes OTP entry from store
  */
-export function deleteDeskOtp(phone: string): void {
+export function deleteDeskOtp(phone: string, countryCode: string = "+91"): void {
   const clean = normalizePhone(phone);
+  const key = getOtpStoreKey(clean, countryCode);
+  otpStore.delete(key);
   otpStore.delete(clean);
 }
 
@@ -169,10 +191,15 @@ export function isBookingForToday(dateStr?: string | null): boolean {
 }
 
 /**
- * Sends WhatsApp OTP using Interakt API or WhatsApp Cloud API.
+ * Sends WhatsApp OTP using Interakt API or WhatsApp Cloud API with international countryCode.
  */
-export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sent: boolean; message: string; error?: string }> {
+export async function sendWhatsAppOtp(
+  phone: string, 
+  otp: string, 
+  countryCode: string = "+91"
+): Promise<{ sent: boolean; message: string; error?: string }> {
   const cleanPhone = normalizePhone(phone);
+  const cleanCountryCode = countryCode.startsWith("+") ? countryCode.trim() : `+${countryCode.replace(/\D/g, "")}`;
   const interaktApiKey = process.env.INTERAKT_API_KEY;
   const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_API_KEY;
   const whatsappPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -194,7 +221,7 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
           "Authorization": authHeader,
         },
         body: JSON.stringify({
-          countryCode: "+91",
+          countryCode: cleanCountryCode,
           phoneNumber: cleanPhone,
           type: "Template",
           template: {
@@ -209,7 +236,7 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
       });
 
       if (response.ok) {
-        return { sent: true, message: `OTP sent successfully to +91 ${cleanPhone} via WhatsApp.` };
+        return { sent: true, message: `OTP sent successfully to ${cleanCountryCode} ${cleanPhone} via WhatsApp.` };
       } else {
         const errText = await response.text();
         console.error("[Desk OTP Interakt Error]", response.status, errText);
@@ -234,6 +261,7 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
   if (whatsappToken && whatsappPhoneId) {
     try {
       const templateName = process.env.WHATSAPP_OTP_TEMPLATE || "desk_checkin_otp";
+      const fullRecipient = `${cleanCountryCode.replace(/\D/g, "")}${cleanPhone}`;
       const response = await fetch(`https://graph.facebook.com/v18.0/${whatsappPhoneId}/messages`, {
         method: "POST",
         headers: {
@@ -242,7 +270,7 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
         },
         body: JSON.stringify({
           messaging_product: "whatsapp",
-          to: `91${cleanPhone}`,
+          to: fullRecipient,
           type: "template",
           template: {
             name: templateName,
@@ -258,7 +286,7 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
       });
 
       if (response.ok) {
-        return { sent: true, message: `OTP sent to +91 ${cleanPhone} via WhatsApp Cloud.` };
+        return { sent: true, message: `OTP sent to ${cleanCountryCode} ${cleanPhone} via WhatsApp Cloud.` };
       } else {
         const errText = await response.text();
         console.error("[Desk OTP WhatsApp Cloud Error]", response.status, errText);

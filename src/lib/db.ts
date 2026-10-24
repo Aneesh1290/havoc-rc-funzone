@@ -453,7 +453,8 @@ export function getBookingsByOrderNumber(orderNum: number) {
 }
 
 export function getBookingsByPhone(phoneQuery: string) {
-  const cleanPhone = phoneQuery.replace(/\D/g, '').slice(-10);
+  const digits = (phoneQuery || '').replace(/\D/g, '');
+  const cleanPhone = digits.length > 10 ? digits.slice(-10) : digits;
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 

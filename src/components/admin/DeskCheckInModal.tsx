@@ -45,6 +45,39 @@ interface SessionBooking {
   slot_color_name?: string | null;
 }
 
+export const COUNTRY_CODES = [
+  { code: "+91", flag: "🇮🇳", name: "India" },
+  { code: "+971", flag: "🇦🇪", name: "UAE" },
+  { code: "+1", flag: "🇺🇸", name: "USA/Canada" },
+  { code: "+44", flag: "🇬🇧", name: "UK" },
+  { code: "+65", flag: "🇸🇬", name: "Singapore" },
+  { code: "+61", flag: "🇦🇺", name: "Australia" },
+  { code: "+966", flag: "🇸🇦", name: "Saudi Arabia" },
+  { code: "+974", flag: "🇶🇦", name: "Qatar" },
+  { code: "+965", flag: "🇰🇼", name: "Kuwait" },
+  { code: "+968", flag: "🇴🇲", name: "Oman" },
+  { code: "+973", flag: "🇧🇭", name: "Bahrain" },
+  { code: "+60", flag: "🇲🇾", name: "Malaysia" },
+  { code: "+49", flag: "🇩🇪", name: "Germany" },
+  { code: "+33", flag: "🇫🇷", name: "France" },
+  { code: "+94", flag: "🇱🇰", name: "Sri Lanka" },
+  { code: "+977", flag: "🇳🇵", name: "Nepal" },
+  { code: "+880", flag: "🇧🇩", name: "Bangladesh" },
+  { code: "+64", flag: "🇳🇿", name: "New Zealand" },
+  { code: "+7", flag: "🇷🇺", name: "Russia" },
+  { code: "+81", flag: "🇯🇵", name: "Japan" },
+  { code: "+82", flag: "🇰🇷", name: "South Korea" },
+  { code: "+86", flag: "🇨🇳", name: "China" },
+  { code: "+62", flag: "🇮🇩", name: "Indonesia" },
+  { code: "+63", flag: "🇵🇭", name: "Philippines" },
+  { code: "+66", flag: "🇹🇭", name: "Thailand" },
+  { code: "+27", flag: "🇿🇦", name: "South Africa" },
+  { code: "+31", flag: "🇳🇱", name: "Netherlands" },
+  { code: "+41", flag: "🇨🇭", name: "Switzerland" },
+  { code: "+39", flag: "🇮🇹", name: "Italy" },
+  { code: "+34", flag: "🇪🇸", name: "Spain" },
+];
+
 export default function DeskCheckInModal({
   isOpen,
   onClose,
@@ -54,6 +87,7 @@ export default function DeskCheckInModal({
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
 
   // Step 1 State
+  const [countryCode, setCountryCode] = useState("+91");
   const [phoneNumber, setPhoneNumber] = useState("");
   const [isLookingUp, setIsLookingUp] = useState(false);
   const [lookupError, setLookupError] = useState<string | null>(null);
@@ -123,10 +157,10 @@ export default function DeskCheckInModal({
 
   if (!isOpen) return null;
 
-  // Clean phone string (10 digits only)
+  // Clean phone string (numbers only, up to 15 digits)
   const cleanPhoneInput = (val: string) => {
     const digits = val.replace(/\D/g, "");
-    if (digits.length <= 10) {
+    if (digits.length <= 15) {
       setPhoneNumber(digits);
       setLookupError(null);
       setSendOtpError(null);
@@ -136,8 +170,8 @@ export default function DeskCheckInModal({
   // Step 1: Handle Phone Lookup
   const handlePhoneLookup = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (phoneNumber.length !== 10) {
-      setLookupError("Please enter a valid 10-digit mobile number.");
+    if (phoneNumber.length < 7 || phoneNumber.length > 15) {
+      setLookupError("Please enter a valid mobile number (7 to 15 digits).");
       return;
     }
 
@@ -149,7 +183,7 @@ export default function DeskCheckInModal({
       const res = await fetch("/api/admin/verify/lookup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneNumber }),
+        body: JSON.stringify({ phone: phoneNumber, countryCode }),
       });
 
       const data = await res.json();
@@ -183,7 +217,7 @@ export default function DeskCheckInModal({
       const res = await fetch("/api/admin/verify/generate-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneNumber }),
+        body: JSON.stringify({ phone: phoneNumber, countryCode }),
       });
 
       const data = await res.json();
@@ -220,7 +254,7 @@ export default function DeskCheckInModal({
       const res = await fetch("/api/admin/verify/confirm-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneNumber, otp: cleanOtp }),
+        body: JSON.stringify({ phone: phoneNumber, countryCode, otp: cleanOtp }),
       });
 
       const data = await res.json();
@@ -427,11 +461,25 @@ export default function DeskCheckInModal({
                 <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-2">
                   Customer Mobile Number
                 </label>
-                <form onSubmit={handlePhoneLookup} className="flex gap-2 sm:gap-3">
-                  <div className="relative flex-1">
-                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-gray-500 pointer-events-none border-r border-gray-200 pr-2.5">
-                      <span className="text-base">🇮🇳</span>
-                      <span className="font-mono font-bold text-sm text-gray-800">+91</span>
+                <form onSubmit={handlePhoneLookup} className="flex flex-col sm:flex-row gap-2 sm:gap-3">
+                  <div className="flex-1 flex rounded-xl border border-gray-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/20 shadow-sm transition-all overflow-hidden">
+                    <div className="relative flex items-center bg-gray-50 border-r border-gray-200 px-2 sm:px-3 text-gray-700 hover:bg-gray-100 transition-colors">
+                      <select
+                        value={countryCode}
+                        onChange={(e) => {
+                          setCountryCode(e.target.value);
+                          setLookupError(null);
+                          setSendOtpError(null);
+                        }}
+                        className="bg-transparent text-gray-900 font-mono font-bold text-xs sm:text-sm cursor-pointer focus:outline-none pr-1 py-3"
+                        title="Select Country Code"
+                      >
+                        {COUNTRY_CODES.map((c) => (
+                          <option key={c.code} value={c.code} className="bg-white text-gray-900 font-sans font-medium">
+                            {c.flag} {c.code} ({c.name})
+                          </option>
+                        ))}
+                      </select>
                     </div>
                     <input
                       ref={phoneInputRef}
@@ -440,14 +488,14 @@ export default function DeskCheckInModal({
                       value={phoneNumber}
                       onChange={(e) => cleanPhoneInput(e.target.value)}
                       placeholder="98765 43210"
-                      maxLength={10}
-                      className="w-full bg-white text-gray-900 font-mono font-bold text-base sm:text-lg pl-24 pr-4 py-3 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
+                      maxLength={15}
+                      className="w-full bg-white text-gray-900 font-mono font-bold text-base sm:text-lg px-3.5 py-3 focus:outline-none placeholder:text-gray-400"
                     />
                   </div>
 
                   <button
                     type="submit"
-                    disabled={isLookingUp || phoneNumber.length !== 10}
+                    disabled={isLookingUp || phoneNumber.length < 7}
                     className="px-4 sm:px-6 py-3 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.98] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
                   >
                     {isLookingUp ? (
@@ -653,7 +701,7 @@ export default function DeskCheckInModal({
                   Enter the 4-digit verification code sent to customer:
                 </p>
                 <div className="text-lg font-mono font-black text-gray-900 mt-1">
-                  +91 {phoneNumber}
+                  {countryCode} {phoneNumber}
                 </div>
               </div>
 
@@ -751,7 +799,7 @@ export default function DeskCheckInModal({
                     Customer Verified ✅
                   </h3>
                   <p className="text-xs text-gray-600 mt-0.5 font-medium">
-                    {foundCustomerName} • +91 {phoneNumber}
+                    {foundCustomerName} • {countryCode} {phoneNumber}
                   </p>
                   <p className="text-xs text-emerald-700 mt-1 font-semibold">
                     ✓ Online-paid sessions automatically marked as ATTENDED.

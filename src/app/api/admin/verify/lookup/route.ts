@@ -6,6 +6,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const rawPhone = body?.phone;
+    const countryCode = (body?.countryCode || "+91").trim();
 
     if (!rawPhone || typeof rawPhone !== "string") {
       return NextResponse.json(
@@ -15,9 +16,9 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanPhone = normalizePhone(rawPhone);
-    if (cleanPhone.length !== 10) {
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
       return NextResponse.json(
-        { found: false, error: "Please enter a valid 10-digit mobile number." },
+        { found: false, error: "Please enter a valid mobile number (7 to 15 digits)." },
         { status: 400 }
       );
     }
@@ -28,7 +29,7 @@ export async function POST(req: NextRequest) {
     if (!matchingBookings || matchingBookings.length === 0) {
       return NextResponse.json({
         found: false,
-        error: `No customer bookings found for phone +91 ${cleanPhone}.`,
+        error: `No customer bookings found for phone ${countryCode} ${cleanPhone}.`,
       });
     }
 

@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const rawPhone = body?.phone;
+    const countryCode = (body?.countryCode || "+91").trim();
 
     if (!rawPhone || typeof rawPhone !== "string") {
       return NextResponse.json(
@@ -19,9 +20,9 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanPhone = normalizePhone(rawPhone);
-    if (cleanPhone.length !== 10) {
+    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
       return NextResponse.json(
-        { success: false, error: "Phone number must be exactly 10 digits." },
+        { success: false, error: "Phone number must be between 7 and 15 digits." },
         { status: 400 }
       );
     }
@@ -29,11 +30,11 @@ export async function POST(req: NextRequest) {
     // Generate 4-digit code
     const otp = generate4DigitOtp();
 
-    // Save in 10-minute expiry store
-    saveDeskOtp(cleanPhone, otp, 10 * 60 * 1000);
+    // Save in 10-minute expiry store with countryCode
+    saveDeskOtp(cleanPhone, otp, 10 * 60 * 1000, countryCode);
 
-    // Send WhatsApp notification
-    const result = await sendWhatsAppOtp(cleanPhone, otp);
+    // Send WhatsApp notification with countryCode
+    const result = await sendWhatsAppOtp(cleanPhone, otp, countryCode);
 
     if (!result.sent) {
       const statusCode = result.error === "MISSING_WHATSAPP_API_KEY" ? 400 : 502;

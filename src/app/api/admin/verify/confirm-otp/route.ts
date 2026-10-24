@@ -12,6 +12,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const rawPhone = body?.phone;
     const rawOtp = body?.otp;
+    const countryCode = (body?.countryCode || "+91").trim();
 
     if (!rawPhone || !rawOtp) {
       return NextResponse.json(
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Verify against in-memory store
-    const isValid = verifyDeskOtp(cleanPhone, cleanOtp);
+    const isValid = verifyDeskOtp(cleanPhone, cleanOtp, countryCode);
     if (!isValid) {
       return NextResponse.json(
         {
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Clear OTP once verified
-    deleteDeskOtp(cleanPhone);
+    deleteDeskOtp(cleanPhone, countryCode);
 
     // Retrieve today's sessions for this customer
     const allBookings = getBookingsByPhone(cleanPhone);

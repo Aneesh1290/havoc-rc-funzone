@@ -36,9 +36,14 @@ export async function POST(req: NextRequest) {
     const result = await sendWhatsAppOtp(cleanPhone, otp);
 
     if (!result.sent) {
+      const statusCode = result.error === "MISSING_WHATSAPP_API_KEY" ? 400 : 502;
       return NextResponse.json(
-        { success: false, error: result.message || "Failed to send WhatsApp OTP. Please check API keys." },
-        { status: 500 }
+        { 
+          success: false, 
+          error: result.message || "Failed to send WhatsApp OTP. Please check API keys.",
+          details: result.error,
+        },
+        { status: statusCode }
       );
     }
 

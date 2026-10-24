@@ -180,18 +180,25 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
   // Interakt API Integration
   if (interaktApiKey) {
     try {
+      let authHeader = interaktApiKey.trim();
+      if (!authHeader.toLowerCase().startsWith("basic ")) {
+        authHeader = `Basic ${authHeader}`;
+      }
+
+      const templateName = process.env.INTERAKT_OTP_TEMPLATE || "desk_checkin_otp";
+
       const response = await fetch("https://api.interakt.ai/v1/public/message/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Basic ${interaktApiKey}`,
+          "Authorization": authHeader,
         },
         body: JSON.stringify({
           countryCode: "+91",
           phoneNumber: cleanPhone,
           type: "Template",
           template: {
-            name: process.env.INTERAKT_OTP_TEMPLATE || "desk_checkin_otp",
+            name: templateName,
             languageCode: "en",
             bodyValues: [otp],
           },
@@ -202,30 +209,40 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
         return { sent: true, message: `OTP sent successfully to +91 ${cleanPhone} via WhatsApp.` };
       } else {
         const errText = await response.text();
-        console.error("[Desk OTP Interakt Error]", errText);
-        return { sent: false, message: "Failed to deliver WhatsApp message via Interakt.", error: errText };
+        console.error("[Desk OTP Interakt Error]", response.status, errText);
+        let detail = errText;
+        try {
+          const parsed = JSON.parse(errText);
+          detail = parsed.message || parsed.error || JSON.stringify(parsed);
+        } catch (_) {}
+        return { 
+          sent: false, 
+          message: `Interakt (${response.status}): ${detail}`, 
+          error: errText 
+        };
       }
     } catch (err: any) {
       console.error("[Desk OTP Interakt Exception]", err);
-      return { sent: false, message: "Network error connecting to Interakt API.", error: err.message };
+      return { sent: false, message: `Network error connecting to Interakt: ${err.message}`, error: err.message };
     }
   }
 
   // WhatsApp Cloud API Integration
   if (whatsappToken && whatsappPhoneId) {
     try {
+      const templateName = process.env.WHATSAPP_OTP_TEMPLATE || "desk_checkin_otp";
       const response = await fetch(`https://graph.facebook.com/v18.0/${whatsappPhoneId}/messages`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${whatsappToken}`,
+          "Authorization": `Bearer ${whatsappToken.trim()}`,
         },
         body: JSON.stringify({
           messaging_product: "whatsapp",
           to: `91${cleanPhone}`,
           type: "template",
           template: {
-            name: process.env.WHATSAPP_OTP_TEMPLATE || "desk_checkin_otp",
+            name: templateName,
             language: { code: "en" },
             components: [
               {
@@ -241,18 +258,27 @@ export async function sendWhatsAppOtp(phone: string, otp: string): Promise<{ sen
         return { sent: true, message: `OTP sent to +91 ${cleanPhone} via WhatsApp Cloud.` };
       } else {
         const errText = await response.text();
-        console.error("[Desk OTP WhatsApp Cloud Error]", errText);
-        return { sent: false, message: "WhatsApp Cloud API failed to send message.", error: errText };
+        console.error("[Desk OTP WhatsApp Cloud Error]", response.status, errText);
+        let detail = errText;
+        try {
+          const parsed = JSON.parse(errText);
+          detail = parsed.error?.message || errText;
+        } catch (_) {}
+        return { 
+          sent: false, 
+          message: `WhatsApp Cloud (${response.status}): ${detail}`, 
+          error: errText 
+        };
       }
     } catch (err: any) {
       console.error("[Desk OTP WhatsApp Exception]", err);
-      return { sent: false, message: "Network error connecting to WhatsApp Cloud API.", error: err.message };
+      return { sent: false, message: `Network error connecting to WhatsApp Cloud API: ${err.message}`, error: err.message };
     }
   }
 
   return {
     sent: false,
-    message: "WhatsApp API is not configured. Please add INTERAKT_API_KEY in Render environment settings.",
+    message: "INTERAKT_API_KEY is not configured in Render. Please add INTERAKT_API_KEY in Render environment settings and redeploy.",
     error: "MISSING_WHATSAPP_API_KEY",
   };
 }

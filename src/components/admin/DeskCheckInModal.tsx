@@ -66,6 +66,7 @@ export default function DeskCheckInModal({
   const [otpCode, setOtpCode] = useState("");
   const [isSendingOtp, setIsSendingOtp] = useState(false);
   const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const [sendOtpError, setSendOtpError] = useState<string | null>(null);
   const [otpError, setOtpError] = useState<string | null>(null);
   const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
 
@@ -92,6 +93,7 @@ export default function DeskCheckInModal({
       setUnpaidCount(0);
       setTotalDue(0);
       setOtpCode("");
+      setSendOtpError(null);
       setOtpError(null);
       setOtpSuccessMessage(null);
       setDeskTransactionRef("");
@@ -127,6 +129,7 @@ export default function DeskCheckInModal({
     if (digits.length <= 10) {
       setPhoneNumber(digits);
       setLookupError(null);
+      setSendOtpError(null);
     }
   };
 
@@ -140,6 +143,7 @@ export default function DeskCheckInModal({
 
     setIsLookingUp(true);
     setLookupError(null);
+    setSendOtpError(null);
 
     try {
       const res = await fetch("/api/admin/verify/lookup", {
@@ -173,6 +177,7 @@ export default function DeskCheckInModal({
   const handleSendOtp = async () => {
     setIsSendingOtp(true);
     setOtpError(null);
+    setSendOtpError(null);
 
     try {
       const res = await fetch("/api/admin/verify/generate-otp", {
@@ -184,7 +189,7 @@ export default function DeskCheckInModal({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setOtpError(data.error || "Failed to dispatch verification code.");
+        setSendOtpError(data.error || "Failed to dispatch verification code.");
         return;
       }
 
@@ -192,7 +197,7 @@ export default function DeskCheckInModal({
       setCurrentStep(2);
     } catch (err: any) {
       console.error("Send OTP error:", err);
-      setOtpError("Network error sending OTP. Please try again.");
+      setSendOtpError("Network error sending OTP. Please try again.");
     } finally {
       setIsSendingOtp(false);
     }
@@ -599,7 +604,17 @@ export default function DeskCheckInModal({
                   </div>
 
                   {/* Send WhatsApp OTP Action Button */}
-                  <div className="pt-2">
+                  <div className="pt-2 space-y-3">
+                    {sendOtpError && (
+                      <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in">
+                        <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <strong className="block font-bold text-red-900">WhatsApp Delivery Failed:</strong>
+                          <span className="text-red-700 break-words">{sendOtpError}</span>
+                        </div>
+                      </div>
+                    )}
+
                     <button
                       type="button"
                       disabled={isSendingOtp}

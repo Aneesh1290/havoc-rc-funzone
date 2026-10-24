@@ -65,8 +65,6 @@ export function saveDeskOtp(
 
   const key = getOtpStoreKey(clean, countryCode);
   otpStore.set(key, entry);
-  // Also store under clean phone directly as fallback
-  otpStore.set(clean, entry);
 }
 
 /**
@@ -75,12 +73,11 @@ export function saveDeskOtp(
 export function verifyDeskOtp(phone: string, inputOtp: string, countryCode: string = "+91"): boolean {
   const clean = normalizePhone(phone);
   const key = getOtpStoreKey(clean, countryCode);
-  const entry = otpStore.get(key) || otpStore.get(clean);
+  const entry = otpStore.get(key);
   if (!entry) return false;
 
   if (Date.now() > entry.expiresAt) {
     otpStore.delete(key);
-    otpStore.delete(clean);
     return false;
   }
 
@@ -94,18 +91,18 @@ export function deleteDeskOtp(phone: string, countryCode: string = "+91"): void 
   const clean = normalizePhone(phone);
   const key = getOtpStoreKey(clean, countryCode);
   otpStore.delete(key);
-  otpStore.delete(clean);
 }
 
 /**
  * Checks if phone currently has an active OTP
  */
-export function getActiveDeskOtp(phone: string): DeskOtpEntry | undefined {
+export function getActiveDeskOtp(phone: string, countryCode: string = "+91"): DeskOtpEntry | undefined {
   const clean = normalizePhone(phone);
-  const entry = otpStore.get(clean);
+  const key = getOtpStoreKey(clean, countryCode);
+  const entry = otpStore.get(key);
   if (!entry) return undefined;
   if (Date.now() > entry.expiresAt) {
-    otpStore.delete(clean);
+    otpStore.delete(key);
     return undefined;
   }
   return entry;

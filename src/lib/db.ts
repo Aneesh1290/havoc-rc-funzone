@@ -452,10 +452,12 @@ export function getBookingsByOrderNumber(orderNum: number) {
   `).all(orderNum, orderNum);
 }
 
-export function getBookingsByPhone(phoneQuery: string) {
+export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
   const digits = (phoneQuery || '').replace(/\D/g, '');
-  const cleanPhone = digits.length > 10 ? digits.slice(-10) : digits;
-  return db.prepare(`
+  if (!digits) return [];
+
+  const corePhone = digits.length > 10 ? digits.slice(-10) : digits;
+  const candidates = db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref,
@@ -466,7 +468,42 @@ export function getBookingsByPhone(phoneQuery: string) {
     LEFT JOIN time_slots s ON b.time_slot = s.label
     WHERE REPLACE(REPLACE(REPLACE(REPLACE(b.customer_phone, ' ', ''), '-', ''), '+', ''), '(', '') LIKE '%' || ? || '%'
     ORDER BY b.id ASC
-  `).all(cleanPhone) as any[];
+  `).all(corePhone) as any[];
+
+  if (!countryCode) {
+    return candidates;
+  }
+
+  const cleanCode = countryCode.replace(/\D/g, '');
+  const cleanInputPhone = digits.replace(/^0+/, '');
+  const fullExpected = cleanCode + cleanInputPhone;
+
+  return candidates.filter((b) => {
+    const rawDbPhone = (b.customer_phone || '').trim();
+    const dbDigits = rawDbPhone.replace(/\D/g, '').replace(/^0+/, '');
+    if (!dbDigits) return false;
+
+    // 1. Exact match with international full number (e.g. "919876543210" === "919876543210")
+    if (dbDigits === fullExpected) return true;
+
+    // 2. If stored phone has explicit '+' prefix: it has an explicit country code and must match fullExpected
+    if (rawDbPhone.startsWith('+')) {
+      return dbDigits === fullExpected;
+    }
+
+    // 3. If stored phone starts with cleanCode and length matches fullExpected
+    if (cleanCode && dbDigits.startsWith(cleanCode) && dbDigits.length === fullExpected.length) {
+      return dbDigits === fullExpected;
+    }
+
+    // 4. If stored phone has NO country code prefix at all (just local 10 digits e.g. 9876543210):
+    // Only match if the selected country code is India ("91", the local domestic default)
+    if (cleanCode === '91' && (dbDigits === cleanInputPhone || dbDigits === corePhone)) {
+      return true;
+    }
+
+    return false;
+  });
 }
 
 export function attendPaidBookings(bookingIds: number[]) {

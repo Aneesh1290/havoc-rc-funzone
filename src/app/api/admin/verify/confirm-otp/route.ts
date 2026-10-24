@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
     deleteDeskOtp(cleanPhone, countryCode);
 
     // Retrieve today's sessions for this customer
-    const allBookings = getBookingsByPhone(cleanPhone);
+    const allBookings = getBookingsByPhone(cleanPhone, countryCode);
     const todayBookings = allBookings.filter((b) => {
       const isCanceled =
         (b.fulfillment_status || "").toLowerCase() === "canceled" ||
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Re-fetch fresh statuses
-    const freshBookings = getBookingsByPhone(cleanPhone).filter((b) => {
+    const freshBookings = getBookingsByPhone(cleanPhone, countryCode).filter((b) => {
       const isCanceled =
         (b.fulfillment_status || "").toLowerCase() === "canceled" ||
         (b.payment_status || "").toLowerCase() === "refunded";

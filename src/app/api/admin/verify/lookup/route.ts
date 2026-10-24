@@ -23,8 +23,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Query bookings matching phone
-    const matchingBookings = getBookingsByPhone(cleanPhone);
+    // Query bookings matching phone and country code
+    const matchingBookings = getBookingsByPhone(cleanPhone, countryCode);
 
     if (!matchingBookings || matchingBookings.length === 0) {
       return NextResponse.json({

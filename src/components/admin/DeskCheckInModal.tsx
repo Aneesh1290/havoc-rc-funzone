@@ -163,6 +163,10 @@ export default function DeskCheckInModal({
     const digits = val.replace(/\D/g, "");
     if (digits.length <= 15) {
       setPhoneNumber(digits);
+      setFoundSessions([]);
+      setFoundCustomerName("");
+      setUnpaidCount(0);
+      setTotalDue(0);
       setLookupError(null);
       setSendOtpError(null);
     }
@@ -480,6 +484,10 @@ export default function DeskCheckInModal({
                         value={countryCode}
                         onChange={(e) => {
                           setCountryCode(e.target.value);
+                          setFoundSessions([]);
+                          setFoundCustomerName("");
+                          setUnpaidCount(0);
+                          setTotalDue(0);
                           setLookupError(null);
                           setSendOtpError(null);
                         }}
@@ -556,7 +564,7 @@ export default function DeskCheckInModal({
                         {foundCustomerName}
                       </h3>
                       <p className="text-xs text-gray-500 font-mono mt-0.5">
-                        +91 {phoneNumber} • {foundSessions.length} Session(s) Scheduled Today
+                        {countryCode} {phoneNumber} • {foundSessions.length} Session(s) Scheduled Today
                       </p>
                     </div>
 

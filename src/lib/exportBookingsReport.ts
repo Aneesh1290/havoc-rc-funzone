@@ -208,25 +208,44 @@ function renderDaySheet(
     right: { style: "thin", color: { argb: "FF000000" } }
   };
 
+  // Configure Print Page Setup: Landscape mode & Fit to page so all columns print without cutting off
+  worksheet.pageSetup = {
+    paperSize: 9, // A4
+    orientation: "landscape",
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: ordersForDay.length <= 35 ? 1 : 0,
+    margins: {
+      left: 0.3,
+      right: 0.3,
+      top: 0.4,
+      bottom: 0.4,
+      header: 0.2,
+      footer: 0.2
+    },
+    horizontalCentered: true,
+    showGridLines: true
+  };
+
   // Configure Column Widths (A to Q -> 17 columns)
   worksheet.columns = [
-    { key: "totalSl", width: 10 },        // A: TOTAL SL
-    { key: "sn", width: 7 },             // B: SN
-    { key: "orderNo", width: 18 },       // C: ORDER NO
-    { key: "name", width: 24 },          // D: NAME
-    { key: "phone", width: 16 },         // E: PHONE NO
-    { key: "email", width: 30 },         // F: E-MAIL ID
+    { key: "totalSl", width: 9 },        // A: TOTAL SL
+    { key: "sn", width: 6 },             // B: SN
+    { key: "orderNo", width: 17 },       // C: ORDER NO
+    { key: "name", width: 22 },          // D: NAME
+    { key: "phone", width: 15 },         // E: PHONE NO
+    { key: "email", width: 26 },         // F: E-MAIL ID
     { key: "date", width: 12 },          // G: DATE
-    { key: "timeSlot", width: 15 },      // H: TIME SLOT
-    { key: "slotColour", width: 24 },    // I: SLOT NO / COLOUR
-    { key: "v", width: 6 },              // J: V
-    { key: "p", width: 6 },              // K: P
-    { key: "vv", width: 6 },             // L: VV
-    { key: "vp", width: 6 },             // M: VP
-    { key: "amtReceived", width: 18 },   // N: AMOUNT RECEIVED
-    { key: "amtDue", width: 18 },        // O: AMOUNT DUE
-    { key: "status", width: 14 },        // P: STATUS
-    { key: "transactionId", width: 22 }  // Q: TRANSACTION ID
+    { key: "timeSlot", width: 14 },      // H: TIME SLOT
+    { key: "slotColour", width: 18 },    // I: SLOT NO / COLOUR
+    { key: "v", width: 5.5 },            // J: V
+    { key: "p", width: 5.5 },            // K: P
+    { key: "vv", width: 5.5 },           // L: VV
+    { key: "vp", width: 5.5 },           // M: VP
+    { key: "amtReceived", width: 16 },   // N: AMOUNT RECEIVED
+    { key: "amtDue", width: 15 },        // O: AMOUNT DUE
+    { key: "status", width: 13 },        // P: STATUS
+    { key: "transactionId", width: 18 }  // Q: TRANSACTION ID
   ];
 
   // Helper to render the 2-row table header with merged cells and styling
@@ -791,7 +810,16 @@ export async function generateBookingsExcelReport(
   workbook.created = new Date();
 
   // 1. "All Bookings" master sheet contains ALL bookings (complete archive)
-  const allSheet = workbook.addWorksheet("All Bookings", { views: [{ showGridLines: true }] });
+  const allSheet = workbook.addWorksheet("All Bookings", { 
+    views: [{ showGridLines: true }],
+    pageSetup: {
+      paperSize: 9,
+      orientation: "landscape",
+      fitToPage: true,
+      fitToWidth: 1,
+      fitToHeight: 0
+    }
+  });
   renderDaySheet(allSheet, "ALL BOOKINGS REPORT", allOrders, slotMetaMap);
 
   // 2. Day tabs only show present date (today) and future dates (past dates omitted)
@@ -808,8 +836,17 @@ export async function generateBookingsExcelReport(
     }
     usedTabNames.add(cleanTab);
 
-    const daySheet = workbook.addWorksheet(cleanTab, { views: [{ showGridLines: true }] });
     const ordersForThisDay = dateGroups.get(dateKey) || [];
+    const daySheet = workbook.addWorksheet(cleanTab, { 
+      views: [{ showGridLines: true }],
+      pageSetup: {
+        paperSize: 9,
+        orientation: "landscape",
+        fitToPage: true,
+        fitToWidth: 1,
+        fitToHeight: ordersForThisDay.length <= 35 ? 1 : 0
+      }
+    });
     renderDaySheet(daySheet, bannerTitle, ordersForThisDay, slotMetaMap);
   }
 

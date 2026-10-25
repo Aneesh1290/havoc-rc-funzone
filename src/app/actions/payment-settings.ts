@@ -174,3 +174,51 @@ export async function updateAdminPaymentSettingsAction(data: AdminPaymentSetting
     return { success: false, error: err.message || "Failed to update settings" };
   }
 }
+
+export interface GoogleReviewSettings {
+  enabled: boolean;
+  reviewUrl: string;
+  templateName: string;
+  interaktApiKey: string;
+}
+
+export async function getGoogleReviewSettingsAction(): Promise<GoogleReviewSettings> {
+  return {
+    enabled: getSiteSetting("google_review_enabled", "true") !== "false",
+    reviewUrl: getSiteSetting(
+      "google_review_url", 
+      process.env.GOOGLE_REVIEW_URL || "https://maps.app.goo.gl/havoc-rc-funzone"
+    ),
+    templateName: getSiteSetting(
+      "interakt_review_template", 
+      process.env.INTERAKT_REVIEW_TEMPLATE || "havoc_google_review"
+    ),
+    interaktApiKey: getSiteSetting(
+      "interakt_api_key", 
+      process.env.INTERAKT_API_KEY || ""
+    ),
+  };
+}
+
+export async function updateGoogleReviewSettingsAction(settings: GoogleReviewSettings) {
+  try {
+    const session = await checkSessionAction();
+    if (!session || session.role !== "Administrator") {
+      return { success: false, error: "Unauthorized: Only administrators can update settings." };
+    }
+
+    setSiteSetting("google_review_enabled", settings.enabled ? "true" : "false", "Send Google Review WhatsApp message on OTP verification");
+    setSiteSetting("google_review_url", (settings.reviewUrl || "").trim(), "Google Review Page URL");
+    setSiteSetting("interakt_review_template", (settings.templateName || "").trim(), "Interakt Template Name for Google Review");
+    if (settings.interaktApiKey !== undefined) {
+      setSiteSetting("interakt_api_key", (settings.interaktApiKey || "").trim(), "Interakt API Key for WhatsApp messaging");
+    }
+
+    revalidatePath("/admin/settings");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Failed to update Google review settings:", err);
+    return { success: false, error: err.message || "Failed to save review settings" };
+  }
+}
+

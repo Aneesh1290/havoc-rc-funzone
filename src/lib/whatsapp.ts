@@ -1,4 +1,5 @@
 import { COUNTRY_CODES } from "./countries";
+import { getSiteSetting } from "./db";
 
 export interface WhatsAppOrderItem {
   ticketName: string;
@@ -188,6 +189,112 @@ export async function sendBookingConfirmationWhatsApp(
     return {
       success: false,
       message: `Failed to dispatch WhatsApp confirmation: ${err.message}`,
+      error: err.message,
+    };
+  }
+}
+
+export interface GoogleReviewWhatsAppParams {
+  customerName?: string;
+  customerPhone: string;
+  countryCode?: string;
+  reviewUrl?: string;
+}
+
+/**
+ * Sends an automated Google Review request via Interakt API after customer check-in OTP verification.
+ * Passes {{1}} Customer Name and {{2}} Google Review URL to the approved Interakt template.
+ */
+export async function sendGoogleReviewWhatsApp(
+  params: GoogleReviewWhatsAppParams
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const isEnabled = getSiteSetting("google_review_enabled", "true") !== "false";
+    if (!isEnabled) {
+      console.log("[WhatsApp Google Review] Feature disabled in site settings. Skipping.");
+      return { success: false, message: "Google review WhatsApp notification is disabled" };
+    }
+
+    const interaktApiKey = getSiteSetting("interakt_api_key", process.env.INTERAKT_API_KEY || "");
+    if (!interaktApiKey) {
+      console.warn("[WhatsApp Google Review] INTERAKT_API_KEY not configured. Skipping.");
+      return { success: false, message: "INTERAKT_API_KEY is not configured" };
+    }
+
+    if (!params.customerPhone) {
+      return { success: false, message: "Missing customer phone number" };
+    }
+
+    const { countryCode: parsedCountry, phoneNumber } = parsePhoneAndCountryCode(params.customerPhone);
+    const countryCode = params.countryCode || parsedCountry;
+
+    if (!phoneNumber || phoneNumber.length < 7) {
+      return { success: false, message: `Invalid phone number: ${params.customerPhone}` };
+    }
+
+    let authHeader = interaktApiKey.trim();
+    if (!authHeader.toLowerCase().startsWith("basic ")) {
+      authHeader = `Basic ${authHeader}`;
+    }
+
+    const templateName = getSiteSetting(
+      "interakt_review_template",
+      process.env.INTERAKT_REVIEW_TEMPLATE || "havoc_google_review"
+    );
+
+    const reviewUrl = (
+      params.reviewUrl ||
+      getSiteSetting(
+        "google_review_url", 
+        process.env.GOOGLE_REVIEW_URL || "https://maps.app.goo.gl/havoc-rc-funzone"
+      )
+    ).trim();
+
+    const customerName = (params.customerName || "Racer").trim();
+
+    const payload = {
+      countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+      phoneNumber: phoneNumber,
+      type: "Template",
+      template: {
+        name: templateName,
+        languageCode: "en",
+        bodyValues: [
+          customerName,
+          reviewUrl,
+        ],
+      },
+    };
+
+    const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      console.log(`[WhatsApp Google Review] Review request sent successfully to ${countryCode} ${phoneNumber}`);
+      return {
+        success: true,
+        message: `Google review message sent to ${countryCode} ${phoneNumber}`,
+      };
+    } else {
+      const errText = await response.text();
+      console.error("[WhatsApp Google Review Error]", response.status, errText);
+      return {
+        success: false,
+        message: `Interakt responded with status ${response.status}`,
+        error: errText,
+      };
+    }
+  } catch (err: any) {
+    console.error("[WhatsApp Google Review Exception]", err);
+    return {
+      success: false,
+      message: `Failed to dispatch WhatsApp review request: ${err.message}`,
       error: err.message,
     };
   }

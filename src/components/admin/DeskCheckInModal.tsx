@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronDown,
   Info,
+  Star,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -112,6 +113,39 @@ export default function DeskCheckInModal({
   const [isCollectingPayment, setIsCollectingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+  // Review resend state
+  const [isResendingReview, setIsResendingReview] = useState(false);
+  const [reviewResendMsg, setReviewResendMsg] = useState<string | null>(null);
+
+  const handleResendReviewWhatsApp = async () => {
+    setIsResendingReview(true);
+    setReviewResendMsg(null);
+    try {
+      const res = await fetch("/api/admin/verify/send-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: phoneNumber.trim(),
+          customerName: foundCustomerName,
+          countryCode: countryCode,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setReviewResendMsg("Review message sent to customer via WhatsApp!");
+        setTimeout(() => setReviewResendMsg(null), 4000);
+      } else {
+        setReviewResendMsg(data.error || "Failed to send review message.");
+        setTimeout(() => setReviewResendMsg(null), 4000);
+      }
+    } catch (e: any) {
+      setReviewResendMsg("Failed to connect to review delivery API.");
+      setTimeout(() => setReviewResendMsg(null), 4000);
+    } finally {
+      setIsResendingReview(false);
+    }
+  };
 
   // Refs for auto-focus
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -824,6 +858,29 @@ export default function DeskCheckInModal({
                   <p className="text-xs text-emerald-700 mt-1 font-semibold">
                     ✓ Online-paid sessions automatically marked as ATTENDED.
                   </p>
+                </div>
+              </div>
+
+              {/* Google Review WhatsApp Message Notice */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5 text-amber-950 font-medium">
+                  <Star className="w-4 h-4 text-amber-500 fill-amber-500 shrink-0" />
+                  <span>Google Review request sent to customer via WhatsApp!</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {reviewResendMsg && (
+                    <span className="text-[11px] font-semibold text-emerald-700 animate-in fade-in">
+                      {reviewResendMsg}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleResendReviewWhatsApp}
+                    disabled={isResendingReview}
+                    className="px-3 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold text-xs transition-colors disabled:opacity-50"
+                  >
+                    {isResendingReview ? "Sending..." : "Resend Review Link"}
+                  </button>
                 </div>
               </div>
 

@@ -6,6 +6,7 @@ import {
   isBookingForToday,
 } from "@/lib/deskOtpStore";
 import { getBookingsByPhone, attendPaidBookings } from "@/lib/db";
+import { sendGoogleReviewWhatsApp } from "@/lib/whatsapp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -112,11 +113,21 @@ export async function POST(req: NextRequest) {
     const customerName =
       formattedSessions.find((b) => b.ticket_name)?.ticket_name ? (todayBookings[0]?.customer_name || "Guest Customer") : "Guest Customer";
 
+    // Dispatch Google Review WhatsApp message to customer via Interakt
+    sendGoogleReviewWhatsApp({
+      customerName,
+      customerPhone: cleanPhone,
+      countryCode,
+    }).catch((reviewErr) => {
+      console.error("[Post-OTP Google Review WhatsApp Error]", reviewErr);
+    });
+
     return NextResponse.json({
       success: true,
       message: "Customer OTP verified successfully.",
       customer_name: customerName,
       customer_phone: cleanPhone,
+      review_message_triggered: true,
       auto_fulfilled_count: paidBookingIds.length,
       bookings: formattedSessions,
       has_unpaid: unpaidSessions.length > 0,

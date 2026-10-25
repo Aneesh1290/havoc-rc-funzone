@@ -323,6 +323,79 @@ export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: n
   }
 }
 
+/**
+ * Permanently delete temporary slot locks created for an online checkout hold (when hold expires or payment fails/cancelled)
+ */
+export async function deleteSimulatorSlotLocks(sourceOrderId: string): Promise<boolean> {
+  try {
+    await simulatorPool.query(
+      `DELETE FROM simulator_slot_locks 
+       WHERE (source_order_id = $1 OR source_order_id LIKE $1 || '_%')
+         AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+      [sourceOrderId]
+    );
+
+    await simulatorPool.query(
+      `DELETE FROM bookings 
+       WHERE (order_id = $1 OR order_id LIKE $1 || '_%')`,
+      [sourceOrderId]
+    );
+
+    return true;
+  } catch (err) {
+    console.error('Error deleting simulator slot locks for order:', sourceOrderId, err);
+    return false;
+  }
+}
+
+/**
+ * Confirm simulator slot locks when online payment succeeds:
+ * updates source_order_id from tempTxnId (e.g. TXN_RC_123456) to official order ID (e.g. PAID_RC_58)
+ * and sets status = 'CONFIRMED' / 'PAID'.
+ */
+export async function confirmSimulatorSlotLocks(
+  tempTxnId: string, 
+  finalOrderId: string, 
+  customerName?: string, 
+  customerPhone?: string
+): Promise<boolean> {
+  try {
+    // 1. Update simulator_slot_locks: update base or prefix
+    await simulatorPool.query(
+      `UPDATE simulator_slot_locks 
+       SET source_order_id = CASE 
+             WHEN source_order_id = $1 THEN $2 
+             ELSE $2 || SUBSTRING(source_order_id FROM LENGTH($1) + 1)
+           END,
+           status = 'CONFIRMED',
+           customer_name = COALESCE($3, customer_name),
+           customer_phone = COALESCE($4, customer_phone)
+       WHERE (source_order_id = $1 OR source_order_id LIKE $1 || '_%')
+         AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+      [tempTxnId, finalOrderId, customerName || null, customerPhone || null]
+    );
+
+    // 2. Update bookings in Havoc Sim Podium table
+    await simulatorPool.query(
+      `UPDATE bookings 
+       SET order_id = CASE 
+             WHEN order_id = $1 THEN $2 
+             ELSE $2 || SUBSTRING(order_id FROM LENGTH($1) + 1)
+           END,
+           status = 'PAID',
+           name = COALESCE($3, name),
+           phone = COALESCE($4, phone)
+       WHERE (order_id = $1 OR order_id LIKE $1 || '_%')`,
+      [tempTxnId, finalOrderId, customerName || null, customerPhone || null]
+    );
+
+    return true;
+  } catch (err) {
+    console.error('Error confirming simulator slot locks for order:', tempTxnId, '->', finalOrderId, err);
+    return false;
+  }
+}
+
 export interface SimPodiumProduct {
   id: number;
   name: string;

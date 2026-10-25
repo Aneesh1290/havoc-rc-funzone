@@ -3,7 +3,7 @@
 import { useCart } from "@/context/CartContext";
 import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check, ShieldCheck } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
 import { useRouter } from "next/navigation";
 import { COUNTRY_CODES } from "@/lib/countries";
@@ -22,9 +22,20 @@ export default function CheckoutPage() {
     phone: "",
   });
   
+  const [paymentMethod, setPaymentMethod] = useState<'online' | 'desk'>('online');
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlError = params.get('error');
+      if (urlError) {
+        setValidationError(decodeURIComponent(urlError));
+      }
+    }
+  }, []);
   const [bookingSuccessModal, setBookingSuccessModal] = useState<{
     customerName: string;
     subtotal: number;
@@ -118,6 +129,42 @@ export default function CheckoutPage() {
         simulatorSlot: item.simulatorSlot
       }));
 
+      if (paymentMethod === 'online') {
+        const res = await fetch("/api/payment/icici/initiate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: grandTotal,
+            customer_details: {
+              name: formData.fullName,
+              email: formData.email,
+              phone: fullPhoneNumber,
+              whatsapp_consent: true,
+            },
+            booking_data: batchItems,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data.error || "Failed to initiate online payment");
+        }
+
+        if (appliedCoupon) {
+          await useCouponAction(appliedCoupon.code);
+        }
+
+        if (data.redirectURI && data.tranCtx) {
+          clearCart();
+          window.location.href = `${data.redirectURI}?tranCtx=${data.tranCtx}`;
+          return;
+        } else {
+          throw new Error("Invalid response from payment gateway");
+        }
+      }
+
+      // Pay at Desk flow
       const batchRes = await createBatchOrderAction(
         batchItems,
         formData.fullName,
@@ -155,9 +202,9 @@ export default function CheckoutPage() {
         })),
       });
       clearCart();
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      setValidationError("Something went wrong with your reservation. Please try again.");
+      setValidationError(error.message || "Something went wrong with your reservation. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -386,14 +433,57 @@ export default function CheckoutPage() {
 
             {/* Payment Section */}
             <section>
-              <h2 className="text-2xl font-black font-heading text-gray-900 mb-6">Payment</h2>
-              <div className="border border-[#ff5a1f] bg-[#ff5a1f]/5 rounded-xl p-6 flex items-start gap-4 cursor-pointer relative overflow-hidden group">
-                <div className="w-5 h-5 rounded-full border-4 border-[#ff5a1f] bg-white mt-0.5 shrink-0" />
-                <div>
-                  <h3 className="font-bold text-gray-900 text-lg">Pay at Desk</h3>
-                  <p className="text-gray-600 text-sm mt-1">Book your slot now and pay with cash or card when you arrive at the venue.</p>
+              <h2 className="text-2xl font-black font-heading text-gray-900 mb-6">Payment Method</h2>
+              
+              <div className="space-y-4">
+                {/* Option 1: Online Payment (ICICI PG) */}
+                <div 
+                  onClick={() => setPaymentMethod('online')}
+                  className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
+                    paymentMethod === 'online'
+                      ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
+                      : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
+                    paymentMethod === 'online' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
+                  }`}>
+                    {paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay Online (Instant Confirmation)</h3>
+                      <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                        Recommended
+                      </span>
+                    </div>
+                    <p className="text-gray-600 text-xs sm:text-sm mt-1">
+                      UPI, Credit/Debit Cards, NetBanking via ICICI Secure Gateway. Holds your slot instantly while paying.
+                    </p>
+                  </div>
                 </div>
-                <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-[#ff5a1f]/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+
+                {/* Option 2: Pay at Desk */}
+                <div 
+                  onClick={() => setPaymentMethod('desk')}
+                  className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
+                    paymentMethod === 'desk'
+                      ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
+                      : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
+                >
+                  <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
+                    paymentMethod === 'desk' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
+                  }`}>
+                    {paymentMethod === 'desk' && <div className="w-2 h-2 rounded-full bg-white" />}
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay at Desk</h3>
+                    <p className="text-gray-600 text-xs sm:text-sm mt-1">
+                      Reserve your slot now and pay with cash, card, or UPI upon arrival at the venue ticket counter.
+                    </p>
+                  </div>
+                </div>
               </div>
 
               <div 
@@ -462,9 +552,12 @@ export default function CheckoutPage() {
               <button 
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full mt-6 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-4 rounded-xl font-black tracking-wider flex items-center justify-center gap-2 transition-all shadow-xl shadow-[#ff5a1f]/20 group disabled:opacity-60 disabled:cursor-not-allowed"
+                className="w-full mt-6 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-4 rounded-xl font-black tracking-wider flex items-center justify-center gap-2 transition-all shadow-xl shadow-[#ff5a1f]/20 group disabled:opacity-60 disabled:cursor-not-allowed uppercase"
               >
-                {isSubmitting ? "PROCESSING..." : "BOOK & PAY AT DESK"}
+                {isSubmitting 
+                  ? (paymentMethod === 'online' ? "CONNECTING TO GATEWAY..." : "PROCESSING RESERVATION...") 
+                  : (paymentMethod === 'online' ? `PROCEED TO PAY ₹${grandTotal.toFixed(2)}` : "BOOK & PAY AT DESK")
+                }
                 {!isSubmitting && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
               </button>
             </section>

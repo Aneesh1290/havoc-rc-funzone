@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Booking Confirmed | Havoc RC Fun Zone</title>
+  <link rel="icon" type="image/png" href="/havoc_logo.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Montserrat', sans-serif;
+      background: #0d1b2a;
+      color: #f8f9fa;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .glow-orb {
+      position: absolute;
+      width: 450px;
+      height: 450px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255,90,31,0.2) 0%, rgba(255,90,31,0) 70%);
+      top: -100px;
+      right: -100px;
+      pointer-events: none;
+    }
+    .card {
+      background: #ffffff;
+      color: #0d1b2a;
+      max-width: 620px;
+      width: 100%;
+      border-radius: 28px;
+      padding: 44px 36px;
+      box-shadow: 0 25px 60px -15px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.08);
+      text-align: center;
+      position: relative;
+      z-index: 10;
+      animation: popIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    }
+    @keyframes popIn {
+      0% { opacity: 0; transform: scale(0.92) translateY(20px); }
+      100% { opacity: 1; transform: scale(1) translateY(0); }
+    }
+    .check-icon-wrapper {
+      width: 84px;
+      height: 84px;
+      background: linear-gradient(135deg, #ff5a1f, #ff8447);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 24px;
+      box-shadow: 0 12px 30px rgba(255,90,31,0.4);
+      border: 6px solid #fff3ed;
+    }
+    .check-icon-wrapper svg {
+      width: 44px;
+      height: 44px;
+      stroke: #ffffff;
+      stroke-width: 3.5;
+      fill: none;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .tag {
+      display: inline-block;
+      background: #ecfdf5;
+      color: #047857;
+      font-weight: 800;
+      font-size: 11px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      margin-bottom: 12px;
+      border: 1px solid #a7f3d0;
+    }
+    h1 {
+      font-size: 30px;
+      font-weight: 900;
+      color: #0d1b2a;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .subtitle {
+      color: #64748b;
+      font-size: 15px;
+      line-height: 1.5;
+      margin-bottom: 24px;
+      font-weight: 500;
+    }
+    .order-box {
+      background: #f8fafc;
+      border: 2px dashed #cbd5e1;
+      border-radius: 20px;
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .order-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 4px;
+    }
+    .order-number {
+      font-family: 'Space Grotesk', monospace;
+      font-size: 28px;
+      font-weight: 800;
+      color: #ff5a1f;
+      letter-spacing: 0.5px;
+    }
+    .notice-card {
+      background: #fff8f5;
+      border: 1px solid #ffd8c7;
+      border-radius: 16px;
+      padding: 16px;
+      margin-bottom: 28px;
+      text-align: left;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .notice-card .icon {
+      font-size: 20px;
+      line-height: 1;
+    }
+    .notice-card p {
+      font-size: 13px;
+      color: #475569;
+      line-height: 1.5;
+    }
+    .notice-card strong {
+      color: #0d1b2a;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .btn {
+      flex: 1;
+      min-width: 140px;
+      padding: 14px 20px;
+      border-radius: 14px;
+      font-weight: 800;
+      font-size: 13px;
+      letter-spacing: 0.5px;
+      text-decoration: none;
+      text-align: center;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: none;
+    }
+    .btn-primary {
+      background: #ff5a1f;
+      color: #ffffff;
+      box-shadow: 0 8px 20px rgba(255,90,31,0.3);
+    }
+    .btn-primary:hover {
+      background: #e04812;
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: #f1f5f9;
+      color: #334155;
+    }
+    .btn-secondary:hover {
+      background: #e2e8f0;
+      color: #0f172a;
+    }
+    @media (max-width: 640px) {
+      .card { padding: 32px 20px; }
+      h1 { font-size: 24px; }
+      .order-number { font-size: 22px; }
+      .btn-group { flex-direction: column; }
+    }
+    @media print {
+      body { background: #fff; color: #000; padding: 0; }
+      .glow-orb, .btn-group { display: none !important; }
+      .card { box-shadow: none; border: 1px solid #ccc; max-width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="glow-orb"></div>
+  <div class="card">
+    <div class="check-icon-wrapper">
+      <svg viewBox="0 0 24 24">
+        <polyline points="20 6 9 17 4 12"></polyline>
+      </svg>
+    </div>
+
+    <div class="tag">Payment Successful</div>
+    <h1>Booking Confirmed!</h1>
+    <p class="subtitle">Your reservation at <strong>Havoc RC Fun Zone &amp; Miniature World</strong> has been confirmed and paid online.</p>
+
+    <div class="order-box">
+      <div class="order-label">Official Order Code</div>
+      <div class="order-number" id="orderCode">#PAID_RC_CONFIRMED</div>
+    </div>
+
+    <div class="notice-card">
+      <div class="icon">✉️</div>
+      <p>
+        <strong>Instant Passes Dispatched:</strong> Your digital ticket and session timing details have been sent via email and WhatsApp. Show this order code at the front desk for instant wristband check-in.
+      </p>
+    </div>
+
+    <div class="btn-group">
+      <button onclick="window.print()" class="btn btn-secondary">
+        🖨️ Print Pass
+      </button>
+      <a href="/" class="btn btn-primary">
+        Return Home
+      </a>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var params = new URLSearchParams(window.location.search);
+      var orderId = params.get('order_id') || params.get('orderId') || params.get('merchantTxnNo') || '';
+      if (orderId) {
+        var cleanId = orderId.startsWith('#') ? orderId : '#' + orderId;
+        document.getElementById('orderCode').innerText = cleanId;
+      }
+    })();
+  </script>
+</body>
+</html>

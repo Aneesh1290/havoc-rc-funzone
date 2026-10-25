@@ -61,7 +61,8 @@ import {
   createAdminStaffUser,
   updateStaffRoleAndPerms,
   resetStaffUserPassword,
-  deleteStaffUser
+  deleteStaffUser,
+  cleanupExpiredHolds
 } from "@/lib/db";
 import { 
   getTakenSimulatorSlots, 
@@ -220,6 +221,37 @@ export async function createBatchOrderAction(
   customerPhone: string,
   totalAmount: number
 ) {
+  // 1. Clean up expired holds older than 2 minutes
+  await cleanupExpiredHolds(2);
+
+  // 2. Concurrency check: check capacity including active holds
+  const allTickets = getTickets();
+  const ticketMap = new Map(allTickets.map(t => [t.id, t]));
+
+  for (const item of items) {
+    const ticketDef = ticketMap.get(item.ticketId);
+    if (ticketDef) {
+      const bookedList = getBookedQuantities(item.date, item.timeSlot);
+      const bookedRow = bookedList.find(b => b.ticket_id === item.ticketId);
+      const currentBooked = bookedRow ? bookedRow.total_booked : 0;
+      if (currentBooked + item.quantity > ticketDef.capacity) {
+        throw new Error(`Slot for "${ticketDef.name}" on ${item.date} (${item.timeSlot}) is fully booked or held by another guest.`);
+      }
+    }
+
+    if (item.simulatorName && item.simulatorSlot) {
+      const assignments = parseSimulatorSlotAssignments(item.simulatorName, item.simulatorSlot);
+      for (const assign of assignments) {
+        if (assign.simulatorName && assign.slotLabel) {
+          const takenSlots = await getTakenSimulatorSlots(assign.simulatorName, item.date);
+          if (takenSlots.includes(assign.slotLabel)) {
+            throw new Error(`Simulator slot "${assign.simulatorName}" at ${assign.slotLabel} on ${item.date} is already reserved.`);
+          }
+        }
+      }
+    }
+  }
+
   const result = addBatchBooking(items, customerName, customerEmail, customerPhone);
   if (!result) return null;
 

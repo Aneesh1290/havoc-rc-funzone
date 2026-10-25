@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { deleteSimulatorSlotLocks } from './simulator-db';
 
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
@@ -121,6 +122,18 @@ export function initDB() {
       value TEXT NOT NULL,
       description TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS online_checkout_holds (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      txn_id TEXT UNIQUE NOT NULL,
+      customer_name TEXT,
+      customer_email TEXT,
+      customer_phone TEXT,
+      amount REAL NOT NULL,
+      items_json TEXT NOT NULL,
+      whatsapp_consent INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   // Seed default site settings
@@ -146,6 +159,9 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN created_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN order_number INTEGER'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN payment_ref TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN icici_txn_id TEXT'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_created ON online_checkout_holds(created_at)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec("UPDATE bookings SET fulfillment_status = 'Fulfilled' WHERE LOWER(fulfillment_status) = 'attended'"); } catch (e) {}
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
@@ -399,7 +415,7 @@ export function getTickets(): TicketRow[] {
 }
 
 export function getBookedQuantities(date: string, timeSlot: string): { ticket_id: number, total_booked: number }[] {
-  return db.prepare(`
+  const booked = db.prepare(`
     SELECT ticket_id, SUM(quantity) as total_booked 
     FROM bookings 
     WHERE booking_date = ? AND time_slot = ?
@@ -407,6 +423,47 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
       AND LOWER(COALESCE(payment_status, '')) NOT IN ('refunded', 'canceled', 'cancelled')
     GROUP BY ticket_id
   `).all(date, timeSlot) as { ticket_id: number, total_booked: number }[];
+
+  const bookedMap = new Map<number, number>();
+  for (const b of booked) {
+    bookedMap.set(b.ticket_id, (bookedMap.get(b.ticket_id) || 0) + Number(b.total_booked || 0));
+  }
+
+  // Also include active online checkout holds (< 2 minutes old)
+  try {
+    const activeHolds = db.prepare(`
+      SELECT items_json FROM online_checkout_holds
+      WHERE datetime(created_at) >= datetime('now', '-2 minutes')
+    `).all() as { items_json: string }[];
+
+    for (const hold of activeHolds) {
+      if (!hold.items_json) continue;
+      try {
+        const items = JSON.parse(hold.items_json);
+        if (Array.isArray(items)) {
+          for (const item of items) {
+            const itemDate = item.date || item.booking_date;
+            const itemSlot = item.timeSlot || item.time_slot || item.time;
+            const ticketId = item.ticketId || item.ticket_id;
+            if (itemDate === date && itemSlot === timeSlot && ticketId) {
+              const qty = Number(item.quantity) || 1;
+              bookedMap.set(Number(ticketId), (bookedMap.get(Number(ticketId)) || 0) + qty);
+            }
+          }
+        }
+      } catch (parseErr) {
+        // ignore JSON parse error
+      }
+    }
+  } catch (err) {
+    // ignore if table not created yet
+  }
+
+  const result: { ticket_id: number, total_booked: number }[] = [];
+  for (const [ticket_id, total_booked] of bookedMap.entries()) {
+    result.push({ ticket_id, total_booked });
+  }
+  return result;
 }
 
 export function getAllBookings() {
@@ -593,6 +650,88 @@ export function deleteBookings(ids: number[]) {
   if (!ids || ids.length === 0) return { changes: 0 };
   const placeholders = ids.map(() => '?').join(',');
   return db.prepare(`DELETE FROM bookings WHERE id IN (${placeholders})`).run(...ids);
+}
+
+export interface OnlineCheckoutHoldRow {
+  id: number;
+  txn_id: string;
+  customer_name: string | null;
+  customer_email: string | null;
+  customer_phone: string | null;
+  amount: number;
+  items_json: string;
+  whatsapp_consent: number;
+  created_at: string;
+}
+
+export function createOnlineCheckoutHold(data: {
+  txn_id: string;
+  customer_name?: string;
+  customer_email?: string;
+  customer_phone?: string;
+  amount: number;
+  items_json: string;
+  whatsapp_consent?: number;
+}) {
+  const stmt = db.prepare(`
+    INSERT INTO online_checkout_holds (
+      txn_id, customer_name, customer_email, customer_phone, amount, items_json, whatsapp_consent, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `);
+  return stmt.run(
+    data.txn_id,
+    data.customer_name || 'Customer',
+    data.customer_email || '',
+    data.customer_phone || '',
+    data.amount,
+    data.items_json,
+    data.whatsapp_consent !== undefined ? (data.whatsapp_consent ? 1 : 0) : 1
+  );
+}
+
+export function getOnlineCheckoutHold(txn_id: string): OnlineCheckoutHoldRow | undefined {
+  return db.prepare('SELECT * FROM online_checkout_holds WHERE txn_id = ?').get(txn_id) as OnlineCheckoutHoldRow | undefined;
+}
+
+export function deleteOnlineCheckoutHold(txn_id: string) {
+  return db.prepare('DELETE FROM online_checkout_holds WHERE txn_id = ?').run(txn_id);
+}
+
+export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {
+  try {
+    const expiredRows = db.prepare(`
+      SELECT txn_id FROM online_checkout_holds 
+      WHERE datetime(created_at) <= datetime('now', '-' || ? || ' minutes')
+    `).all(maxAgeMinutes) as { txn_id: string }[];
+
+    if (!expiredRows || expiredRows.length === 0) return 0;
+
+    for (const r of expiredRows) {
+      try {
+        await deleteSimulatorSlotLocks(r.txn_id);
+      } catch (pgErr) {
+        console.error("Cleanup PG lock release error:", pgErr);
+      }
+      db.prepare('DELETE FROM online_checkout_holds WHERE txn_id = ?').run(r.txn_id);
+    }
+    return expiredRows.length;
+  } catch (err) {
+    console.error("Error in cleanupExpiredHolds:", err);
+    return 0;
+  }
+}
+
+// Global timer singleton for Next.js to prevent multi-interval leaks in development
+declare global {
+  var _rcHoldCleanupInterval: NodeJS.Timeout | undefined;
+}
+
+if (typeof setInterval !== 'undefined') {
+  if (!global._rcHoldCleanupInterval) {
+    global._rcHoldCleanupInterval = setInterval(() => {
+      cleanupExpiredHolds().catch(e => console.error("Periodic hold cleanup error:", e));
+    }, 60 * 1000);
+  }
 }
 
 export function getNextOrderNumber(): number {

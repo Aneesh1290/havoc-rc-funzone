@@ -166,6 +166,13 @@ export function initDB() {
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
   try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
+  try {
+    db.exec(`
+      UPDATE admin_users 
+      SET role = 'staff' 
+      WHERE LOWER(username) != 'admin' AND (role = 'Administrator' OR role IS NULL OR role = '');
+    `);
+  } catch (e) {}
 
   // Ticket table simulator perks and perks metadata columns
   try { db.exec('ALTER TABLE tickets ADD COLUMN has_simulator_perk INTEGER NOT NULL DEFAULT 0'); } catch (e) {}

@@ -32,10 +32,21 @@ export function hasUserPermission(
   requiredPerm: string
 ): boolean {
   if (!user) return false;
-  if (user.role === "super_admin" || user.username === "admin" || user.permissions === "all") {
+
+  const uname = (user.username || "").toLowerCase();
+  const urole = (user.role || "").toLowerCase();
+
+  // Only the primary 'admin' account and 'super_admin' role have full bypass
+  if (uname === "admin" || urole === "super_admin") {
     return true;
   }
 
   const perms = (user.permissions || "").split(",").map(p => p.trim());
+
+  // If user is not staff and has 'all', allow
+  if (urole !== "staff" && (user.permissions === "all" || perms.includes("all"))) {
+    return true;
+  }
+
   return perms.includes(requiredPerm);
 }

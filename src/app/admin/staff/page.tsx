@@ -148,7 +148,21 @@ export default function StaffManagementPage() {
   };
 
   const handleTogglePerm = async (user: StaffUser, permKey: string) => {
-    const currentPerms = (user.permissions || "bookings,slots").split(",").map(p => p.trim()).filter(Boolean);
+    let currentPerms: string[];
+    if (!user.permissions || user.permissions === "all") {
+      // If user had legacy "all", transition to custom permissions starting with all keys except the one clicked
+      const allPermKeys = [
+        ...MODULE_PERMISSIONS.map(p => p.key),
+        ...BOOKING_ACTION_PERMISSIONS.map(p => p.key)
+      ];
+      currentPerms = allPermKeys;
+    } else {
+      currentPerms = user.permissions.split(",").map(p => p.trim()).filter(Boolean);
+    }
+
+    // Always strip "all" from custom staff permissions
+    currentPerms = currentPerms.filter(p => p !== "all");
+
     let updatedPerms: string[];
     if (currentPerms.includes(permKey)) {
       updatedPerms = currentPerms.filter(p => p !== permKey);
@@ -156,10 +170,12 @@ export default function StaffManagementPage() {
       updatedPerms = [...currentPerms, permKey];
     }
 
-    // Optimistic UI update
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, permissions: updatedPerms.join(",") } : u));
+    const targetRole = user.role === "super_admin" ? "super_admin" : "staff";
 
-    const res = await updateStaffRoleAndPermsAction(user.id, user.role, updatedPerms);
+    // Optimistic UI update
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: targetRole, permissions: updatedPerms.join(",") } : u));
+
+    const res = await updateStaffRoleAndPermsAction(user.id, targetRole, updatedPerms);
     if (!res.success) {
       showNotification(res.error || "Failed to update permissions", "error");
       loadStaff();
@@ -167,14 +183,22 @@ export default function StaffManagementPage() {
   };
 
   const handleChangeRole = async (user: StaffUser, newRole: string) => {
-    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
-    const currentPerms = (user.permissions || "").split(",").map(p => p.trim()).filter(Boolean);
-    const res = await updateStaffRoleAndPermsAction(user.id, newRole, currentPerms);
+    const targetRole = newRole === "super_admin" ? "super_admin" : "staff";
+    let permsToSend: string[];
+    if (targetRole === "super_admin") {
+      permsToSend = ["all"];
+    } else {
+      const current = (user.permissions || "bookings,slots").split(",").map(p => p.trim()).filter(p => p && p !== "all");
+      permsToSend = current.length > 0 ? current : ["bookings", "slots"];
+    }
+
+    setUsers(prev => prev.map(u => u.id === user.id ? { ...u, role: targetRole, permissions: permsToSend.join(",") } : u));
+    const res = await updateStaffRoleAndPermsAction(user.id, targetRole, permsToSend);
     if (!res.success) {
       showNotification(res.error || "Failed to update role", "error");
       loadStaff();
     } else {
-      showNotification(`Role for '${user.username}' updated to ${newRole === 'super_admin' ? 'Super Admin' : 'Staff'}`);
+      showNotification(`Role for '${user.username}' updated to ${targetRole === 'super_admin' ? 'Super Admin' : 'Staff'}`);
     }
   };
 

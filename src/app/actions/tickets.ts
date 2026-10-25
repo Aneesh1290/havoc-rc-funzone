@@ -923,15 +923,19 @@ export async function updateStaffRoleAndPermsAction(id: number, role: string, pe
   try {
     const target = getAdminUserById(id);
     if (!target) return { success: false, error: "User not found" };
-    if (target.username === "admin") {
+    if (target.username.toLowerCase() === "admin") {
       return { success: false, error: "Cannot modify the primary admin account permissions" };
     }
 
     const userRole = role === "super_admin" ? "super_admin" : "staff";
-    const perms = userRole === "super_admin" ? "all" : permissions.join(",");
+    // Strictly strip "all" from permissions if role is staff so it never bypasses restrictions
+    const cleanPerms = permissions.filter(p => p !== "all" && p.trim() !== "");
+    const perms = userRole === "super_admin" ? "all" : cleanPerms.join(",");
 
     updateStaffRoleAndPerms(id, userRole, perms);
+    revalidatePath('/admin');
     revalidatePath('/admin/staff');
+    revalidatePath('/admin/bookings');
     return { success: true };
   } catch (error: any) {
     console.error("updateStaffRoleAndPermsAction error:", error);

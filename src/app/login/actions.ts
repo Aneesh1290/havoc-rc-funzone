@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
-import { getAdminUserByUsername, initDB, updateAdminPassword } from "@/lib/db";
+import { getAdminUserByUsername, getAdminUserById, initDB, updateAdminPassword } from "@/lib/db";
 import { signToken, verifyToken, AUTH_COOKIE_NAME } from "@/lib/auth";
 
 // Ensure DB is initialized
@@ -132,7 +132,29 @@ export async function checkSessionAction() {
   const tokenCookie = cookieStore.get(AUTH_COOKIE_NAME);
   if (!tokenCookie) return null;
 
-  return verifyToken(tokenCookie.value);
+  const payload = verifyToken(tokenCookie.value);
+  if (!payload) return null;
+
+  // Always re-read live user role and permissions from DB for existing and active sessions
+  try {
+    const user = (payload.userId ? getAdminUserById(payload.userId) : null) || getAdminUserByUsername(payload.username);
+    if (!user) return null;
+
+    const isPrimaryAdmin = user.username.toLowerCase() === "admin";
+    const isSuperAdmin = user.role === "super_admin" || isPrimaryAdmin;
+    const normalizedRole = isSuperAdmin ? "super_admin" : "staff";
+    const normalizedPerms = isSuperAdmin ? "all" : (user.permissions || "bookings,slots");
+
+    return {
+      userId: user.id,
+      username: user.username,
+      role: normalizedRole,
+      permissions: normalizedPerms,
+      mustChangePassword: Boolean(user.must_change_password === 1),
+    };
+  } catch (err) {
+    return payload;
+  }
 }
 
 export async function changePasswordAction(formData: FormData) {

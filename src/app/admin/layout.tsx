@@ -107,7 +107,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   const navLinks = allNavLinks.filter((item) => {
     // If not loaded yet or primary admin/super_admin, show all
     if (!sessionUser) return true;
-    if (sessionUser.username === "admin" || sessionUser.role === "super_admin" || sessionUser.permissions === "all") {
+    const uname = (sessionUser.username || "").toLowerCase();
+    const urole = (sessionUser.role || "").toLowerCase();
+    if (uname === "admin" || urole === "super_admin") {
       return true;
     }
     // Staff users cannot access staff accounts management

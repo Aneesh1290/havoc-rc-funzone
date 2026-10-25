@@ -764,26 +764,25 @@ export async function generateBookingsExcelReport(
     }
   }
 
-  // Include the previous day:
-  // 1. Any past date that falls on calendar yesterday (startOfYesterday <= date < startOfToday)
-  // 2. If yesterday had no bookings, include the immediate prior day that has bookings (last in pastDates)
-  const yesterdayDates = pastDates.filter(dKey => {
+  // Include 2 consecutive past dates (e.g. T-2 and T-1, or the 2 most recent past dates with bookings)
+  const startOfTwoDaysAgo = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2).getTime();
+  const calendarTwoPastDates = pastDates.filter(dKey => {
     const parsed = parseBookingDate(dKey, detectedYear);
     if (!parsed) return false;
     const dateMidnight = new Date(parsed.getFullYear(), parsed.getMonth(), parsed.getDate()).getTime();
-    return dateMidnight >= startOfYesterday && dateMidnight < startOfToday;
+    return dateMidnight >= startOfTwoDaysAgo && dateMidnight < startOfToday;
   });
 
-  const selectedPreviousDates = yesterdayDates.length > 0
-    ? yesterdayDates
-    : (pastDates.length > 0 ? [pastDates[pastDates.length - 1]] : []);
+  const selectedPastDates = calendarTwoPastDates.length >= 2
+    ? calendarTwoPastDates
+    : (pastDates.length >= 2 ? pastDates.slice(-2) : (calendarTwoPastDates.length > 0 ? calendarTwoPastDates : pastDates));
 
-  // Ordered day tabs: Previous Day -> Present Day (Today) -> Future Dates
-  const targetDayDates = [...selectedPreviousDates, ...presentAndFutureDates];
+  // Ordered day tabs: 2 Consecutive Past Days -> Present Day (Today) -> Future Dates
+  const targetDayDates = [...selectedPastDates, ...presentAndFutureDates];
 
-  // If the user explicitly filtered for historical dates (all in past with no yesterday/today/future),
+  // If the user explicitly filtered for historical dates (all in past with no recent past/today/future),
   // fallback to allSortedDates so historical exports are preserved.
-  const isHistoricalOnly = presentAndFutureDates.length === 0 && yesterdayDates.length === 0;
+  const isHistoricalOnly = presentAndFutureDates.length === 0 && selectedPastDates.length === 0;
   const sortedDates = isHistoricalOnly ? allSortedDates : (targetDayDates.length > 0 ? targetDayDates : allSortedDates);
 
   // Create Excel Workbook

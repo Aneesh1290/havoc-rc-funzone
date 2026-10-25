@@ -229,66 +229,60 @@ function renderDaySheet(
     { key: "transactionId", width: 22 }  // Q: TRANSACTION ID
   ];
 
-  // ROW 1: Main Title Banner (spanning A1 to Q1)
-  const titleRow = worksheet.addRow([bannerTitle]);
-  titleRow.height = 30;
-  worksheet.mergeCells("A1:Q1");
-  const titleCell = worksheet.getCell("A1");
-  titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF000000" } };
-  titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  for (let col = 1; col <= 17; col++) {
-    worksheet.getRow(1).getCell(col).border = mediumBorder;
-  }
+  // Helper to render the 2-row table header with merged cells and styling
+  const renderTableHeader = (ws: ExcelJS.Worksheet) => {
+    // Header Top Row
+    const headerRow1 = ws.addRow([
+      "TOTAL SL",
+      "SN",
+      "ORDER NO",
+      "NAME",
+      "PHONE NO",
+      "E-MAIL ID",
+      "DATE",
+      "TIME SLOT",
+      "SLOT NO / COLOUR",
+      "NUMBER OF TICKETS", "", "", "", // cols 10, 11, 12, 13
+      "AMOUNT RECEIVED",
+      "AMOUNT DUE",
+      "STATUS",
+      "TRANSACTION ID"
+    ]);
+    headerRow1.height = 24;
+    const r1 = headerRow1.number;
 
-  // ROW 2: Header Top Row
-  const headerRow1 = worksheet.addRow([
-    "TOTAL SL",
-    "SN",
-    "ORDER NO",
-    "NAME",
-    "PHONE NO",
-    "E-MAIL ID",
-    "DATE",
-    "TIME SLOT",
-    "SLOT NO / COLOUR",
-    "NUMBER OF TICKETS", "", "", "", // cols 10, 11, 12, 13
-    "AMOUNT RECEIVED",
-    "AMOUNT DUE",
-    "STATUS",
-    "TRANSACTION ID"
-  ]);
-  headerRow1.height = 24;
+    // Sub-Header Row (for V, P, VV, VP)
+    const headerRow2 = ws.addRow([
+      "", "", "", "", "", "", "", "", "",
+      "V", "P", "VV", "VP",
+      "", "", "", ""
+    ]);
+    headerRow2.height = 22;
+    const r2 = headerRow2.number;
 
-  // ROW 3: Sub-Header Row (for V, P, VV, VP)
-  const headerRow2 = worksheet.addRow([
-    "", "", "", "", "", "", "", "", "",
-    "V", "P", "VV", "VP",
-    "", "", "", ""
-  ]);
-  headerRow2.height = 22;
+    // Merges for Table Header:
+    ws.mergeCells(`J${r1}:M${r1}`);
+    const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P", "Q"];
+    spanningCols.forEach(col => {
+      ws.mergeCells(`${col}${r1}:${col}${r2}`);
+    });
 
-  // Merges for Table Header:
-  worksheet.mergeCells("J2:M2");
-  const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P", "Q"];
-  spanningCols.forEach(col => {
-    worksheet.mergeCells(`${col}2:${col}3`);
-  });
-
-  // Style Header Rows (Rows 2 & 3)
-  for (let r = 2; r <= 3; r++) {
-    const row = worksheet.getRow(r);
-    for (let c = 1; c <= 17; c++) {
-      const cell = row.getCell(c);
-      cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
-      cell.fill = {
-        type: "pattern",
-        pattern: "solid",
-        fgColor: { argb: "FFF2F2F2" }
-      };
-      cell.border = thinBorder;
+    // Style Header Rows (r1 & r2)
+    for (let r = r1; r <= r2; r++) {
+      const row = ws.getRow(r);
+      for (let c = 1; c <= 17; c++) {
+        const cell = row.getCell(c);
+        cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFF2F2F2" }
+        };
+        cell.border = thinBorder;
+      }
     }
-  }
+  };
 
   // Group orders by Date first, then within each Date group by Time Slot
   // This ensures that "All Bookings" groups and sorts all orders by Date first (e.g. Oct 20 orders together, then Oct 21 orders together),
@@ -314,6 +308,22 @@ function renderDaySheet(
     const timeB = parseBookingDate(b)?.getTime() || 0;
     return timeA - timeB;
   });
+
+  // ROW 1: Main Title Banner (spanning A1 to Q1)
+  const titleRow = worksheet.addRow([bannerTitle]);
+  titleRow.height = 30;
+  worksheet.mergeCells("A1:Q1");
+  const titleCell = worksheet.getCell("A1");
+  titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF000000" } };
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
+  for (let col = 1; col <= 17; col++) {
+    worksheet.getRow(1).getCell(col).border = mediumBorder;
+  }
+
+  // If there's only 1 date (e.g. single day tab like "OCTOBER 20 (TUESDAY)"), render the table header right below title
+  if (sortedDates.length === 1) {
+    renderTableHeader(worksheet);
+  }
 
   let totalSlCounter = 1;
   let grandTotalV = 0;
@@ -344,6 +354,7 @@ function renderDaySheet(
     });
 
     // If multiple dates are present (like in "All Bookings"), add a clear Date Section Divider Header
+    // and repeat the Table Header for EACH date so users immediately know which column is what!
     if (sortedDates.length > 1) {
       // Add gap row before next date section (unless very top)
       if (!isFirstSection) {
@@ -374,6 +385,9 @@ function renderDaySheet(
           fgColor: { argb: "FFE9ECEF" }
         };
       }
+
+      // Render the Table Header for this specific date!
+      renderTableHeader(worksheet);
     }
 
     sortedSlotKeys.forEach((slotKey, slotIndex) => {

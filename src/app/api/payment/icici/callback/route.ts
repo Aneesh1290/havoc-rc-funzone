@@ -85,8 +85,8 @@ export async function POST(req: NextRequest) {
         try {
           const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(txnID, txnID) as { order_number: number } | undefined;
           if (existing && existing.order_number) {
-            const finalOrderId = `PAID_RC_${existing.order_number}`;
-            return NextResponse.redirect(new URL(`/success.html?order_id=${finalOrderId}`, req.url), 303);
+            const finalOrderId = formatOrderNumber(existing.order_number);
+            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, req.url), 303);
           }
         } finally {
           db.close();
@@ -100,9 +100,9 @@ export async function POST(req: NextRequest) {
         
         // Sequential order number assigned strictly upon payment success!
         const orderNo = getNextOrderNumber();
-        const finalOrderId = `PAID_RC_${orderNo}`;
         const createdAt = new Date().toISOString();
-        const formattedOrderCode = formatOrderNumber(orderNo, createdAt, 'Paid');
+        const formattedOrderCode = formatOrderNumber(orderNo, createdAt);
+        const finalOrderId = formattedOrderCode;
 
         const db = getDbInstance();
         try {

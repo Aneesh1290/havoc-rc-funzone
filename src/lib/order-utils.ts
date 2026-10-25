@@ -1,17 +1,13 @@
 /**
- * Generates an order code matching the format:
- * #PAYDUE_FZ_33 (for Unpaid / Pay at Desk)
- * #PAID_FZ_33   (for Paid orders)
+ * Generates the permanent order code format: #PAYDUE_FZ_33
+ * Stays permanently consistent regardless of payment status changes.
  */
 export function formatOrderNumber(
   id: number, 
   dateStr?: string | null, 
   paymentStatus?: string | null
 ): string {
-  const statusClean = (paymentStatus || '').trim().toLowerCase();
-  const prefix = statusClean === 'paid' ? 'PAID' : 'PAYDUE';
-
-  return `#${prefix}_FZ_${id}`;
+  return `#PAYDUE_FZ_${id}`;
 }
 
 export function formatDateTime(dateStr?: string | null): string {

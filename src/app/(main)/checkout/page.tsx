@@ -5,6 +5,7 @@ import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calend
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
+import { getPublicPaymentConfigAction, PublicPaymentConfig } from "@/app/actions/payment-settings";
 import { useRouter } from "next/navigation";
 import { COUNTRY_CODES } from "@/lib/countries";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -23,6 +24,14 @@ export default function CheckoutPage() {
   });
   
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'desk'>('online');
+  const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig>({
+    enableOnline: true,
+    enableDesk: true,
+    defaultMethod: 'online',
+    activeGateway: 'icici',
+    gatewayName: 'ICICI Bank Gateway',
+    gatewayEnv: 'live',
+  });
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -35,6 +44,24 @@ export default function CheckoutPage() {
         setValidationError(decodeURIComponent(urlError));
       }
     }
+
+    async function loadPaymentConfig() {
+      try {
+        const cfg = await getPublicPaymentConfigAction();
+        setPaymentConfig(cfg);
+        if (cfg.enableOnline && !cfg.enableDesk) {
+          setPaymentMethod('online');
+        } else if (!cfg.enableOnline && cfg.enableDesk) {
+          setPaymentMethod('desk');
+        } else if (cfg.defaultMethod) {
+          setPaymentMethod(cfg.defaultMethod);
+        }
+      } catch (err) {
+        console.error("Failed to fetch payment config:", err);
+      }
+    }
+
+    loadPaymentConfig();
   }, []);
   const [bookingSuccessModal, setBookingSuccessModal] = useState<{
     customerName: string;
@@ -130,6 +157,12 @@ export default function CheckoutPage() {
       }));
 
       if (paymentMethod === 'online') {
+        if (paymentConfig.activeGateway !== 'icici') {
+          throw new Error(
+            `${paymentConfig.gatewayName} is currently active in settings. Gateway connection is in setup mode. Please choose 'Pay at Desk' or switch back to ICICI Bank Gateway in Admin Settings.`
+          );
+        }
+
         const res = await fetch("/api/payment/icici/initiate", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -435,56 +468,76 @@ export default function CheckoutPage() {
             <section>
               <h2 className="text-2xl font-black font-heading text-gray-900 mb-6">Payment Method</h2>
               
-              <div className="space-y-4">
-                {/* Option 1: Online Payment (ICICI PG) */}
-                <div 
-                  onClick={() => setPaymentMethod('online')}
-                  className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
-                    paymentMethod === 'online'
-                      ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
-                    paymentMethod === 'online' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
-                  }`}>
-                    {paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-white" />}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay Online (Instant Confirmation)</h3>
-                      <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
-                        Recommended
-                      </span>
+              {!paymentConfig.enableOnline && !paymentConfig.enableDesk ? (
+                <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm font-semibold flex items-center gap-3">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
+                  <span>Checkout is temporarily paused for maintenance. Please check back shortly or contact the counter.</span>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {/* Option 1: Online Payment */}
+                  {paymentConfig.enableOnline && (
+                    <div 
+                      onClick={() => setPaymentMethod('online')}
+                      className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
+                        paymentMethod === 'online'
+                          ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
+                          : "border-gray-200 bg-white hover:border-gray-300"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
+                        paymentMethod === 'online' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
+                      }`}>
+                        {paymentMethod === 'online' && <div className="w-2 h-2 rounded-full bg-white" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay Online (Instant Confirmation)</h3>
+                          {paymentConfig.defaultMethod === 'online' && (
+                            <span className="bg-emerald-100 text-emerald-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                              Recommended
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-600 text-xs sm:text-sm mt-1">
+                          UPI, Credit/Debit Cards, NetBanking via {paymentConfig.gatewayName}. Holds your slot instantly while paying.
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-gray-600 text-xs sm:text-sm mt-1">
-                      UPI, Credit/Debit Cards, NetBanking via ICICI Secure Gateway. Holds your slot instantly while paying.
-                    </p>
-                  </div>
-                </div>
+                  )}
 
-                {/* Option 2: Pay at Desk */}
-                <div 
-                  onClick={() => setPaymentMethod('desk')}
-                  className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
-                    paymentMethod === 'desk'
-                      ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
-                      : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
-                >
-                  <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
-                    paymentMethod === 'desk' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
-                  }`}>
-                    {paymentMethod === 'desk' && <div className="w-2 h-2 rounded-full bg-white" />}
-                  </div>
-                  <div className="flex-1">
-                    <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay at Desk</h3>
-                    <p className="text-gray-600 text-xs sm:text-sm mt-1">
-                      Reserve your slot now and pay with cash, card, or UPI upon arrival at the venue ticket counter.
-                    </p>
-                  </div>
+                  {/* Option 2: Pay at Desk */}
+                  {paymentConfig.enableDesk && (
+                    <div 
+                      onClick={() => setPaymentMethod('desk')}
+                      className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
+                        paymentMethod === 'desk'
+                          ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
+                          : "border-gray-200 bg-white hover:border-gray-300"
+                      }`}
+                    >
+                      <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
+                        paymentMethod === 'desk' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
+                      }`}>
+                        {paymentMethod === 'desk' && <div className="w-2 h-2 rounded-full bg-white" />}
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay at Desk</h3>
+                          {paymentConfig.defaultMethod === 'desk' && (
+                            <span className="bg-orange-100 text-orange-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                              Default
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-gray-600 text-xs sm:text-sm mt-1">
+                          Reserve your slot now and pay with cash, card, or UPI upon arrival at the venue ticket counter.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               <div 
                 onClick={() => {
@@ -551,14 +604,16 @@ export default function CheckoutPage() {
 
               <button 
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (!paymentConfig.enableOnline && !paymentConfig.enableDesk)}
                 className="w-full mt-6 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-4 rounded-xl font-black tracking-wider flex items-center justify-center gap-2 transition-all shadow-xl shadow-[#ff5a1f]/20 group disabled:opacity-60 disabled:cursor-not-allowed uppercase"
               >
                 {isSubmitting 
                   ? (paymentMethod === 'online' ? "CONNECTING TO GATEWAY..." : "PROCESSING RESERVATION...") 
-                  : (paymentMethod === 'online' ? `PROCEED TO PAY ₹${grandTotal.toFixed(2)}` : "BOOK & PAY AT DESK")
+                  : (!paymentConfig.enableOnline && !paymentConfig.enableDesk)
+                    ? "CHECKOUT CURRENTLY UNAVAILABLE"
+                    : (paymentMethod === 'online' ? `PROCEED TO PAY ₹${grandTotal.toFixed(2)}` : "BOOK & PAY AT DESK")
                 }
-                {!isSubmitting && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
+                {!isSubmitting && paymentConfig.enableOnline && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
               </button>
             </section>
           </div>
@@ -658,7 +713,7 @@ export default function CheckoutPage() {
               <div className="mt-8 pt-8 border-t border-gray-100 text-center">
                 <div className="flex items-center justify-center gap-2 mb-3 text-xs text-emerald-700 font-bold bg-emerald-50 py-1.5 px-3 rounded-full border border-emerald-100 inline-flex">
                   <ShieldCheck className="w-3.5 h-3.5" />
-                  <span>256-Bit SSL Encrypted | ICICI Orange Gateway</span>
+                  <span>256-Bit SSL Encrypted | {paymentConfig.gatewayName}</span>
                 </div>
                 <p className="text-[11px] text-gray-400 font-semibold mb-3 uppercase tracking-wider">Accepted Payment Options</p>
                 <div className="flex flex-wrap items-center justify-center gap-2">

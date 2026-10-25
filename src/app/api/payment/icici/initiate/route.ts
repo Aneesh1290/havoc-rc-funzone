@@ -13,8 +13,8 @@ import {
   getTakenSimulatorSlots 
 } from '@/lib/simulator-db';
 import { 
-  ICICI_AGGREGATOR_ID, 
-  ICICI_MERCHANT_ID, 
+  getIciciAggregatorId, 
+  getIciciMerchantId, 
   generateIciciHash, 
   getIciciBaseUrl 
 } from '@/lib/icici';
@@ -149,10 +149,10 @@ export async function POST(req: NextRequest) {
           : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
 
     const payload: Record<string, any> = {
-      merchantId: ICICI_MERCHANT_ID,
+      merchantId: getIciciMerchantId(),
       merchantTxnNo: tempTxnId,
       amount: Number(amount).toFixed(2),
-      aggregatorID: ICICI_AGGREGATOR_ID,
+      aggregatorID: getIciciAggregatorId(),
       currencyCode: "356",
       payType: "0",
       customerEmailID: custEmail || "guest@havocrcfunzone.com",

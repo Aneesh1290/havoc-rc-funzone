@@ -122,11 +122,14 @@ export async function addBookingAction(
   simulatorSlot?: string
 ) {
   const result = addBooking(ticketId, date, timeSlot, quantity, customerName, customerEmail, customerPhone, totalAmount, simulatorName, simulatorSlot);
+  if (!result) return null;
+
+  const effectiveOrderNum = result.orderNumber || result.id;
+  const orderId = formatOrderNumber(effectiveOrderNum, result.createdAt, 'Unpaid');
   
   // If this booking has an attached simulator session, lock it in the shared PostgreSQL database
   if (simulatorName && simulatorSlot && result?.id) {
     try {
-      const orderId = formatOrderNumber(result.id, result.createdAt);
       const assignments = parseSimulatorSlotAssignments(simulatorName, simulatorSlot);
 
       for (let idx = 0; idx < assignments.length; idx++) {
@@ -153,7 +156,6 @@ export async function addBookingAction(
   // Send Email Confirmation via Gmail SMTP
   if (result?.id && customerEmail) {
     try {
-      const orderId = formatOrderNumber(result.id, result.createdAt);
       const allTickets = getTickets();
       const ticketObj = allTickets.find(t => t.id === ticketId);
       const ticketName = ticketObj?.name || 'RC Fun Zone Pass';
@@ -183,7 +185,6 @@ export async function addBookingAction(
   // Send WhatsApp Booking Confirmation via Interakt
   if (result?.id && customerPhone) {
     try {
-      const orderId = formatOrderNumber(result.id, result.createdAt);
       const allTickets = getTickets();
       const ticketObj = allTickets.find(t => t.id === ticketId);
       const ticketName = ticketObj?.name || 'RC Fun Zone Pass';

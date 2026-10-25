@@ -164,8 +164,16 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec("UPDATE bookings SET fulfillment_status = 'Fulfilled' WHERE LOWER(fulfillment_status) = 'attended'"); } catch (e) {}
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
-  try { db.exec("ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT 'all'"); } catch (e) {}
+  try { db.exec('ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT \'all\''); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS order_sequence (
+        id INTEGER PRIMARY KEY,
+        last_order_number INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+  } catch (e) {}
   try {
     db.exec(`
       UPDATE admin_users 
@@ -294,102 +302,11 @@ export function initDB() {
     // sqlite_sequence may not exist yet if no table with autoincrement was touched
   }
 
-  // Automatic consolidation for existing orders placed by the same customer around the same time
+  // Ensure legacy rows have order_number initialized
   try {
-    // 1. For any rows where order_number is NULL, initialize order_number = id
     db.exec('UPDATE bookings SET order_number = id WHERE order_number IS NULL');
-
-    // 2. Identify and consolidate split rows:
-    // When the same customer (matching email or phone or name) booked for the same date & time slot within 10 minutes,
-    // consolidate them under the earliest order_number.
-    const allRows = db.prepare(`
-      SELECT id, order_number, customer_name, customer_email, customer_phone, booking_date, time_slot, created_at
-      FROM bookings
-      ORDER BY id ASC
-    `).all() as {
-      id: number;
-      order_number: number;
-      customer_name?: string;
-      customer_email?: string;
-      customer_phone?: string;
-      booking_date: string;
-      time_slot: string;
-      created_at?: string;
-    }[];
-
-    const updateOrderStmt = db.prepare('UPDATE bookings SET order_number = ? WHERE id = ?');
-
-    for (let i = 0; i < allRows.length; i++) {
-      const primary = allRows[i];
-      const pName = (primary.customer_name || '').trim().toLowerCase();
-      const pEmail = (primary.customer_email || '').trim().toLowerCase();
-      const pPhone = (primary.customer_phone || '').replace(/\D/g, '');
-      const pDate = primary.booking_date;
-      const pSlot = primary.time_slot;
-      const pTime = primary.created_at ? new Date(primary.created_at).getTime() : 0;
-
-      for (let j = i + 1; j < allRows.length; j++) {
-        const secondary = allRows[j];
-        if (secondary.order_number === primary.order_number) continue;
-
-        const sName = (secondary.customer_name || '').trim().toLowerCase();
-        const sEmail = (secondary.customer_email || '').trim().toLowerCase();
-        const sPhone = (secondary.customer_phone || '').replace(/\D/g, '');
-        const sDate = secondary.booking_date;
-        const sSlot = secondary.time_slot;
-        const sTime = secondary.created_at ? new Date(secondary.created_at).getTime() : 0;
-
-        // Check customer identity match
-        const matchesCustomer = 
-          (pEmail && sEmail && pEmail === sEmail) ||
-          (pPhone && sPhone && pPhone === sPhone) ||
-          (pName && sName && pName === sName);
-
-        // Check if same slot and date
-        const sameSlotAndDate = (pDate === sDate) && (pSlot === sSlot);
-
-        // Check if created around the same time (within 15 minutes of each other or same time)
-        const timeDiffMins = (pTime && sTime) ? Math.abs(pTime - sTime) / (1000 * 60) : 0;
-        const closeTime = timeDiffMins <= 15;
-
-        if (matchesCustomer && sameSlotAndDate && closeTime) {
-          updateOrderStmt.run(primary.order_number, secondary.id);
-          secondary.order_number = primary.order_number;
-        }
-      }
-    }
-
-    // 3. Renumber distinct order_numbers sequentially (1, 2, 3, 4...) so there are no skipped gaps
-    const distinctOrders = db.prepare(`
-      SELECT order_number, MIN(id) as min_id
-      FROM bookings
-      GROUP BY order_number
-      ORDER BY min_id ASC
-    `).all() as { order_number: number; min_id: number }[];
-
-    // If there are gaps (e.g. 1, 4, 5, 6, 8, 9, 11, 13, 16...), map them to 1, 2, 3, 4, 5...
-    let needsRenumbering = false;
-    for (let idx = 0; idx < distinctOrders.length; idx++) {
-      if (distinctOrders[idx].order_number !== idx + 1) {
-        needsRenumbering = true;
-        break;
-      }
-    }
-
-    if (needsRenumbering) {
-      const updateOrderNumStmt = db.prepare('UPDATE bookings SET order_number = ? WHERE order_number = ?');
-      // Use temporary negative offset to avoid collision
-      for (let idx = 0; idx < distinctOrders.length; idx++) {
-        const oldNum = distinctOrders[idx].order_number;
-        updateOrderNumStmt.run(-(idx + 1), oldNum);
-      }
-      // Re-apply positive sequential numbers
-      for (let idx = 0; idx < distinctOrders.length; idx++) {
-        updateOrderNumStmt.run(idx + 1, -(idx + 1));
-      }
-    }
-  } catch (consolidateErr) {
-    console.error("Error running booking auto-consolidation & renumbering:", consolidateErr);
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -743,7 +660,22 @@ if (typeof setInterval !== 'undefined') {
 
 export function getNextOrderNumber(): number {
   const row = db.prepare('SELECT MAX(COALESCE(order_number, id)) as max_num FROM bookings').get() as { max_num: number | null };
-  return (row && row.max_num && row.max_num > 0) ? row.max_num + 1 : 1;
+  const maxInBookings = (row && row.max_num && row.max_num > 0) ? row.max_num : 0;
+
+  try {
+    const seqRow = db.prepare('SELECT last_order_number FROM order_sequence WHERE id = 1').get() as { last_order_number: number } | undefined;
+    let nextNum: number;
+    if (!seqRow) {
+      nextNum = maxInBookings + 1;
+      db.prepare('INSERT OR REPLACE INTO order_sequence (id, last_order_number) VALUES (1, ?)').run(nextNum);
+    } else {
+      nextNum = Math.max(seqRow.last_order_number, maxInBookings) + 1;
+      db.prepare('UPDATE order_sequence SET last_order_number = ? WHERE id = 1').run(nextNum);
+    }
+    return nextNum;
+  } catch (seqErr) {
+    return maxInBookings + 1;
+  }
 }
 
 export interface BatchBookingItem {

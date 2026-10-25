@@ -9,6 +9,7 @@ import { confirmSimulatorSlotLocks, deleteSimulatorSlotLocks } from '@/lib/simul
 import { generateIciciHash } from '@/lib/icici';
 import { sendBookingConfirmationEmail } from '@/lib/email';
 import { sendBookingConfirmationWhatsApp } from '@/lib/whatsapp';
+import { formatOrderNumber } from '@/lib/order-utils';
 import Database from 'better-sqlite3';
 import path from 'path';
 
@@ -101,6 +102,7 @@ export async function POST(req: NextRequest) {
         const orderNo = getNextOrderNumber();
         const finalOrderId = `PAID_RC_${orderNo}`;
         const createdAt = new Date().toISOString();
+        const formattedOrderCode = formatOrderNumber(orderNo, createdAt, 'Paid');
 
         const db = getDbInstance();
         try {
@@ -173,7 +175,7 @@ export async function POST(req: NextRequest) {
 
           if (holdRow.customer_email) {
             sendBookingConfirmationEmail({
-              orderId: finalOrderId,
+              orderId: formattedOrderCode,
               customerName: holdRow.customer_name || 'Customer',
               customerEmail: holdRow.customer_email,
               customerPhone: holdRow.customer_phone || '',
@@ -185,7 +187,7 @@ export async function POST(req: NextRequest) {
 
           if (holdRow.customer_phone) {
             sendBookingConfirmationWhatsApp({
-              orderId: finalOrderId,
+              orderId: formattedOrderCode,
               customerName: holdRow.customer_name || 'Customer',
               customerPhone: holdRow.customer_phone,
               totalAmount: holdRow.amount,
@@ -198,7 +200,7 @@ export async function POST(req: NextRequest) {
         }
 
         // Redirect to success page
-        return NextResponse.redirect(new URL(`/success.html?order_id=${finalOrderId}`, req.url), 303);
+        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedOrderCode)}`, req.url), 303);
 
       } catch (parseErr) {
         console.error('[ICICI Callback] Error processing hold items:', parseErr);
@@ -239,7 +241,8 @@ export async function GET(req: NextRequest) {
     try {
       const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number } | undefined;
       if (existing) {
-        return NextResponse.redirect(new URL(`/success.html?order_id=PAID_RC_${existing.order_number}`, req.url), 303);
+        const formattedExisting = formatOrderNumber(existing.order_number, null, 'Paid');
+        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedExisting)}`, req.url), 303);
       }
     } finally {
       db.close();

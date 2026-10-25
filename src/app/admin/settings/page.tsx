@@ -17,20 +17,21 @@ import {
   Server,
   Star,
   MessageSquare,
-  Send,
-  ExternalLink
+  Sparkles,
+  ExternalLink,
+  Send
 } from "lucide-react";
 import { changePasswordAction } from "@/app/login/actions";
 import { 
   getAdminPaymentSettingsAction, 
   updateAdminPaymentSettingsAction, 
-  getGoogleReviewSettingsAction,
-  updateGoogleReviewSettingsAction,
   AdminPaymentSettings, 
-  GoogleReviewSettings,
   GatewayProvider, 
   GatewayEnvironment,
-  DefaultPaymentMethod
+  DefaultPaymentMethod,
+  getGoogleReviewSettingsAction,
+  updateGoogleReviewSettingsAction,
+  GoogleReviewSettings
 } from "@/app/actions/payment-settings";
 
 export default function SettingsPage() {
@@ -81,54 +82,74 @@ export default function SettingsPage() {
     },
   });
 
-  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
-
   // Google Review Settings State
-  const [reviewSettings, setReviewSettings] = useState<GoogleReviewSettings>({
-    enabled: true,
-    reviewUrl: "https://maps.app.goo.gl/havoc-rc-funzone",
-    templateName: "havoc_google_review",
-    interaktApiKey: "",
-  });
   const [isReviewLoading, setIsReviewLoading] = useState(true);
   const [isReviewSaving, setIsReviewSaving] = useState(false);
   const [reviewSuccessMsg, setReviewSuccessMsg] = useState<string | null>(null);
   const [reviewErrorMsg, setReviewErrorMsg] = useState<string | null>(null);
-  const [showInteraktKey, setShowInteraktKey] = useState(false);
+  const [reviewSettings, setReviewSettings] = useState<GoogleReviewSettings>({
+    enabled: true,
+    reviewUrl: "https://g.page/r/havoc-rc-funzone/review",
+    templateName: "havoc_google_review",
+    interaktApiKey: "",
+  });
 
-  // Test review state
+  const [showInteraktKey, setShowInteraktKey] = useState(false);
   const [testReviewPhone, setTestReviewPhone] = useState("");
   const [isSendingTestReview, setIsSendingTestReview] = useState(false);
   const [testReviewResult, setTestReviewResult] = useState<{ success: boolean; message: string } | null>(null);
 
+  const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
-    async function loadPaymentSettings() {
+    async function loadAllSettings() {
       try {
         setIsPaymentLoading(true);
-        const data = await getAdminPaymentSettingsAction();
-        setPaymentSettings(data);
+        setIsReviewLoading(true);
+        const [paymentData, reviewData] = await Promise.all([
+          getAdminPaymentSettingsAction(),
+          getGoogleReviewSettingsAction(),
+        ]);
+        setPaymentSettings(paymentData);
+        setReviewSettings(reviewData);
       } catch (err: any) {
-        console.error("Failed to load payment settings:", err);
+        console.error("Failed to load settings:", err);
       } finally {
         setIsPaymentLoading(false);
-      }
-    }
-
-    async function loadReviewSettings() {
-      try {
-        setIsReviewLoading(true);
-        const data = await getGoogleReviewSettingsAction();
-        setReviewSettings(data);
-      } catch (err: any) {
-        console.error("Failed to load Google review settings:", err);
-      } finally {
         setIsReviewLoading(false);
       }
     }
-
-    loadPaymentSettings();
-    loadReviewSettings();
+    loadAllSettings();
   }, []);
+
+  const handleSendTestReview = async () => {
+    if (!testReviewPhone.trim()) return;
+    setIsSendingTestReview(true);
+    setTestReviewResult(null);
+
+    try {
+      const res = await fetch("/api/admin/verify/send-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          phone: testReviewPhone.trim(),
+          customerName: "Valued Guest",
+          reviewUrl: reviewSettings.reviewUrl,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTestReviewResult({ success: true, message: data.message || "Test WhatsApp review link sent successfully!" });
+      } else {
+        setTestReviewResult({ success: false, message: data.error || "Failed to send test review message." });
+      }
+    } catch (err: any) {
+      setTestReviewResult({ success: false, message: err.message || "Network error sending test message." });
+    } finally {
+      setIsSendingTestReview(false);
+    }
+  };
 
   const handleSavePaymentSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,44 +181,15 @@ export default function SettingsPage() {
     try {
       const res = await updateGoogleReviewSettingsAction(reviewSettings);
       if (res.success) {
-        setReviewSuccessMsg("Google review WhatsApp settings saved! Customers will receive this message after OTP check-in.");
+        setReviewSuccessMsg("Google Review WhatsApp automation settings saved successfully!");
         setTimeout(() => setReviewSuccessMsg(null), 5000);
       } else {
-        setReviewErrorMsg(res.error || "Failed to update review settings");
+        setReviewErrorMsg(res.error || "Failed to save Google Review settings");
       }
     } catch (err: any) {
-      setReviewErrorMsg(err.message || "Failed to update review settings");
+      setReviewErrorMsg(err.message || "Failed to save Google Review settings");
     } finally {
       setIsReviewSaving(false);
-    }
-  };
-
-  const handleSendTestReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!testReviewPhone.trim()) return;
-    setIsSendingTestReview(true);
-    setTestReviewResult(null);
-
-    try {
-      const res = await fetch("/api/admin/verify/send-review", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          phone: testReviewPhone.trim(),
-          customerName: "Test Racer",
-          reviewUrl: reviewSettings.reviewUrl,
-        }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        setTestReviewResult({ success: true, message: `Review request sent successfully to ${testReviewPhone}!` });
-      } else {
-        setTestReviewResult({ success: false, message: data.error || "Failed to dispatch review WhatsApp message." });
-      }
-    } catch (err: any) {
-      setTestReviewResult({ success: false, message: err.message || "Network error" });
-    } finally {
-      setIsSendingTestReview(false);
     }
   };
 
@@ -703,186 +695,196 @@ export default function SettingsPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* 2. GOOGLE REVIEW & POST-CHECKIN WHATSAPP                                   */}
+        {/* 2. GOOGLE REVIEW & CUSTOMER ENGAGEMENT                                    */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4 mb-6">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
-                <h3 className="text-xl font-bold text-gray-900">Google Review &amp; Post-Check-In Message</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-gray-100 pb-4 mb-6">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-600">
+                <Star className="w-5 h-5 fill-amber-500 text-amber-500" />
               </div>
-              <p className="text-sm text-gray-500">
-                Automatically send a 5-star Google Review request via WhatsApp right after customer OTP check-in.
-              </p>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <span>Google Review Automation</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                    Post-Check-in WhatsApp
+                  </span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Automatically send customers a Google Review link via WhatsApp after they verify their check-in OTP.
+                </p>
+              </div>
             </div>
-            
-            <div className="flex items-center gap-2">
-              <span className={`text-xs font-bold uppercase tracking-wider px-3 py-1 rounded-full ${
-                reviewSettings.enabled 
-                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
-                  : "bg-gray-100 text-gray-600 border border-gray-200"
-              }`}>
-                {reviewSettings.enabled ? "Active" : "Disabled"}
-              </span>
-            </div>
+
+            {/* Toggle switch */}
+            <button
+              type="button"
+              onClick={() => setReviewSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all border ${
+                reviewSettings.enabled
+                  ? "bg-amber-50 text-amber-800 border-amber-300"
+                  : "bg-gray-50 text-gray-500 border-gray-200"
+              }`}
+            >
+              {reviewSettings.enabled ? (
+                <>
+                  <ToggleRight className="w-5 h-5 text-amber-600" />
+                  <span>Automation: Enabled</span>
+                </>
+              ) : (
+                <>
+                  <ToggleLeft className="w-5 h-5 text-gray-400" />
+                  <span>Automation: Disabled</span>
+                </>
+              )}
+            </button>
           </div>
 
           {reviewSuccessMsg && (
-            <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 animate-in fade-in">
-              <Check className="w-4 h-4 shrink-0 text-green-600" />
+            <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
               <span>{reviewSuccessMsg}</span>
             </div>
           )}
 
           {reviewErrorMsg && (
-            <div className="mb-6 bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-xl text-sm font-semibold flex items-center gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+            <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
               <span>{reviewErrorMsg}</span>
             </div>
           )}
 
           {isReviewLoading ? (
-            <div className="py-12 flex flex-col items-center justify-center text-gray-400 gap-2">
-              <Loader2 className="w-6 h-6 animate-spin text-[#ff5a1f]" />
-              <span className="text-xs font-medium">Loading review settings...</span>
+            <div className="py-12 flex items-center justify-center gap-3 text-sm text-gray-500 font-medium">
+              <Loader2 className="w-5 h-5 animate-spin text-amber-600" />
+              <span>Loading Google Review settings...</span>
             </div>
           ) : (
             <form onSubmit={handleSaveReviewSettings} className="space-y-6">
-              {/* Toggle Enable/Disable */}
-              <div 
-                onClick={() => setReviewSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
-                className={`p-4 sm:p-5 rounded-2xl border-2 transition-all cursor-pointer flex items-center justify-between select-none ${
-                  reviewSettings.enabled 
-                    ? "border-amber-400 bg-amber-50/30" 
-                    : "border-gray-200 bg-gray-50/50 hover:border-gray-300"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center transition-colors ${
-                    reviewSettings.enabled ? "bg-amber-500 text-white shadow-md shadow-amber-500/20" : "bg-gray-200 text-gray-500"
-                  }`}>
-                    <MessageSquare className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-gray-900 text-sm sm:text-base">Send Google Review on OTP Verification</h4>
-                    <p className="text-xs text-gray-500 mt-0.5">
-                      When staff verifies the customer's OTP at the venue desk, dispatch a Google review WhatsApp message automatically.
-                    </p>
-                  </div>
-                </div>
-                <div>
-                  {reviewSettings.enabled ? (
-                    <ToggleRight className="w-8 h-8 text-amber-500" />
-                  ) : (
-                    <ToggleLeft className="w-8 h-8 text-gray-400" />
-                  )}
-                </div>
-              </div>
-
-              {/* Form Inputs Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {/* Google Review URL */}
-                <div className="md:col-span-2">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                      Google Review Link
-                    </label>
-                    {reviewSettings.reviewUrl && (
-                      <a 
-                        href={reviewSettings.reviewUrl} 
-                        target="_blank" 
-                        rel="noreferrer" 
-                        className="text-[11px] font-semibold text-[#ff5a1f] hover:underline inline-flex items-center gap-1 normal-case"
-                      >
-                        <span>Test link</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
-                  </div>
+              {/* Review URL */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Google Review / Google Maps Link
+                </label>
+                <div className="relative">
                   <input
                     type="url"
                     required
                     value={reviewSettings.reviewUrl}
                     onChange={(e) => setReviewSettings(prev => ({ ...prev, reviewUrl: e.target.value }))}
                     placeholder="https://g.page/r/YOUR_ID/review or https://maps.app.goo.gl/..."
-                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Your Google Business Profile review link (customers click this link on WhatsApp to leave their review).
-                  </p>
-                </div>
-
-                {/* Interakt Template Name */}
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
-                    Interakt Template Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={reviewSettings.templateName}
-                    onChange={(e) => setReviewSettings(prev => ({ ...prev, templateName: e.target.value }))}
-                    placeholder="havoc_google_review"
-                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Name of the approved template in your Interakt dashboard (e.g. <code>havoc_google_review</code>).
-                  </p>
-                </div>
-
-                {/* Interakt API Key */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
-                      Interakt API Key
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() => setShowInteraktKey(!showInteraktKey)}
-                      className="text-[11px] text-gray-500 hover:text-gray-700 flex items-center gap-1 font-normal normal-case"
+                  {reviewSettings.reviewUrl && (
+                    <a
+                      href={reviewSettings.reviewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="absolute right-3 top-2.5 text-xs text-amber-600 font-semibold hover:underline flex items-center gap-1"
                     >
-                      {showInteraktKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      <span>{showInteraktKey ? "Hide" : "Show"}</span>
-                    </button>
-                  </div>
-                  <input
-                    type={showInteraktKey ? "text" : "password"}
-                    value={reviewSettings.interaktApiKey}
-                    onChange={(e) => setReviewSettings(prev => ({ ...prev, interaktApiKey: e.target.value }))}
-                    placeholder="Leave empty to use .env INTERAKT_API_KEY"
-                    className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                  />
-                  <p className="text-[11px] text-gray-500 mt-1">
-                    Falls back to <code>INTERAKT_API_KEY</code> from environment if not specified.
+                      <span>Test Link</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                </div>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Tip: Get this directly from your Google Business Profile &gt; &quot;Ask for reviews&quot; &gt; Copy short link.
+                </p>
+              </div>
+
+              {/* Template Name in Interakt */}
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
+                  Interakt / WhatsApp Template Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={reviewSettings.templateName}
+                  onChange={(e) => setReviewSettings(prev => ({ ...prev, templateName: e.target.value }))}
+                  placeholder="e.g. havoc_google_review"
+                  className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Matches your approved template in your Interakt dashboard (default: <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">havoc_google_review</code>).
+                </p>
+              </div>
+
+              {/* Interakt API Key */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold uppercase tracking-wider text-gray-700">
+                    Interakt API Key
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowInteraktKey(!showInteraktKey)}
+                    className="text-[11px] text-gray-500 hover:text-gray-700 flex items-center gap-1 font-normal normal-case"
+                  >
+                    {showInteraktKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    <span>{showInteraktKey ? "Hide" : "Show"}</span>
+                  </button>
+                </div>
+                <input
+                  type={showInteraktKey ? "text" : "password"}
+                  value={reviewSettings.interaktApiKey}
+                  onChange={(e) => setReviewSettings(prev => ({ ...prev, interaktApiKey: e.target.value }))}
+                  placeholder="Leave blank to use INTERAKT_API_KEY from .env"
+                  className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Optional override. Falls back to <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800">INTERAKT_API_KEY</code> in your environment file.
+                </p>
+              </div>
+
+              {/* Message Live Preview Card */}
+              <div className="p-4 rounded-xl bg-gray-50 border border-gray-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <MessageSquare className="w-4 h-4 text-emerald-600" />
+                  <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                    WhatsApp Message Preview
+                  </span>
+                </div>
+                <div className="bg-white p-3.5 rounded-lg border border-gray-200 text-xs text-gray-800 leading-relaxed font-sans shadow-sm">
+                  <p className="mb-2">
+                    Hey <span className="font-bold text-[#ff5a1f]">Aman</span>! 🏎️
+                  </p>
+                  <p className="mb-2">
+                    Thank you for racing with us at <strong>Havoc RC Fun Zone</strong>! We hope you had an adrenaline-pumping experience.
+                  </p>
+                  <p className="mb-2">
+                    Could you take 30 seconds to share a quick review on Google? It means the world to our crew:
+                  </p>
+                  <p className="font-bold text-blue-600 underline break-all">
+                    {reviewSettings.reviewUrl || "https://g.page/r/.../review"}
                   </p>
                 </div>
               </div>
 
-              {/* Template Setup Note */}
-              <div className="p-4 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-950 text-xs leading-relaxed space-y-1">
-                <div className="font-bold flex items-center gap-1.5 text-blue-900">
-                  <span>💡 How Interakt Template Variables Work:</span>
+              {/* Quick Setup Instructions Box */}
+              <div className="p-4 rounded-xl bg-amber-50/60 border border-amber-200/80 text-xs text-amber-900 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                  <Sparkles className="w-4 h-4 text-amber-600" />
+                  <span>How to set this up from scratch (Step-by-Step):</span>
                 </div>
-                <p>
-                  When creating your WhatsApp template in Interakt, configure it with these variables:
-                </p>
-                <ul className="list-disc list-inside font-medium text-blue-900/90 pl-1">
-                  <li><strong>{"{{1}}"}</strong> = Customer Name (e.g. <em>Racer</em> or <em>Rahul</em>)</li>
-                  <li><strong>{"{{2}}"}</strong> = Google Review Link (the link specified above)</li>
-                </ul>
+                <ol className="list-decimal pl-4 space-y-1 text-amber-900">
+                  <li>In your <strong>Interakt Dashboard</strong>, go to <strong>Templates</strong> &gt; <strong>Create New Template</strong>.</li>
+                  <li>Name it: <code className="bg-amber-100 px-1 py-0.5 rounded font-mono font-bold">havoc_google_review</code> (Category: Marketing or Utility).</li>
+                  <li>In the Body, write your message with variable <strong>{"{{1}}"}</strong> for Customer Name and <strong>{"{{2}}"}</strong> for the review link.</li>
+                  <li>Submit for approval (Meta approves within 5-15 minutes). Once approved, make sure the template name matches here!</li>
+                </ol>
               </div>
 
-              {/* Save & Test Grid */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-2 border-t border-gray-100">
-                {/* Test Send */}
+              {/* Test Send & Save Controls */}
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 pt-3 border-t border-gray-100">
+                {/* Test Send Input */}
                 <div className="flex items-center gap-2 max-w-sm">
                   <input
                     type="tel"
                     value={testReviewPhone}
                     onChange={(e) => setTestReviewPhone(e.target.value)}
-                    placeholder="Enter phone to test (e.g. 9876543210)"
-                    className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                    placeholder="Test phone (e.g. 9876543210)"
+                    className="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
                   <button
                     type="button"
@@ -895,14 +897,14 @@ export default function SettingsPage() {
                   </button>
                 </div>
 
-                {/* Submit Button */}
+                {/* Save Button */}
                 <button
                   type="submit"
                   disabled={isReviewSaving}
-                  className="bg-[#ff5a1f] text-white px-7 py-2.5 rounded-xl font-bold hover:bg-[#e04812] transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-60"
+                  className="bg-amber-600 text-white px-7 py-2.5 rounded-xl font-bold hover:bg-amber-700 transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-60"
                 >
                   {isReviewSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  <span>{isReviewSaving ? "Saving..." : "Save Review Settings"}</span>
+                  <span>{isReviewSaving ? "Saving Settings..." : "Save Google Review Settings"}</span>
                 </button>
               </div>
 

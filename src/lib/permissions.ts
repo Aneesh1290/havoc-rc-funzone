@@ -11,6 +11,7 @@ export const PERMISSION_GROUPS = {
     { key: "tickets", label: "Ticket Types", description: "Manage ticket pricing and inventory" },
     { key: "vip-perks", label: "VIP Perks (Sims)", description: "Manage simulator perks and combos" },
     { key: "slots", label: "Slots & Dates", description: "Manage slot schedules, colors, and dates" },
+    { key: "bands", label: "Band Inventory", description: "Manage wristband master list, stock tracking, and issue/return records" },
     { key: "coupons", label: "Coupons", description: "Manage promotional discount codes" },
     { key: "settings", label: "Settings", description: "Access store configurations and parameters" },
   ],

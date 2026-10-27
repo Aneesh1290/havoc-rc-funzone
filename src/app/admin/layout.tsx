@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users, Menu } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users, Menu, Layers } from "lucide-react";
 import { logoutAction } from "../login/actions";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -98,6 +98,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     { href: "/admin/tickets", key: "tickets", label: "Ticket Types", icon: Ticket },
     { href: "/admin/vip-perks", key: "vip-perks", label: "VIP Perks (Sims)", icon: Sparkles },
     { href: "/admin/slots", key: "slots", label: "Slots & Dates", icon: Clock },
+    { href: "/admin/bands", key: "bands", label: "Band Inventory", icon: Layers },
     { href: "/admin/coupons", key: "coupons", label: "Coupons", icon: Tag },
     { href: "/admin/staff", key: "staff", label: "Staff", icon: Users },
     { href: "/admin/settings", key: "settings", label: "Settings", icon: Settings },

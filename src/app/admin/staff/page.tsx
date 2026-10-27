@@ -21,7 +21,8 @@ import {
   CreditCard,
   CheckCircle2,
   QrCode,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Layers
 } from "lucide-react";
 import { 
   fetchStaffUsersAction, 
@@ -46,6 +47,7 @@ const MODULE_PERMISSIONS = [
   { key: "tickets", label: "Ticket Types", icon: Ticket },
   { key: "vip-perks", label: "VIP Perks", icon: Sparkles },
   { key: "slots", label: "Slots & Dates", icon: Clock },
+  { key: "bands", label: "Band Inventory", icon: Layers },
   { key: "coupons", label: "Coupons", icon: Tag },
   { key: "settings", label: "Settings", icon: Settings },
 ];

@@ -36,11 +36,49 @@ function getDatabasePath(): string {
 }
 
 const dbPath = getDatabasePath();
-const db = new Database(dbPath, { verbose: process.env.NODE_ENV === 'development' ? console.log : undefined });
+export const db = new Database(dbPath, { verbose: process.env.NODE_ENV === 'development' ? console.log : undefined });
 
 // Initialize database schema
 export function initDB() {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS band_items (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      band_code TEXT NOT NULL UNIQUE,
+      color_name TEXT NOT NULL,
+      color_hex TEXT NOT NULL,
+      category TEXT NOT NULL DEFAULT 'Standard',
+      status TEXT NOT NULL DEFAULT 'available', -- 'available', 'issued', 'damaged', 'lost', 'retired'
+      current_holder_name TEXT,
+      current_booking_id INTEGER,
+      current_order_number TEXT,
+      total_uses INTEGER NOT NULL DEFAULT 0,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS band_transactions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      band_id INTEGER NOT NULL,
+      band_code TEXT NOT NULL,
+      color_name TEXT NOT NULL,
+      color_hex TEXT NOT NULL,
+      transaction_type TEXT NOT NULL, -- 'STOCK_IN', 'STOCK_OUT', 'ISSUE', 'RETURN', 'DAMAGED', 'LOST', 'STATUS_CHANGE'
+      quantity INTEGER NOT NULL DEFAULT 1,
+      customer_name TEXT,
+      booking_id INTEGER,
+      order_number TEXT,
+      staff_name TEXT,
+      notes TEXT,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
+    CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
+    CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
+    CREATE INDEX IF NOT EXISTS idx_band_tx_band_id ON band_transactions(band_id);
+    CREATE INDEX IF NOT EXISTS idx_band_tx_type ON band_transactions(transaction_type);
+    CREATE INDEX IF NOT EXISTS idx_band_tx_created ON band_transactions(created_at);
     CREATE TABLE IF NOT EXISTS tickets (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,

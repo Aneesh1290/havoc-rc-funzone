@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBookingsByPhone } from "@/lib/db";
 import { normalizePhone, isBookingForToday } from "@/lib/deskOtpStore";
+import { getCountryByDialCode, validatePhoneNumber } from "@/lib/countries";
 
 export async function POST(req: NextRequest) {
   try {
@@ -16,9 +17,11 @@ export async function POST(req: NextRequest) {
     }
 
     const cleanPhone = normalizePhone(rawPhone);
-    if (cleanPhone.length < 7 || cleanPhone.length > 15) {
+    const country = getCountryByDialCode(countryCode);
+    const check = validatePhoneNumber(cleanPhone, country);
+    if (!check.valid) {
       return NextResponse.json(
-        { found: false, error: "Please enter a valid mobile number (7 to 15 digits)." },
+        { found: false, error: check.error || "Please enter a valid mobile number." },
         { status: 400 }
       );
     }

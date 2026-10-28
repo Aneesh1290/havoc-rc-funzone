@@ -3,22 +3,25 @@ export interface CountryCode {
   code: string; // ISO 2-letter
   dialCode: string;
   flag: string;
+  minDigits?: number;
+  maxDigits?: number;
+  placeholder?: string;
 }
 
 export const COUNTRY_CODES: CountryCode[] = [
-  { name: "India", code: "IN", dialCode: "+91", flag: "🇮🇳" },
-  { name: "United States", code: "US", dialCode: "+1", flag: "🇺🇸" },
-  { name: "United Kingdom", code: "GB", dialCode: "+44", flag: "🇬🇧" },
-  { name: "United Arab Emirates", code: "AE", dialCode: "+971", flag: "🇦🇪" },
-  { name: "Saudi Arabia", code: "SA", dialCode: "+966", flag: "🇸🇦" },
-  { name: "Qatar", code: "QA", dialCode: "+974", flag: "🇶🇦" },
-  { name: "Kuwait", code: "KW", dialCode: "+965", flag: "🇰🇼" },
-  { name: "Oman", code: "OM", dialCode: "+968", flag: "🇴🇲" },
-  { name: "Bahrain", code: "BH", dialCode: "+973", flag: "🇧🇭" },
-  { name: "Singapore", code: "SG", dialCode: "+65", flag: "🇸🇬" },
-  { name: "Malaysia", code: "MY", dialCode: "+60", flag: "🇲🇾" },
-  { name: "Australia", code: "AU", dialCode: "+61", flag: "🇦🇺" },
-  { name: "Canada", code: "CA", dialCode: "+1", flag: "🇨🇦" },
+  { name: "India", code: "IN", dialCode: "+91", flag: "🇮🇳", minDigits: 10, maxDigits: 10, placeholder: "98765 43210" },
+  { name: "United States", code: "US", dialCode: "+1", flag: "🇺🇸", minDigits: 10, maxDigits: 10, placeholder: "202 555 0123" },
+  { name: "United Kingdom", code: "GB", dialCode: "+44", flag: "🇬🇧", minDigits: 10, maxDigits: 10, placeholder: "7911 123456" },
+  { name: "United Arab Emirates", code: "AE", dialCode: "+971", flag: "🇦🇪", minDigits: 9, maxDigits: 9, placeholder: "50 123 4567" },
+  { name: "Saudi Arabia", code: "SA", dialCode: "+966", flag: "🇸🇦", minDigits: 9, maxDigits: 9, placeholder: "50 123 4567" },
+  { name: "Qatar", code: "QA", dialCode: "+974", flag: "🇶🇦", minDigits: 8, maxDigits: 8, placeholder: "3312 3456" },
+  { name: "Kuwait", code: "KW", dialCode: "+965", flag: "🇰🇼", minDigits: 8, maxDigits: 8, placeholder: "9123 4567" },
+  { name: "Oman", code: "OM", dialCode: "+968", flag: "🇴🇲", minDigits: 8, maxDigits: 8, placeholder: "9123 4567" },
+  { name: "Bahrain", code: "BH", dialCode: "+973", flag: "🇧🇭", minDigits: 8, maxDigits: 8, placeholder: "3912 3456" },
+  { name: "Singapore", code: "SG", dialCode: "+65", flag: "🇸🇬", minDigits: 8, maxDigits: 8, placeholder: "8123 4567" },
+  { name: "Malaysia", code: "MY", dialCode: "+60", flag: "🇲🇾", minDigits: 9, maxDigits: 10, placeholder: "12 345 6789" },
+  { name: "Australia", code: "AU", dialCode: "+61", flag: "🇦🇺", minDigits: 9, maxDigits: 9, placeholder: "412 345 678" },
+  { name: "Canada", code: "CA", dialCode: "+1", flag: "🇨🇦", minDigits: 10, maxDigits: 10, placeholder: "416 555 0123" },
   { name: "Germany", code: "DE", dialCode: "+49", flag: "🇩🇪" },
   { name: "France", code: "FR", dialCode: "+33", flag: "🇫🇷" },
   { name: "Italy", code: "IT", dialCode: "+39", flag: "🇮🇹" },
@@ -89,3 +92,52 @@ export const COUNTRY_CODES: CountryCode[] = [
   { name: "Turkey", code: "TR", dialCode: "+90", flag: "🇹🇷" },
   { name: "Ukraine", code: "UA", dialCode: "+380", flag: "🇺🇦" },
 ];
+
+export function getCountryByDialCode(dialCode: string): CountryCode | undefined {
+  const clean = (dialCode || "").trim();
+  return COUNTRY_CODES.find((c) => c.dialCode === clean || c.code === clean);
+}
+
+export function getExpectedPhoneDigits(country: CountryCode | undefined): { min: number; max: number; placeholder: string } {
+  if (!country) return { min: 7, max: 15, placeholder: "Phone Number" };
+  const min = country.minDigits || (country.dialCode === "+91" ? 10 : 7);
+  const max = country.maxDigits || (country.dialCode === "+91" ? 10 : 15);
+  const placeholder = country.placeholder || (country.dialCode === "+91" ? "98765 43210" : "Phone Number");
+  return { min, max, placeholder };
+}
+
+export function validatePhoneNumber(rawDigits: string, country: CountryCode | undefined): { valid: boolean; error?: string } {
+  const digits = (rawDigits || "").replace(/\D/g, "");
+  const { min, max } = getExpectedPhoneDigits(country);
+  const countryName = country?.name || "selected country";
+
+  if (!digits) {
+    return { valid: false, error: "Please enter your mobile number." };
+  }
+
+  if (min === max) {
+    if (digits.length !== min) {
+      return {
+        valid: false,
+        error: `${countryName} mobile numbers must be exactly ${min} digits (you entered ${digits.length}).`,
+      };
+    }
+  } else {
+    if (digits.length < min || digits.length > max) {
+      return {
+        valid: false,
+        error: `${countryName} mobile numbers must be between ${min} and ${max} digits (you entered ${digits.length}).`,
+      };
+    }
+  }
+
+  // Extra check for India: must start with 6, 7, 8, or 9
+  if (country?.dialCode === "+91" && !/^[6-9]/.test(digits)) {
+    return {
+      valid: false,
+      error: "Indian mobile numbers must start with 6, 7, 8, or 9.",
+    };
+  }
+
+  return { valid: true };
+}

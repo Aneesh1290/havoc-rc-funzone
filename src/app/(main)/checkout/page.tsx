@@ -7,7 +7,7 @@ import { useState, useEffect } from "react";
 import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
 import { getPublicPaymentConfigAction, PublicPaymentConfig } from "@/app/actions/payment-settings";
 import { useRouter } from "next/navigation";
-import { COUNTRY_CODES } from "@/lib/countries";
+import { COUNTRY_CODES, validatePhoneNumber, getExpectedPhoneDigits } from "@/lib/countries";
 import { formatOrderNumber } from "@/lib/order-utils";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -134,6 +134,13 @@ export default function CheckoutPage() {
 
     if (!agreedToTerms) {
       setValidationError("Please agree to the Terms & Conditions and Refund Policy to proceed.");
+      return;
+    }
+
+    // Strict country phone validation
+    const phoneCheck = validatePhoneNumber(formData.phone, selectedCountry);
+    if (!phoneCheck.valid) {
+      setValidationError(phoneCheck.error || "Please enter a valid phone number.");
       return;
     }
     
@@ -451,14 +458,37 @@ export default function CheckoutPage() {
                     </div>
 
                     {/* Phone Number Input */}
-                    <input 
-                      type="tel" 
-                      required
-                      placeholder="e.g. 98765 43210" 
-                      value={formData.phone}
-                      onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                      className="flex-1 min-w-0 bg-white border border-gray-200 rounded-r-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] text-gray-900 transition-all font-medium"
-                    />
+                    {(() => {
+                      const { min, max, placeholder } = getExpectedPhoneDigits(selectedCountry);
+                      return (
+                        <div className="flex-1 min-w-0 flex flex-col">
+                          <input 
+                            type="tel" 
+                            inputMode="numeric"
+                            required
+                            placeholder={`e.g. ${placeholder}`} 
+                            value={formData.phone}
+                            maxLength={max}
+                            onChange={(e) => {
+                              const digits = e.target.value.replace(/\D/g, "").slice(0, max);
+                              setFormData({ ...formData, phone: digits });
+                              if (validationError) setValidationError(null);
+                            }}
+                            className="w-full bg-white border border-gray-200 rounded-r-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] text-gray-900 transition-all font-medium font-mono text-base tracking-wide"
+                          />
+                          <div className="flex items-center justify-between text-[11px] text-gray-400 mt-1 px-1">
+                            <span>
+                              {min === max
+                                ? `Requires exactly ${min} digits`
+                                : `Between ${min} and ${max} digits`}
+                            </span>
+                            <span className={formData.phone.length === max ? "text-emerald-600 font-bold" : ""}>
+                              {formData.phone.length} / {max}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               </div>

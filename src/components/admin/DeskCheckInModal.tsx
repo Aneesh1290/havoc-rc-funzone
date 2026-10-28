@@ -50,38 +50,12 @@ interface SessionBooking {
   slot_color_name?: string | null;
 }
 
-export const COUNTRY_CODES = [
-  { code: "+91", iso: "IN", name: "India" },
-  { code: "+971", iso: "AE", name: "UAE" },
-  { code: "+1", iso: "US", name: "USA / Canada" },
-  { code: "+44", iso: "GB", name: "UK" },
-  { code: "+65", iso: "SG", name: "Singapore" },
-  { code: "+61", iso: "AU", name: "Australia" },
-  { code: "+966", iso: "SA", name: "Saudi Arabia" },
-  { code: "+974", iso: "QA", name: "Qatar" },
-  { code: "+965", iso: "KW", name: "Kuwait" },
-  { code: "+968", iso: "OM", name: "Oman" },
-  { code: "+973", iso: "BH", name: "Bahrain" },
-  { code: "+60", iso: "MY", name: "Malaysia" },
-  { code: "+49", iso: "DE", name: "Germany" },
-  { code: "+33", iso: "FR", name: "France" },
-  { code: "+94", iso: "LK", name: "Sri Lanka" },
-  { code: "+977", iso: "NP", name: "Nepal" },
-  { code: "+880", iso: "BD", name: "Bangladesh" },
-  { code: "+64", iso: "NZ", name: "New Zealand" },
-  { code: "+7", iso: "RU", name: "Russia" },
-  { code: "+81", iso: "JP", name: "Japan" },
-  { code: "+82", iso: "KR", name: "South Korea" },
-  { code: "+86", iso: "CN", name: "China" },
-  { code: "+62", iso: "ID", name: "Indonesia" },
-  { code: "+63", iso: "PH", name: "Philippines" },
-  { code: "+66", iso: "TH", name: "Thailand" },
-  { code: "+27", iso: "ZA", name: "South Africa" },
-  { code: "+31", iso: "NL", name: "Netherlands" },
-  { code: "+41", iso: "CH", name: "Switzerland" },
-  { code: "+39", iso: "IT", name: "Italy" },
-  { code: "+34", iso: "ES", name: "Spain" },
-];
+import { 
+  COUNTRY_CODES, 
+  validatePhoneNumber, 
+  getExpectedPhoneDigits, 
+  getCountryByDialCode 
+} from "@/lib/countries";
 
 export default function DeskCheckInModal({
   isOpen,
@@ -200,25 +174,29 @@ export default function DeskCheckInModal({
 
   if (!isOpen) return null;
 
-  // Clean phone string (numbers only, up to 15 digits)
+  // Dynamic country rule lookup based on current country code
+  const selectedCountry = COUNTRY_CODES.find((c) => c.dialCode === countryCode || c.code === countryCode) || COUNTRY_CODES[0];
+  const { min: expectedMin, max: expectedMax, placeholder: expectedPlaceholder } = getExpectedPhoneDigits(selectedCountry);
+
+  // Clean phone string (strictly numbers only, capped to selected country's max digits)
   const cleanPhoneInput = (val: string) => {
-    const digits = val.replace(/\D/g, "");
-    if (digits.length <= 15) {
-      setPhoneNumber(digits);
-      setFoundSessions([]);
-      setFoundCustomerName("");
-      setUnpaidCount(0);
-      setTotalDue(0);
-      setLookupError(null);
-      setSendOtpError(null);
-    }
+    const digits = val.replace(/\D/g, "").slice(0, expectedMax);
+    setPhoneNumber(digits);
+    setFoundSessions([]);
+    setFoundCustomerName("");
+    setUnpaidCount(0);
+    setTotalDue(0);
+    setLookupError(null);
+    setSendOtpError(null);
   };
 
   // Step 1: Handle Phone Lookup
   const handlePhoneLookup = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    if (phoneNumber.length < 7 || phoneNumber.length > 15) {
-      setLookupError("Please enter a valid mobile number (7 to 15 digits).");
+
+    const check = validatePhoneNumber(phoneNumber, selectedCountry);
+    if (!check.valid) {
+      setLookupError(check.error || "Please enter a valid mobile number.");
       return;
     }
 
@@ -492,8 +470,6 @@ export default function DeskCheckInModal({
   // Format currency
   const formatInr = (amt: number) => `₹${amt.toLocaleString("en-IN")}`;
 
-  const selectedCountry = COUNTRY_CODES.find((c) => c.code === countryCode) || COUNTRY_CODES[0];
-
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
       <div className="relative w-full max-w-2xl bg-white text-gray-900 border border-gray-200 rounded-2xl sm:rounded-3xl shadow-2xl overflow-hidden my-auto">
@@ -612,18 +588,21 @@ export default function DeskCheckInModal({
                   <div className="flex-1 flex rounded-xl border border-gray-300 bg-white focus-within:border-amber-500 focus-within:ring-2 focus-within:ring-amber-500/20 shadow-sm transition-all overflow-hidden">
                     <div className="relative flex items-center bg-gray-50/90 border-r border-gray-200 px-3 hover:bg-gray-100 transition-colors shrink-0 cursor-pointer">
                       <div className="flex items-center gap-1.5 pointer-events-none select-none">
+                        <span className="text-base leading-none">{selectedCountry.flag}</span>
                         <span className="px-1.5 py-0.5 rounded text-[11px] font-bold font-mono tracking-wider bg-gray-200/80 text-gray-700 uppercase">
-                          {selectedCountry.iso}
+                          {selectedCountry.code}
                         </span>
                         <span className="font-mono font-bold text-sm text-gray-900 tracking-tight">
-                          {selectedCountry.code}
+                          {selectedCountry.dialCode}
                         </span>
                         <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
                       </div>
                       <select
                         value={countryCode}
                         onChange={(e) => {
-                          setCountryCode(e.target.value);
+                          const newCode = e.target.value;
+                          setCountryCode(newCode);
+                          setPhoneNumber(""); // Reset on country change to prevent invalid length
                           setFoundSessions([]);
                           setFoundCustomerName("");
                           setUnpaidCount(0);
@@ -635,28 +614,40 @@ export default function DeskCheckInModal({
                         title="Select Country Code"
                       >
                         {COUNTRY_CODES.map((c) => (
-                          <option key={c.code} value={c.code} className="text-gray-900 font-sans font-medium">
-                            {c.iso} ({c.code}) — {c.name}
+                          <option key={c.code} value={c.dialCode} className="text-gray-900 font-sans font-medium">
+                            {c.flag} {c.code} ({c.dialCode}) — {c.name}
                           </option>
                         ))}
                       </select>
                     </div>
-                    <input
-                      ref={phoneInputRef}
-                      type="tel"
-                      inputMode="numeric"
-                      value={phoneNumber}
-                      onChange={(e) => cleanPhoneInput(e.target.value)}
-                      placeholder="98765 43210"
-                      maxLength={15}
-                      className="w-full bg-white text-gray-900 font-mono font-bold text-base sm:text-lg px-3.5 py-3 focus:outline-none placeholder:text-gray-400"
-                    />
+                    <div className="flex-1 flex flex-col justify-center px-3.5 py-1.5">
+                      <input
+                        ref={phoneInputRef}
+                        type="tel"
+                        inputMode="numeric"
+                        value={phoneNumber}
+                        onChange={(e) => cleanPhoneInput(e.target.value)}
+                        placeholder={`e.g. ${expectedPlaceholder}`}
+                        maxLength={expectedMax}
+                        className="w-full bg-white text-gray-900 font-mono font-bold text-base sm:text-lg focus:outline-none placeholder:text-gray-400"
+                      />
+                      <div className="flex items-center justify-between text-[10px] text-gray-400 mt-0.5">
+                        <span>
+                          {expectedMin === expectedMax
+                            ? `Requires ${expectedMin} digits`
+                            : `${expectedMin}–${expectedMax} digits`}
+                        </span>
+                        <span className={phoneNumber.length === expectedMax ? "text-emerald-600 font-bold" : ""}>
+                          {phoneNumber.length} / {expectedMax}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
                   <button
                     type="submit"
-                    disabled={isLookingUp || phoneNumber.length < 7}
-                    className="px-4 sm:px-6 py-3 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.98] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap"
+                    disabled={isLookingUp || phoneNumber.length < expectedMin}
+                    className="px-4 sm:px-6 py-3 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.98] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 whitespace-nowrap self-stretch sm:self-auto"
                   >
                     {isLookingUp ? (
                       <>

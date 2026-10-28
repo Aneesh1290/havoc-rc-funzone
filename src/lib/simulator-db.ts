@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-const SIMULATOR_DATABASE_URL = process.env.SIMULATOR_DATABASE_URL;
+const SIMULATOR_DATABASE_URL = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL;
 
 if (!SIMULATOR_DATABASE_URL) {
   console.warn("WARNING: SIMULATOR_DATABASE_URL is not set in environment variables.");

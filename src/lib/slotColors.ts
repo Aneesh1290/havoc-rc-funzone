@@ -8,37 +8,40 @@ export interface WristbandColor {
 }
 
 export const WRISTBAND_PALETTE: WristbandColor[] = [
-  { hex: "#06B6D4", name: "Cyan / Neon Blue", bgClass: "bg-cyan-100", textClass: "text-cyan-800", borderClass: "border-cyan-300", ringClass: "ring-cyan-400" },
-  { hex: "#10B981", name: "Emerald Green",    bgClass: "bg-emerald-100", textClass: "text-emerald-800", borderClass: "border-emerald-300", ringClass: "ring-emerald-400" },
-  { hex: "#F59E0B", name: "Amber Yellow",     bgClass: "bg-amber-100", textClass: "text-amber-800", borderClass: "border-amber-300", ringClass: "ring-amber-400" },
-  { hex: "#F97316", name: "Vibrant Orange",   bgClass: "bg-orange-100", textClass: "text-orange-800", borderClass: "border-orange-300", ringClass: "ring-orange-400" },
-  { hex: "#EF4444", name: "Ruby Red",         bgClass: "bg-rose-100", textClass: "text-rose-800", borderClass: "border-rose-300", ringClass: "ring-rose-400" },
-  { hex: "#8B5CF6", name: "Electric Purple",  bgClass: "bg-purple-100", textClass: "text-purple-800", borderClass: "border-purple-300", ringClass: "ring-purple-400" },
-  { hex: "#EC4899", name: "Neon Pink",        bgClass: "bg-pink-100", textClass: "text-pink-800", borderClass: "border-pink-300", ringClass: "ring-pink-400" },
-  { hex: "#3B82F6", name: "Royal Blue",       bgClass: "bg-blue-100", textClass: "text-blue-800", borderClass: "border-blue-300", ringClass: "ring-blue-400" },
-  { hex: "#14B8A6", name: "Mint Teal",        bgClass: "bg-teal-100", textClass: "text-teal-800", borderClass: "border-teal-300", ringClass: "ring-teal-400" },
-  { hex: "#84CC16", name: "Lime Green",       bgClass: "bg-lime-100", textClass: "text-lime-800", borderClass: "border-lime-300", ringClass: "ring-lime-400" },
-  { hex: "#EAB308", name: "Golden Yellow",    bgClass: "bg-yellow-100", textClass: "text-yellow-800", borderClass: "border-yellow-300", ringClass: "ring-yellow-400" },
-  { hex: "#6366F1", name: "Indigo Night",     bgClass: "bg-indigo-100", textClass: "text-indigo-800", borderClass: "border-indigo-300", ringClass: "ring-indigo-400" },
-  { hex: "#64748B", name: "Slate Silver",     bgClass: "bg-slate-100", textClass: "text-slate-800", borderClass: "border-slate-300", ringClass: "ring-slate-400" },
+  { hex: "#FFF0B3", name: "Yellow",          bgClass: "bg-yellow-100",  textClass: "text-yellow-800", borderClass: "border-yellow-300", ringClass: "ring-yellow-400" },
+  { hex: "#10B981", name: "Green",           bgClass: "bg-emerald-100", textClass: "text-emerald-800", borderClass: "border-emerald-300", ringClass: "ring-emerald-400" },
+  { hex: "#EF4444", name: "Red",             bgClass: "bg-rose-100",    textClass: "text-rose-800", borderClass: "border-rose-300", ringClass: "ring-rose-400" },
+  { hex: "#3B82F6", name: "Blue",            bgClass: "bg-blue-100",    textClass: "text-blue-800", borderClass: "border-blue-300", ringClass: "ring-blue-400" },
+  { hex: "#F97316", name: "Orange",          bgClass: "bg-orange-100",  textClass: "text-orange-800", borderClass: "border-orange-300", ringClass: "ring-orange-400" },
+  { hex: "#8B5CF6", name: "Purple",          bgClass: "bg-purple-100",  textClass: "text-purple-800", borderClass: "border-purple-300", ringClass: "ring-purple-400" },
+  { hex: "#18181B", name: "Black",           bgClass: "bg-zinc-800",    textClass: "text-zinc-100", borderClass: "border-zinc-900", ringClass: "ring-zinc-600" },
+  { hex: "#1AF9F9", name: "Aqua",            bgClass: "bg-cyan-100",    textClass: "text-cyan-800", borderClass: "border-cyan-300", ringClass: "ring-cyan-400" },
+  { hex: "#F4F4F5", name: "White",           bgClass: "bg-zinc-100",    textClass: "text-zinc-800", borderClass: "border-zinc-300", ringClass: "ring-zinc-400" },
+  { hex: "#FFD700", name: "Gold",            bgClass: "bg-amber-100",   textClass: "text-amber-800", borderClass: "border-amber-300", ringClass: "ring-amber-400" },
+  { hex: "#06B6D4", name: "Cyan / Neon Blue",bgClass: "bg-cyan-100",    textClass: "text-cyan-800", borderClass: "border-cyan-300", ringClass: "ring-cyan-400" },
+  { hex: "#EC4899", name: "Neon Pink",        bgClass: "bg-pink-100",    textClass: "text-pink-800", borderClass: "border-pink-300", ringClass: "ring-pink-400" },
+  { hex: "#14B8A6", name: "Mint Teal",        bgClass: "bg-teal-100",    textClass: "text-teal-800", borderClass: "border-teal-300", ringClass: "ring-teal-400" },
+  { hex: "#84CC16", name: "Lime Green",       bgClass: "bg-lime-100",    textClass: "text-lime-800", borderClass: "border-lime-300", ringClass: "ring-lime-400" },
+  { hex: "#6366F1", name: "Indigo Night",     bgClass: "bg-indigo-100",  textClass: "text-indigo-800", borderClass: "border-indigo-300", ringClass: "ring-indigo-400" },
+  { hex: "#64748B", name: "Slate Silver",     bgClass: "bg-slate-100",   textClass: "text-slate-800", borderClass: "border-slate-300", ringClass: "ring-slate-400" },
 ];
 
 /**
  * Fallback mapping if a slot does not have a color in database yet
  */
 export const DEFAULT_SLOT_COLORS: Record<string, string> = {
-  "11AM-12PM": "#06B6D4", // Cyan
-  "12PM-1PM":  "#10B981", // Emerald
-  "1PM-2PM":   "#F59E0B", // Amber
-  "2PM-3PM":   "#F97316", // Orange
-  "3PM-4PM":   "#EF4444", // Red
+  "11AM-12PM": "#FFF0B3", // Yellow
+  "12PM-1PM":  "#10B981", // Green
+  "1PM-2PM":   "#EF4444", // Red
+  "2PM-3PM":   "#3B82F6", // Blue
+  "3PM-4PM":   "#F97316", // Orange
   "4PM-5PM":   "#8B5CF6", // Purple
-  "5PM-6PM":   "#EC4899", // Pink
-  "6PM-7PM":   "#3B82F6", // Royal Blue
-  "7PM-8PM":   "#14B8A6", // Teal
-  "8PM-9PM":   "#84CC16", // Lime
-  "9PM-10PM":  "#EAB308", // Golden Yellow
-  "10PM-11PM": "#6366F1", // Indigo
+  "5PM-6PM":   "#18181B", // Black
+  "6PM-7PM":   "#1AF9F9", // Aqua
+  "7PM-8PM":   "#F4F4F5", // White
+  "8PM-9PM":   "#FFD700", // Gold
+  "9PM-10PM":  "#06B6D4", // Cyan
+  "10PM-11PM": "#EC4899", // Pink
   "11PM-12AM": "#64748B", // Slate
 };
 
@@ -46,37 +49,28 @@ export const DEFAULT_SLOT_COLORS: Record<string, string> = {
  * Common color name keywords to Hex codes mapping
  */
 export const COLOR_NAME_TO_HEX: Record<string, string> = {
-  "yellow": "#FACC15",
-  "gold": "#EAB308",
-  "golden": "#EAB308",
-  "amber": "#F59E0B",
-  "red": "#EF4444",
-  "crimson": "#DC2626",
-  "ruby": "#E11D48",
-  "blue": "#3B82F6",
-  "cyan": "#06B6D4",
-  "navy": "#1E3A8A",
-  "royal blue": "#2563EB",
-  "sky blue": "#38BDF8",
+  "yellow": "#FFF0B3",
   "green": "#10B981",
-  "emerald": "#059669",
-  "lime": "#84CC16",
+  "emerald": "#10B981",
+  "red": "#EF4444",
+  "ruby": "#EF4444",
+  "blue": "#3B82F6",
+  "royal blue": "#3B82F6",
   "orange": "#F97316",
   "purple": "#8B5CF6",
-  "violet": "#7C3AED",
-  "pink": "#EC4899",
-  "magenta": "#D946EF",
-  "rose": "#F43F5E",
-  "teal": "#14B8A6",
-  "mint": "#2DD4BF",
-  "indigo": "#6366F1",
   "black": "#18181B",
+  "aqua": "#1AF9F9",
+  "cyan": "#1AF9F9",
   "white": "#F4F4F5",
-  "gray": "#71717A",
-  "grey": "#71717A",
-  "silver": "#94A3B8",
+  "gold": "#FFD700",
+  "golden": "#FFD700",
+  "amber": "#F59E0B",
+  "pink": "#EC4899",
+  "teal": "#14B8A6",
+  "lime": "#84CC16",
+  "indigo": "#6366F1",
   "slate": "#64748B",
-  "brown": "#78350F",
+  "silver": "#94A3B8",
 };
 
 export function resolveColorNameToHex(name: string): string | null {

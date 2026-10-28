@@ -93,7 +93,7 @@ export default function BandInventoryPage() {
 
   // Form States: Bulk Generator
   const [isBulkMode, setIsBulkMode] = useState(false);
-  const [bulkPrefix, setBulkPrefix] = useState("BND-CYAN");
+  const [bulkPrefix, setBulkPrefix] = useState("BND-YEL");
   const [bulkStartNum, setBulkStartNum] = useState(1);
   const [bulkCount, setBulkCount] = useState(10);
 

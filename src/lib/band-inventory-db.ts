@@ -128,31 +128,38 @@ async function ensurePgSchema() {
   }
 }
 
+export const TARGET_SLOT_BAND_COLORS = [
+  { code: "YEL", name: "Yellow", hex: "#FFF0B3", count: 10 },
+  { code: "GRN", name: "Green",  hex: "#10B981", count: 10 },
+  { code: "RED", name: "Red",    hex: "#EF4444", count: 10 },
+  { code: "BLU", name: "Blue",   hex: "#3B82F6", count: 10 },
+  { code: "ORG", name: "Orange", hex: "#F97316", count: 10 },
+  { code: "PUR", name: "Purple", hex: "#8B5CF6", count: 10 },
+  { code: "BLK", name: "Black",  hex: "#18181B", count: 10 },
+  { code: "AQU", name: "Aqua",   hex: "#1AF9F9", count: 10 },
+  { code: "WHT", name: "White",  hex: "#F4F4F5", count: 10 },
+  { code: "GLD", name: "Gold",   hex: "#FFD700", count: 10 },
+];
+
 export async function ensureBandInventorySeeded() {
   initDB();
 
   if (isPostgresActive()) {
     await ensurePgSchema();
     try {
-      const checkRes = await simulatorPool.query("SELECT COUNT(*)::int as count FROM band_items");
-      if (checkRes.rows[0]?.count === 0) {
-        console.log("[Band Inventory Postgres] Seeding starter wristband inventory into shared DB...");
-        const seedColors = [
-          { code: "CYAN", name: "Cyan / Neon Blue", hex: "#06B6D4", count: 10 },
-          { code: "GRN",  name: "Emerald Green",    hex: "#10B981", count: 10 },
-          { code: "AMB",  name: "Amber Yellow",     hex: "#F59E0B", count: 10 },
-          { code: "ORG",  name: "Vibrant Orange",   hex: "#F97316", count: 10 },
-          { code: "RED",  name: "Ruby Red",         hex: "#EF4444", count: 10 },
-          { code: "PUR",  name: "Electric Purple",  hex: "#8B5CF6", count: 10 },
-        ];
-
-        for (const item of seedColors) {
+      for (const item of TARGET_SLOT_BAND_COLORS) {
+        const check = await simulatorPool.query(
+          "SELECT COUNT(*)::int as count FROM band_items WHERE UPPER(color_name) = UPPER($1) OR UPPER(color_hex) = UPPER($2)",
+          [item.name, item.hex]
+        );
+        if (check.rows[0]?.count === 0) {
           for (let i = 1; i <= item.count; i++) {
             const padNum = String(i).padStart(3, "0");
             const bandCode = `BND-${item.code}-${padNum}`;
             const insRes = await simulatorPool.query(
               `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-                 VALUES ($1, $2, $3, 'Standard', 'available', 0, 'Initial Starter Stock')
+                 VALUES ($1, $2, $3, 'Standard', 'available', 0, 'Starter Stock')
+                 ON CONFLICT (band_code) DO NOTHING
                  RETURNING id`,
               [bandCode, item.name, item.hex]
             );
@@ -160,53 +167,42 @@ export async function ensureBandInventorySeeded() {
             if (newId) {
               await simulatorPool.query(
                 `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
-                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, 'System Setup', 'Initial Master Stock In')`,
+                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, 'System Setup', 'Starter Stock In')`,
                 [newId, bandCode, item.name, item.hex]
               );
             }
           }
         }
-        console.log("[Band Inventory Postgres] Seeded 60 starter wristbands in shared DB.");
       }
     } catch (err) {
       console.error("[Band Inventory Postgres] Failed check/seed in Postgres:", err);
     }
   }
 
-  // Also seed local SQLite as backup
+  // Also ensure all 10 colors in local SQLite
   try {
-    const countRow = db.prepare("SELECT COUNT(*) as count FROM band_items").get() as { count: number } | undefined;
-    if (countRow && countRow.count === 0) {
-      const seedColors = [
-        { code: "CYAN", name: "Cyan / Neon Blue", hex: "#06B6D4", count: 10 },
-        { code: "GRN",  name: "Emerald Green",    hex: "#10B981", count: 10 },
-        { code: "AMB",  name: "Amber Yellow",     hex: "#F59E0B", count: 10 },
-        { code: "ORG",  name: "Vibrant Orange",   hex: "#F97316", count: 10 },
-        { code: "RED",  name: "Ruby Red",         hex: "#EF4444", count: 10 },
-        { code: "PUR",  name: "Electric Purple",  hex: "#8B5CF6", count: 10 },
-      ];
+    for (const item of TARGET_SLOT_BAND_COLORS) {
+      const exist = db.prepare(
+        "SELECT COUNT(*) as count FROM band_items WHERE UPPER(color_name) = UPPER(?) OR UPPER(color_hex) = UPPER(?)"
+      ).get(item.name, item.hex) as { count: number } | undefined;
 
-      const insertItem = db.prepare(`
-        INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-        VALUES (?, ?, ?, 'Standard', 'available', 0, 'Initial Starter Stock')
-      `);
+      if (!exist || exist.count === 0) {
+        for (let i = 1; i <= item.count; i++) {
+          const padNum = String(i).padStart(3, "0");
+          const bandCode = `BND-${item.code}-${padNum}`;
+          try {
+            const info = db.prepare(`
+              INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
+              VALUES (?, ?, ?, 'Standard', 'available', 0, 'Starter Stock')
+            `).run(bandCode, item.name, item.hex);
 
-      const insertTx = db.prepare(`
-        INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
-        VALUES (?, ?, ?, ?, 'STOCK_IN', 1, 'System Setup', 'Initial Master Stock In')
-      `);
-
-      const seedTx = db.transaction(() => {
-        for (const item of seedColors) {
-          for (let i = 1; i <= item.count; i++) {
-            const padNum = String(i).padStart(3, "0");
-            const bandCode = `BND-${item.code}-${padNum}`;
-            const info = insertItem.run(bandCode, item.name, item.hex);
-            insertTx.run(info.lastInsertRowid, bandCode, item.name, item.hex);
-          }
+            db.prepare(`
+              INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
+              VALUES (?, ?, ?, ?, 'STOCK_IN', 1, 'System Setup', 'Starter Stock In')
+            `).run(info.lastInsertRowid, bandCode, item.name, item.hex);
+          } catch (ignore) {}
         }
-      });
-      seedTx();
+      }
     }
   } catch (err) {
     console.error("[Band Inventory SQLite] Failed to seed initial bands:", err);

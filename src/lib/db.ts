@@ -624,36 +624,48 @@ export function cancelDeskBookings(ids: number[], reason = "Customer Walkout / N
   `).run(...ids);
 }
 
-export function reduceBookingQuantity(bookingId: number, countToReduce: number = 1, reason = "Partial Walkout at Desk") {
+export function adjustBookingQuantity(bookingId: number, targetQty: number, reason = "Desk Quantity Adjustment") {
   const current = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId) as any;
   if (!current) return null;
 
   const currentQty = Number(current.quantity) || 1;
-  const newQty = Math.max(0, currentQty - countToReduce);
-  const tagNote = `[Reduced by ${countToReduce}: ${reason}]`;
+  const newQty = Math.max(0, targetQty);
 
   if (newQty <= 0) {
-    // If reduced to 0, cancel the whole session
     cancelDeskBookings([bookingId], reason);
     return { canceled: true, newQuantity: 0, newTotal: 0 };
   }
 
+  // If session was previously canceled and we are adding players back, reactivate fulfillment status
+  const isCanceled = (current.fulfillment_status || '').toLowerCase() === 'canceled';
+  const newFulfillmentStatus = isCanceled ? 'Unfulfilled' : (current.fulfillment_status || 'Unfulfilled');
+
   // Recalculate total amount proportionally
-  const unitPrice = current.ticket_price || (current.total_amount / currentQty);
-  const newTotal = Math.round(unitPrice * newQty * 1.18); // including standard GST proportion if applied
+  const unitPrice = current.ticket_price || (currentQty > 0 ? (current.total_amount / (currentQty * 1.18)) : (current.total_amount || 0));
+  const newTotal = Math.round(unitPrice * newQty * 1.18);
+  const tagNote = `[Qty changed from ${currentQty} to ${newQty}: ${reason}]`;
 
   db.prepare(`
     UPDATE bookings 
     SET quantity = ?,
         total_amount = ?,
+        fulfillment_status = ?,
         tags = CASE 
           WHEN tags IS NULL OR tags = '' THEN '${tagNote}'
           ELSE tags || ' ' || '${tagNote}'
         END
     WHERE id = ?
-  `).run(newQty, newTotal, bookingId);
+  `).run(newQty, newTotal, newFulfillmentStatus, bookingId);
 
   return { canceled: false, newQuantity: newQty, newTotal };
+}
+
+export function reduceBookingQuantity(bookingId: number, countToReduce: number = 1, reason = "Partial Walkout at Desk") {
+  const current = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId) as any;
+  if (!current) return null;
+
+  const currentQty = Number(current.quantity) || 1;
+  return adjustBookingQuantity(bookingId, currentQty - countToReduce, reason);
 }
 
 export function deleteBookings(ids: number[]) {

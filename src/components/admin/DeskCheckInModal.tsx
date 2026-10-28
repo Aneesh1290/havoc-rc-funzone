@@ -24,6 +24,8 @@ import {
   UserMinus,
   Trash2,
   Minus,
+  Plus,
+  Edit3,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -407,6 +409,50 @@ export default function DeskCheckInModal({
     const confirmMsg = `Remove 1 player from "${session.ticket_name}" (Current: ${currentQty} → New: ${currentQty - 1})?\nThis will adjust the amount due immediately.`;
     if (!confirm(confirmMsg)) return;
 
+    await executeQuantityAdjustment(sessionId, currentQty - 1, `Removed 1 player from ${session.ticket_name}`);
+  };
+
+  // Handler: Add 1 player back to the ticket (e.g. player changed mind or arrived late)
+  const handleIncreaseParticipant = async (sessionId: number) => {
+    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const session = list.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const currentQty = session.quantity;
+    const newQty = currentQty + 1;
+    await executeQuantityAdjustment(sessionId, newQty, `Added 1 player back to ${session.ticket_name}`);
+  };
+
+  // Handler: Set exact participant count (e.g. remove 2, 3, or set to specific number)
+  const handleCustomParticipantCount = async (sessionId: number) => {
+    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const session = list.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const currentQty = session.quantity;
+    const input = prompt(
+      `Set number of playing participants for "${session.ticket_name}":\n(Current: ${currentQty})\nEnter 0 to cancel this session entirely.`,
+      String(currentQty)
+    );
+    if (input === null) return; // User cancelled prompt
+
+    const parsed = parseInt(input.trim(), 10);
+    if (isNaN(parsed) || parsed < 0) {
+      alert("Please enter a valid number of players (0 or greater).");
+      return;
+    }
+
+    if (parsed === currentQty) return;
+
+    if (parsed === 0) {
+      return handleCancelWalkout([sessionId], "All Players Backed Out at Desk");
+    }
+
+    await executeQuantityAdjustment(sessionId, parsed, `Adjusted ${session.ticket_name} to ${parsed} players`);
+  };
+
+  // Helper executing API call and state sync
+  const executeQuantityAdjustment = async (sessionId: number, targetQty: number, actionDescription: string) => {
     setIsCancelingWalkout(true);
     setWalkoutNotice(null);
 
@@ -416,8 +462,8 @@ export default function DeskCheckInModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           order_ids: [sessionId],
-          reduce_quantity: 1,
-          reason: "Participant Backed Out at Desk",
+          target_quantity: targetQty,
+          reason: actionDescription,
           release_slots: true,
         }),
       });
@@ -430,7 +476,7 @@ export default function DeskCheckInModal({
 
       setWalkoutNotice({
         type: "success",
-        message: `Removed 1 player from ${session.ticket_name}. Updated quantity: ${data.new_quantity}.`,
+        message: `${actionDescription}. Updated quantity: ${data.new_quantity}.`,
       });
 
       // Update state in both Step 1 or Step 3
@@ -444,6 +490,7 @@ export default function DeskCheckInModal({
             ...s,
             quantity: data.new_quantity,
             total_amount: data.new_total,
+            fulfillment_status: s.fulfillment_status === "Canceled" ? "Unfulfilled" : s.fulfillment_status,
           };
         });
 
@@ -453,9 +500,16 @@ export default function DeskCheckInModal({
         setFoundSessions(updater);
       }
 
+      // Ensure active session IDs includes this session if quantity > 0
+      if (targetQty > 0) {
+        setActiveSessionIds((prev) => (prev.includes(sessionId) ? prev : [...prev, sessionId]));
+      } else {
+        setActiveSessionIds((prev) => prev.filter((id) => id !== sessionId));
+      }
+
       onSuccess();
     } catch (err: any) {
-      console.error("Reduce participant error:", err);
+      console.error("Execute quantity adjustment error:", err);
       setWalkoutNotice({ type: "error", message: "Network error while updating participant count." });
     } finally {
       setIsCancelingWalkout(false);
@@ -932,21 +986,42 @@ export default function DeskCheckInModal({
                                         {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
                                       </span>
 
-                                      {/* Per-ticket Actions: Drop 1 player or Cancel entire line */}
+                                      {/* Per-ticket Actions: Stepper (- / +), Custom Count & Release Slot */}
                                       {!isCanceled && (
-                                        <div className="flex items-center gap-1 ml-1">
-                                          {session.quantity > 1 && (
+                                        <div className="flex items-center gap-1.5 ml-1">
+                                          {/* Stepper Pill */}
+                                          <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
                                             <button
                                               type="button"
                                               onClick={() => handleReduceParticipant(session.id)}
                                               disabled={isCancelingWalkout}
-                                              className="px-2 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 text-[11px] font-bold"
-                                              title={`Remove 1 player from this ${session.ticket_name} (Current: ${session.quantity})`}
+                                              className="px-2 py-1 text-gray-600 hover:text-amber-700 hover:bg-amber-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                              title={session.quantity > 1 ? `Remove 1 player (-1)` : `Cancel this session`}
                                             >
-                                              <Minus className="w-3 h-3 text-amber-700" />
-                                              <span>-1</span>
+                                              <Minus className="w-3 h-3" />
                                             </button>
-                                          )}
+
+                                            <button
+                                              type="button"
+                                              onClick={() => handleCustomParticipantCount(session.id)}
+                                              disabled={isCancelingWalkout}
+                                              className="px-2 py-1 text-[11px] font-mono font-bold text-gray-800 hover:bg-gray-200 transition-colors border-x border-gray-200 flex items-center gap-1"
+                                              title="Click to enter exact player count or remove multiple"
+                                            >
+                                              <span>{session.quantity}</span>
+                                              <Edit3 className="w-2.5 h-2.5 text-gray-400" />
+                                            </button>
+
+                                            <button
+                                              type="button"
+                                              onClick={() => handleIncreaseParticipant(session.id)}
+                                              disabled={isCancelingWalkout}
+                                              className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                              title="Add 1 player back (+1)"
+                                            >
+                                              <Plus className="w-3 h-3" />
+                                            </button>
+                                          </div>
 
                                           <button
                                             type="button"
@@ -1308,19 +1383,40 @@ export default function DeskCheckInModal({
 
                                   {/* Individual Walkout / Participant Reduction button */}
                                   {!isCanceled && (
-                                    <div className="flex items-center gap-1 ml-1">
-                                      {session.quantity > 1 && (
+                                    <div className="flex items-center gap-1.5 ml-1">
+                                      {/* Stepper Pill */}
+                                      <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
                                         <button
                                           type="button"
                                           onClick={() => handleReduceParticipant(session.id)}
                                           disabled={isCancelingWalkout}
-                                          className="px-2 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 text-[11px] font-bold"
-                                          title={`Remove 1 player from this ${session.ticket_name} (Current: ${session.quantity})`}
+                                          className="px-2 py-1 text-gray-600 hover:text-amber-700 hover:bg-amber-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                          title={session.quantity > 1 ? `Remove 1 player (-1)` : `Cancel this session`}
                                         >
-                                          <Minus className="w-3 h-3 text-amber-700" />
-                                          <span>-1</span>
+                                          <Minus className="w-3 h-3" />
                                         </button>
-                                      )}
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCustomParticipantCount(session.id)}
+                                          disabled={isCancelingWalkout}
+                                          className="px-2 py-1 text-[11px] font-mono font-bold text-gray-800 hover:bg-gray-200 transition-colors border-x border-gray-200 flex items-center gap-1"
+                                          title="Click to enter exact player count or remove multiple"
+                                        >
+                                          <span>{session.quantity}</span>
+                                          <Edit3 className="w-2.5 h-2.5 text-gray-400" />
+                                        </button>
+
+                                        <button
+                                          type="button"
+                                          onClick={() => handleIncreaseParticipant(session.id)}
+                                          disabled={isCancelingWalkout}
+                                          className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                          title="Add 1 player back (+1)"
+                                        >
+                                          <Plus className="w-3 h-3" />
+                                        </button>
+                                      </div>
 
                                       <button
                                         type="button"

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBookingById, cancelDeskBookings, reduceBookingQuantity } from "@/lib/db";
+import { getBookingById, cancelDeskBookings, reduceBookingQuantity, adjustBookingQuantity } from "@/lib/db";
 import { deleteSimulatorSlotLocks } from "@/lib/simulator-db";
 import { checkSessionAction } from "@/app/login/actions";
 
@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { order_ids, reason, release_slots = true, reduce_quantity } = body || {};
+    const { order_ids, reason, release_slots = true, reduce_quantity, target_quantity } = body || {};
 
     if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
       return NextResponse.json(
@@ -20,7 +20,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 1. Partial quantity reduction mode (e.g. 1 out of 4 participants backed out)
+    // 1. Direct target quantity adjustment mode (set exact player count or add/remove multiple)
+    if (typeof target_quantity === "number" && target_quantity >= 0 && order_ids.length === 1) {
+      const targetId = Number(order_ids[0]);
+      const booking = getBookingById(targetId) as any;
+      if (!booking) {
+        return NextResponse.json({ success: false, error: "Booking session not found." }, { status: 404 });
+      }
+
+      const finalReason = reason && typeof reason === "string" && reason.trim()
+        ? reason.trim()
+        : "Desk Player Count Adjustment";
+
+      const adjustmentResult = adjustBookingQuantity(targetId, target_quantity, finalReason);
+      if (!adjustmentResult) {
+        return NextResponse.json({ success: false, error: "Failed to adjust session quantity." }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        adjusted: true,
+        canceled: adjustmentResult.canceled,
+        new_quantity: adjustmentResult.newQuantity,
+        new_total: adjustmentResult.newTotal,
+        message: adjustmentResult.canceled
+          ? "All participants in this ticket backed out. Session canceled."
+          : `Updated player count to ${adjustmentResult.newQuantity}.`,
+      });
+    }
+
+    // 2. Partial quantity reduction mode
     if (reduce_quantity && typeof reduce_quantity === "number" && reduce_quantity > 0 && order_ids.length === 1) {
       const targetId = Number(order_ids[0]);
       const booking = getBookingById(targetId) as any;

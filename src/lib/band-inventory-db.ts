@@ -73,7 +73,8 @@ export interface BandInventorySummary {
 }
 
 function isPostgresActive(): boolean {
-  return Boolean(process.env.SIMULATOR_DATABASE_URL && simulatorPool);
+  const url = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL;
+  return Boolean(url && simulatorPool);
 }
 
 let pgSchemaInitialized = false;

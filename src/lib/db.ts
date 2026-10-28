@@ -608,6 +608,22 @@ export function cancelBooking(id: number) {
   `).run(newPaymentStatus, id);
 }
 
+export function cancelDeskBookings(ids: number[], reason = "Customer Walkout / Not Interested") {
+  if (!ids || ids.length === 0) return { changes: 0 };
+  const placeholders = ids.map(() => '?').join(',');
+  const tagNote = `[Desk Walkout: ${reason}]`;
+  
+  return db.prepare(`
+    UPDATE bookings 
+    SET fulfillment_status = 'Canceled',
+        tags = CASE 
+          WHEN tags IS NULL OR tags = '' THEN '${tagNote}'
+          ELSE tags || ' ' || '${tagNote}'
+        END
+    WHERE id IN (${placeholders})
+  `).run(...ids);
+}
+
 export function deleteBookings(ids: number[]) {
   if (!ids || ids.length === 0) return { changes: 0 };
   const placeholders = ids.map(() => '?').join(',');

@@ -21,6 +21,8 @@ import {
   Info,
   Star,
   Layers,
+  UserMinus,
+  Trash2,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -114,6 +116,11 @@ export default function DeskCheckInModal({
   const [isCollectingPayment, setIsCollectingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+  // Selective Check-in & Walkout States
+  const [activeSessionIds, setActiveSessionIds] = useState<number[]>([]);
+  const [isCancelingWalkout, setIsCancelingWalkout] = useState(false);
+  const [walkoutNotice, setWalkoutNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Review resend state
   const [isResendingReview, setIsResendingReview] = useState(false);
@@ -236,7 +243,9 @@ export default function DeskCheckInModal({
       }
 
       setFoundCustomerName(data.customer_name || "Guest Customer");
-      setFoundSessions(data.bookings || []);
+      const list = data.bookings || [];
+      setFoundSessions(list);
+      setActiveSessionIds(list.map((s: SessionBooking) => s.id));
       setUnpaidCount(data.unpaid_count || 0);
       setTotalDue(data.total_due || 0);
     } catch (err: any) {
@@ -305,7 +314,9 @@ export default function DeskCheckInModal({
       }
 
       // Step 2 successful! Update state and move to Step 3
-      setVerifiedSessions(data.bookings || []);
+      const vList = data.bookings || [];
+      setVerifiedSessions(vList);
+      setActiveSessionIds(vList.map((s: SessionBooking) => s.id));
       setTotalDue(data.total_due || 0);
       setUnpaidCount(data.unpaid_count || 0);
       setCurrentStep(3);
@@ -330,8 +341,10 @@ export default function DeskCheckInModal({
       return;
     }
 
-    if (isNaN(enteredAmount) || enteredAmount !== totalDue) {
-      setPaymentError(`Collected amount must equal exactly ₹${totalDue.toLocaleString("en-IN")}.`);
+    const effectiveDue = getComputedTotalDue(verifiedSessions);
+
+    if (isNaN(enteredAmount) || enteredAmount !== effectiveDue) {
+      setPaymentError(`Collected amount must equal exactly ₹${effectiveDue.toLocaleString("en-IN")}.`);
       return;
     }
 
@@ -339,9 +352,9 @@ export default function DeskCheckInModal({
     setPaymentError(null);
 
     try {
-      // Find all unpaid order IDs in verified sessions
+      // Find all active unpaid order IDs in verified sessions
       const unpaidIds = verifiedSessions
-        .filter((s) => (s.payment_status || "").toLowerCase() !== "paid")
+        .filter((s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid")
         .map((s) => s.id);
 
       const res = await fetch("/api/admin/verify/collect-and-fulfill", {
@@ -381,6 +394,98 @@ export default function DeskCheckInModal({
       setPaymentError("Network error while recording payment.");
     } finally {
       setIsCollectingPayment(false);
+    }
+  };
+
+  // Toggle active/interested status for an individual session
+  const toggleSessionActive = (sessionId: number) => {
+    setActiveSessionIds((prev) => {
+      const isCurrentlyActive = prev.includes(sessionId);
+      const next = isCurrentlyActive ? prev.filter((id) => id !== sessionId) : [...prev, sessionId];
+      return next;
+    });
+  };
+
+  // Compute dynamic total due based only on active/checked sessions
+  const getComputedTotalDue = (sessions: SessionBooking[]) => {
+    return sessions
+      .filter((s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid")
+      .reduce((sum, s) => sum + s.total_amount, 0);
+  };
+
+  // Handler: Customer Walkout / Not Interested (Single or All)
+  const handleCancelWalkout = async (targetSessionIds?: number[], reasonText = "Customer Not Interested / Walkout") => {
+    const idsToCancel = targetSessionIds && targetSessionIds.length > 0 
+      ? targetSessionIds 
+      : (currentStep === 3 ? verifiedSessions.map((s) => s.id) : foundSessions.map((s) => s.id));
+
+    if (idsToCancel.length === 0) return;
+
+    const isFull = idsToCancel.length === (currentStep === 3 ? verifiedSessions.length : foundSessions.length);
+    const confirmMsg = isFull
+      ? `Release ALL ${idsToCancel.length} session(s) as 'Not Interested / Walkout'? This will free up the slot for walk-in players immediately.`
+      : `Mark this player as 'Not Interested / Backed Out' and release their slot?`;
+
+    if (!confirm(confirmMsg)) return;
+
+    setIsCancelingWalkout(true);
+    setWalkoutNotice(null);
+
+    try {
+      const res = await fetch("/api/admin/verify/cancel-walkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_ids: idsToCancel,
+          reason: reasonText,
+          release_slots: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setWalkoutNotice({ type: "error", message: data.error || "Failed to cancel sessions." });
+        return;
+      }
+
+      setWalkoutNotice({
+        type: "success",
+        message: isFull
+          ? "All sessions canceled and slots released successfully."
+          : `Selected session canceled and slot released.`,
+      });
+
+      // Update local sessions
+      if (currentStep === 3) {
+        setVerifiedSessions((prev) =>
+          prev.map((s) =>
+            idsToCancel.includes(s.id) ? { ...s, fulfillment_status: "Canceled" } : s
+          )
+        );
+      } else {
+        setFoundSessions((prev) =>
+          prev.map((s) =>
+            idsToCancel.includes(s.id) ? { ...s, fulfillment_status: "Canceled" } : s
+          )
+        );
+      }
+
+      setActiveSessionIds((prev) => prev.filter((id) => !idsToCancel.includes(id)));
+
+      // If all were canceled, trigger success reload and offer to close
+      if (isFull) {
+        setTimeout(() => {
+          onSuccess();
+          onClose();
+        }, 1500);
+      } else {
+        onSuccess();
+      }
+    } catch (err: any) {
+      console.error("Cancel walkout error:", err);
+      setWalkoutNotice({ type: "error", message: "Network error while releasing slots." });
+    } finally {
+      setIsCancelingWalkout(false);
     }
   };
 
@@ -616,19 +721,49 @@ export default function DeskCheckInModal({
                     </div>
                   </div>
 
-                  {/* Sessions List */}
+                  {/* Walkout Notification Banner */}
+                  {walkoutNotice && (
+                    <div
+                      className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-2 animate-in fade-in ${
+                        walkoutNotice.type === "success"
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          : "bg-red-50 text-red-800 border-red-200"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        {walkoutNotice.type === "success" ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                        )}
+                        <span>{walkoutNotice.message}</span>
+                      </div>
+                      <button onClick={() => setWalkoutNotice(null)} className="text-gray-400 hover:text-gray-700">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Sessions List with Check-In Toggles & Single Walkout */}
                   <div className="space-y-2.5">
-                    <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
-                      <Clock className="w-3.5 h-3.5 text-amber-600" />
-                      <span>Today&apos;s Booked Vehicles & Slots</span>
+                    <div className="flex items-center justify-between">
+                      <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-amber-600" />
+                        <span>Today&apos;s Booked Vehicles &amp; Slots</span>
+                      </div>
+                      <span className="text-[11px] text-gray-400">
+                        {activeSessionIds.length} of {foundSessions.length} playing
+                      </span>
                     </div>
 
                     <div className="space-y-2">
                       {foundSessions.map((session) => {
                         const isPaid = (session.payment_status || "").toLowerCase() === "paid";
+                        const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
                         const isFulfilled =
                           (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
                           (session.fulfillment_status || "").toLowerCase() === "fulfilled";
+                        const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
 
                         // Get wristband styling
                         const wristband = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
@@ -637,15 +772,32 @@ export default function DeskCheckInModal({
                         return (
                           <div
                             key={session.id}
-                            className="p-3 sm:p-3.5 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 hover:border-gray-300 shadow-sm transition-colors"
+                            className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 transition-all ${
+                              isCanceled
+                                ? "bg-red-50/40 border-red-200 opacity-60"
+                                : isSelected
+                                ? "bg-white border-gray-200 shadow-sm"
+                                : "bg-gray-50/60 border-gray-200/80 opacity-75"
+                            }`}
                           >
                             <div className="flex items-start sm:items-center gap-3">
+                              {/* Checkbox for partial participation */}
+                              {!isCanceled && (
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSessionActive(session.id)}
+                                  className="w-4 h-4 mt-1 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
+                                  title="Check if this player is attending"
+                                />
+                              )}
+
                               <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0">
                                 <Car className="w-4 h-4 text-amber-700" />
                               </div>
                               <div>
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-bold text-sm text-gray-900">
+                                  <span className={`font-bold text-sm ${isCanceled ? "line-through text-gray-500" : "text-gray-900"}`}>
                                     {session.ticket_name}
                                   </span>
                                   <span className="text-xs text-gray-500 font-mono">
@@ -674,7 +826,7 @@ export default function DeskCheckInModal({
                             </div>
 
                             <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                              <span className="font-mono font-bold text-sm text-gray-900">
+                              <span className={`font-mono font-bold text-sm ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
                                 {formatInr(session.total_amount)}
                               </span>
 
@@ -689,16 +841,31 @@ export default function DeskCheckInModal({
                                 {isPaid ? "PAID" : "UNPAID"}
                               </span>
 
-                              {/* Fulfillment Badge */}
+                              {/* Status Badge */}
                               <span
                                 className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                                  isFulfilled
+                                  isCanceled
+                                    ? "bg-red-50 text-red-700 border border-red-200"
+                                    : isFulfilled
                                     ? "bg-blue-50 text-blue-700 border border-blue-200"
                                     : "bg-gray-100 text-gray-600 border border-gray-200"
                                 }`}
                               >
-                                {isFulfilled ? "ATTENDED" : "UNFULFILLED"}
+                                {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
                               </span>
+
+                              {/* Per-session Walkout Button */}
+                              {!isCanceled && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
+                                  disabled={isCancelingWalkout}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
+                                  title="Player not interested / backed out (Release slot)"
+                                >
+                                  <UserMinus className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         );
@@ -706,8 +873,8 @@ export default function DeskCheckInModal({
                     </div>
                   </div>
 
-                  {/* Send WhatsApp OTP Action Button */}
-                  <div className="pt-2 space-y-3">
+                  {/* Actions Bar: Send OTP vs Full Walkout Cancellation */}
+                  <div className="pt-2 space-y-2.5">
                     {sendOtpError && (
                       <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in">
                         <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
@@ -718,24 +885,38 @@ export default function DeskCheckInModal({
                       </div>
                     )}
 
-                    <button
-                      type="button"
-                      disabled={isSendingOtp}
-                      onClick={handleSendOtp}
-                      className="w-full py-3.5 sm:py-4 rounded-xl font-bold text-sm sm:text-base bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50"
-                    >
-                      {isSendingOtp ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin text-white" />
-                          <span>Generating WhatsApp OTP...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-5 h-5 text-white" />
-                          <span>📲 Customer Found — Send WhatsApp OTP</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex flex-col sm:flex-row items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isSendingOtp || activeSessionIds.length === 0}
+                        onClick={handleSendOtp}
+                        className="w-full sm:flex-1 py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50"
+                      >
+                        {isSendingOtp ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin text-white" />
+                            <span>Generating OTP...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-4 h-4 text-white" />
+                            <span>Send OTP for {activeSessionIds.length} Playing Player(s)</span>
+                          </>
+                        )}
+                      </button>
+
+                      {/* Full Walkout Cancellation Button */}
+                      <button
+                        type="button"
+                        disabled={isCancelingWalkout || foundSessions.every((s) => s.fulfillment_status === "Canceled")}
+                        onClick={() => handleCancelWalkout(undefined, "Customer Not Interested / Entire Group Walkout")}
+                        className="w-full sm:w-auto px-4 py-3.5 rounded-xl font-bold text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                        title="Customer changed mind / not playing: release slot and cancel booking"
+                      >
+                        <UserMinus className="w-4 h-4" />
+                        <span>Customer Not Interested (Release Slot)</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -885,19 +1066,49 @@ export default function DeskCheckInModal({
                 </div>
               </div>
 
+              {/* Walkout Notification Banner in Step 3 */}
+              {walkoutNotice && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs flex items-center justify-between gap-2 animate-in fade-in ${
+                    walkoutNotice.type === "success"
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-red-50 text-red-800 border-red-200"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    {walkoutNotice.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    )}
+                    <span>{walkoutNotice.message}</span>
+                  </div>
+                  <button onClick={() => setWalkoutNotice(null)} className="text-gray-400 hover:text-gray-700">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Verified Sessions Preview */}
               <div className="space-y-2">
-                <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
-                  <Receipt className="w-3.5 h-3.5 text-amber-600" />
-                  <span>Verified Sessions Status</span>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
+                    <Receipt className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Verified Sessions Status</span>
+                  </div>
+                  <span className="text-[11px] text-gray-500 font-mono">
+                    {verifiedSessions.filter((s) => activeSessionIds.includes(s.id) && s.fulfillment_status !== "Canceled").length} of {verifiedSessions.length} playing
+                  </span>
                 </div>
 
                 <div className="space-y-2">
                   {verifiedSessions.map((session) => {
                     const isPaid = (session.payment_status || "").toLowerCase() === "paid";
+                    const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
                     const isFulfilled =
                       (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
                       (session.fulfillment_status || "").toLowerCase() === "fulfilled";
+                    const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
 
                     const wristband = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
                     const bandStyle = getWristbandBadgeStyle(wristband.hex);
@@ -905,13 +1116,32 @@ export default function DeskCheckInModal({
                     return (
                       <div
                         key={session.id}
-                        className="p-3 rounded-xl bg-white border border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs shadow-sm"
+                        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs transition-all ${
+                          isCanceled
+                            ? "bg-red-50/40 border-red-200 opacity-60"
+                            : isSelected
+                            ? "bg-white border-gray-200 shadow-sm"
+                            : "bg-gray-50/60 border-gray-200/80 opacity-75"
+                        }`}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <Car className="w-4 h-4 text-amber-600" />
+                        <div className="flex items-start sm:items-center gap-2.5">
+                          {/* Attending Checkbox */}
+                          {!isCanceled && !isPaid && (
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleSessionActive(session.id)}
+                              className="w-4 h-4 mt-0.5 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
+                              title="Check if this player is playing and paying"
+                            />
+                          )}
+
+                          <Car className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
                           <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-bold text-gray-900">{session.ticket_name}</span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`font-bold ${isCanceled ? "line-through text-gray-400" : "text-gray-900"}`}>
+                                {session.ticket_name}
+                              </span>
                               <span className="text-gray-500 font-mono">x {session.quantity}</span>
                               <span className="text-[10px] font-bold px-1.5 py-0.2 rounded" style={bandStyle}>
                                 {wristband.name}
@@ -924,7 +1154,9 @@ export default function DeskCheckInModal({
                         </div>
 
                         <div className="flex items-center justify-between sm:justify-end gap-2">
-                          <span className="font-mono font-bold text-gray-900">{formatInr(session.total_amount)}</span>
+                          <span className={`font-mono font-bold ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                            {formatInr(session.total_amount)}
+                          </span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
                               isPaid
@@ -936,13 +1168,28 @@ export default function DeskCheckInModal({
                           </span>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              isFulfilled
+                              isCanceled
+                                ? "bg-red-50 text-red-700 border border-red-200"
+                                : isFulfilled
                                 ? "bg-blue-50 text-blue-700 border border-blue-200"
                                 : "bg-gray-100 text-gray-600 border border-gray-200"
                             }`}
                           >
-                            {isFulfilled ? "ATTENDED" : "UNFULFILLED"}
+                            {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
                           </span>
+
+                          {/* Individual Walkout Release button */}
+                          {!isCanceled && (
+                            <button
+                              type="button"
+                              onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
+                              disabled={isCancelingWalkout}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
+                              title="Player not interested / backed out (Release slot)"
+                            >
+                              <UserMinus className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -950,146 +1197,189 @@ export default function DeskCheckInModal({
                 </div>
               </div>
 
-              {/* DESK PAYMENT COLLECTION BOX (if any session is UNPAID / Cash / Pay at Desk) */}
-              {totalDue > 0 && !paymentSuccess ? (
-                <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border-2 border-amber-300 shadow-sm space-y-4">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-amber-200">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="w-5 h-5 text-amber-700" />
-                      <div>
-                        <h4 className="text-sm sm:text-base font-bold text-gray-900">
-                          Desk Payment Collection Required
-                        </h4>
-                        <p className="text-xs text-amber-800">
-                          Customer has unpaid / pay-at-desk sessions today.
-                        </p>
+              {/* Dynamic Due calculation */}
+              {(() => {
+                const effectiveDue = getComputedTotalDue(verifiedSessions);
+                const hasPendingDue = effectiveDue > 0;
+
+                if (!hasPendingDue && !paymentSuccess) {
+                  return (
+                    <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                      <div className="flex items-center gap-2.5 text-emerald-900 font-medium">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>All selected active sessions are paid &amp; cleared for track entry!</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleCancelWalkout(undefined, "Customer Changed Mind / Full Group Walkout")}
+                          disabled={isCancelingWalkout}
+                          className="px-3 py-1.5 rounded-lg text-red-600 hover:bg-red-100 bg-red-50 border border-red-200 font-bold text-xs transition-colors"
+                        >
+                          Cancel All / Walkout
+                        </button>
                       </div>
                     </div>
+                  );
+                }
 
-                    <div className="text-left sm:text-right">
-                      <span className="text-[11px] uppercase tracking-wider font-mono text-amber-800 font-bold block">
-                        Total Amount Due
-                      </span>
-                      <span className="text-xl sm:text-2xl font-mono font-black text-amber-900">
-                        {formatInr(totalDue)}
-                      </span>
-                    </div>
-                  </div>
+                if (hasPendingDue && !paymentSuccess) {
+                  return (
+                    <div className="p-4 sm:p-5 rounded-2xl bg-amber-50/70 border-2 border-amber-300 shadow-sm space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-amber-200">
+                        <div className="flex items-center gap-2">
+                          <CreditCard className="w-5 h-5 text-amber-700" />
+                          <div>
+                            <h4 className="text-sm sm:text-base font-bold text-gray-900">
+                              Desk Payment Collection Required
+                            </h4>
+                            <p className="text-xs text-amber-800">
+                              Customer has unpaid / pay-at-desk sessions today.
+                            </p>
+                          </div>
+                        </div>
 
-                  <form onSubmit={handleCollectAndFulfill} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                      {/* Input 1: Transaction Ref / Note */}
-                      <div>
-                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
-                          Transaction Ref / Note <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={deskTransactionRef}
-                          onChange={(e) => setDeskTransactionRef(e.target.value)}
-                          placeholder="e.g. UPI Ref / Cash / POS Slip #"
-                          className="w-full bg-white text-gray-900 font-medium text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
-                        />
-                        <span className="text-[10px] text-gray-500 mt-1 block">
-                          Required for audit reconciliation.
-                        </span>
-                      </div>
-
-                      {/* Input 2: Amount Collected */}
-                      <div>
-                        <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
-                          Amount Collected (₹) <span className="text-red-500">*</span>
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          value={deskAmountCollected}
-                          onChange={(e) => setDeskAmountCollected(e.target.value)}
-                          placeholder={String(totalDue)}
-                          className="w-full bg-white text-gray-900 font-mono font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
-                        />
-                        <div className="text-[10px] mt-1">
-                          {deskAmountCollected === "" ? (
-                            <span className="text-gray-500">
-                              Must exactly match {formatInr(totalDue)}.
-                            </span>
-                          ) : Number(deskAmountCollected) === totalDue ? (
-                            <span className="text-emerald-700 font-semibold">
-                              ✓ Exact match! Ready to confirm.
-                            </span>
-                          ) : (
-                            <span className="text-red-600 font-semibold">
-                              ⚠️ Amount must equal {formatInr(totalDue)} (Diff: {formatInr(Math.abs(Number(deskAmountCollected) - totalDue))})
-                            </span>
-                          )}
+                        <div className="text-left sm:text-right">
+                          <span className="text-[11px] uppercase tracking-wider font-mono text-amber-800 font-bold block">
+                            Total Due ({verifiedSessions.filter((s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid").length} Player(s))
+                          </span>
+                          <span className="text-xl sm:text-2xl font-mono font-black text-amber-900">
+                            {formatInr(effectiveDue)}
+                          </span>
                         </div>
                       </div>
+
+                      <form onSubmit={handleCollectAndFulfill} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+                          {/* Input 1: Transaction Ref / Note */}
+                          <div>
+                            <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
+                              Transaction Ref / Note <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="text"
+                              required
+                              value={deskTransactionRef}
+                              onChange={(e) => setDeskTransactionRef(e.target.value)}
+                              placeholder="e.g. UPI Ref / Cash / POS Slip #"
+                              className="w-full bg-white text-gray-900 font-medium text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
+                            />
+                            <span className="text-[10px] text-gray-500 mt-1 block">
+                              Required for audit reconciliation.
+                            </span>
+                          </div>
+
+                          {/* Input 2: Amount Collected */}
+                          <div>
+                            <label className="block text-xs uppercase tracking-wider font-bold text-gray-700 mb-1.5">
+                              Amount Collected (₹) <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="number"
+                              required
+                              value={deskAmountCollected}
+                              onChange={(e) => setDeskAmountCollected(e.target.value)}
+                              placeholder={String(effectiveDue)}
+                              className="w-full bg-white text-gray-900 font-mono font-bold text-xs sm:text-sm px-3.5 py-2.5 rounded-xl border border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-500/20 transition-all placeholder:text-gray-400 shadow-sm"
+                            />
+                            <div className="text-[10px] mt-1">
+                              {deskAmountCollected === "" ? (
+                                <span className="text-gray-500">
+                                  Must exactly match {formatInr(effectiveDue)}.
+                                </span>
+                              ) : Number(deskAmountCollected) === effectiveDue ? (
+                                <span className="text-emerald-700 font-semibold">
+                                  ✓ Exact match! Ready to confirm.
+                                </span>
+                              ) : (
+                                <span className="text-red-600 font-semibold">
+                                  ⚠️ Amount must equal {formatInr(effectiveDue)} (Diff: {formatInr(Math.abs(Number(deskAmountCollected) - effectiveDue))})
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {paymentError && (
+                          <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
+                            <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                            <span>{paymentError}</span>
+                          </div>
+                        )}
+
+                        <div className="flex flex-col sm:flex-row items-center gap-2">
+                          <button
+                            type="submit"
+                            disabled={
+                              isCollectingPayment ||
+                              !deskTransactionRef.trim() ||
+                              Number(deskAmountCollected) !== effectiveDue
+                            }
+                            className="w-full sm:flex-1 py-3 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.99] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                          >
+                            {isCollectingPayment ? (
+                              <>
+                                <Loader2 className="w-4 h-4 animate-spin text-white" />
+                                <span>Fulfilling &amp; Recording Payment...</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-4 h-4 text-white" />
+                                <span>Confirm &amp; Mark as Paid &amp; Fulfilled ({formatInr(effectiveDue)})</span>
+                              </>
+                            )}
+                          </button>
+
+                          {/* Step 3 Full Walkout Option */}
+                          <button
+                            type="button"
+                            disabled={isCancelingWalkout}
+                            onClick={() => handleCancelWalkout(undefined, "Customer Decided Not to Play After Verification")}
+                            className="w-full sm:w-auto px-4 py-3 sm:py-3.5 rounded-xl font-bold text-xs text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 flex items-center justify-center gap-1.5 transition-all disabled:opacity-50"
+                            title="Release remaining slots and cancel booking"
+                          >
+                            <UserMinus className="w-4 h-4" />
+                            <span>Release Slots (Walkout)</span>
+                          </button>
+                        </div>
+                      </form>
                     </div>
+                  );
+                }
 
-                    {paymentError && (
-                      <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                        <span>{paymentError}</span>
-                      </div>
-                    )}
+                return (
+                  /* All Paid / Attended Banner */
+                  <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-2">
+                    <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center border border-emerald-300">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <h4 className="text-base font-bold text-gray-900">
+                      Track Entry Authorized! 🎉
+                    </h4>
+                    <p className="text-xs text-gray-600 max-w-md mx-auto">
+                      All selected sessions for this customer are verified, fully paid, and marked ATTENDED in the system. Customer is cleared to receive wristbands and enter the track.
+                    </p>
 
-                    {/* Validation Guard: Disabled until amount collected matches total due and note is filled */}
-                    <button
-                      type="submit"
-                      disabled={
-                        isCollectingPayment ||
-                        !deskTransactionRef.trim() ||
-                        Number(deskAmountCollected) !== totalDue
-                      }
-                      className="w-full py-3 sm:py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white active:scale-[0.99] transition-all shadow-md shadow-amber-500/20 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                      {isCollectingPayment ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin text-white" />
-                          <span>Fulfilling & Recording Payment...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 text-white" />
-                          <span>Confirm & Mark as Paid & Fulfilled ({formatInr(totalDue)})</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </div>
-              ) : (
-                /* All Paid Banner */
-                <div className="p-5 rounded-2xl bg-emerald-50 border border-emerald-200 text-center space-y-2">
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 mx-auto flex items-center justify-center border border-emerald-300">
-                    <CheckCircle2 className="w-6 h-6" />
+                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+                      <a
+                        href="/admin/bands"
+                        target="_blank"
+                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-[#ff5a1f] text-white hover:bg-[#e04812] transition-colors shadow-sm flex items-center justify-center gap-1.5"
+                      >
+                        <Layers className="w-4 h-4" />
+                        <span>Issue Wristbands in Inventory →</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={handleClose}
+                        className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
+                      >
+                        Done / Close Modal
+                      </button>
+                    </div>
                   </div>
-                  <h4 className="text-base font-bold text-gray-900">
-                    Track Entry Authorized! 🎉
-                  </h4>
-                  <p className="text-xs text-gray-600 max-w-md mx-auto">
-                    All sessions for this customer are verified, fully paid, and marked ATTENDED in the system. Customer is cleared to receive wristbands and enter the track.
-                  </p>
-
-                  <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
-                    <a
-                      href="/admin/bands"
-                      target="_blank"
-                      className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-[#ff5a1f] text-white hover:bg-[#e04812] transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                    >
-                      <Layers className="w-4 h-4" />
-                      <span>Issue Wristbands in Inventory →</span>
-                    </a>
-                    <button
-                      type="button"
-                      onClick={handleClose}
-                      className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
-                    >
-                      Done / Close Modal
-                    </button>
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           )}
         </div>

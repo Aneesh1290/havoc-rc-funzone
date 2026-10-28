@@ -877,54 +877,64 @@ export default function BandInventoryPage() {
                           </span>
                         </div>
                         <span
-                          className="text-[10px] font-bold px-2 py-0.5 rounded-md border"
-                          style={badgeStyle}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                            color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
+                          }`}
+                          style={color.total > 0 ? badgeStyle : undefined}
                         >
-                          {color.total} Total
+                          {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
                         </span>
                       </div>
 
                       {/* Stock Bar */}
-                      <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
-                        <div
-                          className="bg-emerald-500 h-full transition-all duration-300"
-                          style={{ width: `${color.total > 0 ? (color.available / color.total) * 100 : 0}%` }}
-                          title={`Available: ${color.available}`}
-                        />
-                        <div
-                          className="bg-amber-400 h-full transition-all duration-300"
-                          style={{ width: `${color.total > 0 ? (color.issued / color.total) * 100 : 0}%` }}
-                          title={`Issued: ${color.issued}`}
-                        />
-                        <div
-                          className="bg-red-400 h-full transition-all duration-300"
-                          style={{ width: `${color.total > 0 ? (color.damaged / color.total) * 100 : 0}%` }}
-                          title={`Damaged: ${color.damaged}`}
-                        />
-                      </div>
+                      {color.total > 0 ? (
+                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
+                          <div
+                            className="bg-emerald-500 h-full transition-all duration-300"
+                            style={{ width: `${(color.available / color.total) * 100}%` }}
+                            title={`Available: ${color.available}`}
+                          />
+                          <div
+                            className="bg-amber-400 h-full transition-all duration-300"
+                            style={{ width: `${(color.issued / color.total) * 100}%` }}
+                            title={`Issued: ${color.issued}`}
+                          />
+                          <div
+                            className="bg-red-400 h-full transition-all duration-300"
+                            style={{ width: `${(color.damaged / color.total) * 100}%` }}
+                            title={`Damaged: ${color.damaged}`}
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2 rounded-full my-2.5" title="No bands in inventory yet" />
+                      )}
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 text-center">
                       <div>
                         <span className="block text-[10px] uppercase font-bold text-gray-400">In Stock</span>
-                        <span className="font-mono font-bold text-xs text-emerald-700">
+                        <span className={`font-mono font-bold text-xs ${color.available > 0 ? "text-emerald-700" : "text-gray-400"}`}>
                           {color.available}
                         </span>
                       </div>
                       <div>
                         <span className="block text-[10px] uppercase font-bold text-gray-400">Issued</span>
-                        <span className="font-mono font-bold text-xs text-amber-700">{color.issued}</span>
+                        <span className={`font-mono font-bold text-xs ${color.issued > 0 ? "text-amber-700" : "text-gray-400"}`}>
+                          {color.issued}
+                        </span>
                       </div>
                       <div>
                         <span className="block text-[10px] uppercase font-bold text-gray-400">Damaged</span>
-                        <span className="font-mono font-bold text-xs text-red-600">{color.damaged}</span>
+                        <span className={`font-mono font-bold text-xs ${color.damaged > 0 ? "text-red-600" : "text-gray-400"}`}>
+                          {color.damaged}
+                        </span>
                       </div>
                     </div>
 
                     <div className="mt-2.5 pt-2 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400 group-hover:text-[#ff5a1f] font-medium transition-colors">
-                      <span className="flex items-center gap-1">
-                        <Edit3 className="w-3 h-3" />
-                        Manage &amp; Series
+                      <span className="flex items-center gap-1 font-semibold">
+                        <Plus className="w-3 h-3 text-[#ff5a1f]" />
+                        {color.total > 0 ? "Manage & Add Series" : "Add Inventory Now"}
                       </span>
                       <span className="flex items-center gap-0.5 font-bold">
                         Options <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />

@@ -1,6 +1,6 @@
 import { db, initDB } from "./db";
 import { simulatorPool } from "./simulator-db";
-import { WRISTBAND_PALETTE } from "./slotColors";
+import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "./slotColors";
 
 export type BandStatus = "available" | "issued" | "damaged" | "lost" | "retired";
 export type BandCategory = "Standard" | "VIP" | "Child" | "Staff / Marshal";
@@ -277,19 +277,82 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         ORDER BY total DESC, color_name ASC
       `);
 
-      const colorBreakdown: BandColorBreakdown[] = colorRowsRes.rows.map(r => ({
-        color_name: r.color_name,
-        color_hex: r.color_hex,
-        total: Number(r.total || 0),
-        available: Number(r.available || 0),
-        issued: Number(r.issued || 0),
-        damaged: Number(r.damaged || 0),
-        lost: Number(r.lost || 0),
-        retired: Number(r.retired || 0),
-      }));
+      const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+
+      // 1. First populate all configured slot colors from time_slots
+      try {
+        const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
+        for (const slot of slotRows) {
+          const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
+          const key = (resolved.name || slot.color_name || slot.label).trim().toLowerCase();
+          if (!colorBreakdownMap.has(key)) {
+            colorBreakdownMap.set(key, {
+              color_name: resolved.name,
+              color_hex: resolved.hex,
+              total: 0,
+              available: 0,
+              issued: 0,
+              damaged: 0,
+              lost: 0,
+              retired: 0,
+            });
+          }
+        }
+      } catch (slotErr) {
+        console.warn("[Band Inventory] Could not read time_slots for palette:", slotErr);
+      }
+
+      // 2. Also ensure default wristband palette colors exist
+      for (const p of WRISTBAND_PALETTE) {
+        const key = p.name.trim().toLowerCase();
+        if (!colorBreakdownMap.has(key)) {
+          colorBreakdownMap.set(key, {
+            color_name: p.name,
+            color_hex: p.hex,
+            total: 0,
+            available: 0,
+            issued: 0,
+            damaged: 0,
+            lost: 0,
+            retired: 0,
+          });
+        }
+      }
+
+      // 3. Merge actual Postgres inventory counts
+      for (const r of colorRowsRes.rows) {
+        const key = (r.color_name || "").trim().toLowerCase();
+        const existing = colorBreakdownMap.get(key);
+        if (existing) {
+          existing.color_name = r.color_name;
+          existing.color_hex = r.color_hex || existing.color_hex;
+          existing.total = Number(r.total || 0);
+          existing.available = Number(r.available || 0);
+          existing.issued = Number(r.issued || 0);
+          existing.damaged = Number(r.damaged || 0);
+          existing.lost = Number(r.lost || 0);
+          existing.retired = Number(r.retired || 0);
+        } else {
+          colorBreakdownMap.set(key, {
+            color_name: r.color_name,
+            color_hex: r.color_hex,
+            total: Number(r.total || 0),
+            available: Number(r.available || 0),
+            issued: Number(r.issued || 0),
+            damaged: Number(r.damaged || 0),
+            lost: Number(r.lost || 0),
+            retired: Number(r.retired || 0),
+          });
+        }
+      }
+
+      const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
+        if (b.total !== a.total) return b.total - a.total;
+        return a.color_name.localeCompare(b.color_name);
+      });
 
       const lowStockColors = colorBreakdown
-        .filter(c => c.available < 3)
+        .filter(c => c.total > 0 && c.available < 3)
         .map(c => ({
           color_name: c.color_name,
           color_hex: c.color_hex,
@@ -381,19 +444,82 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     ORDER BY total DESC, color_name ASC
   `).all() as any[];
 
-  const colorBreakdown: BandColorBreakdown[] = colorRows.map(r => ({
-    color_name: r.color_name,
-    color_hex: r.color_hex,
-    total: Number(r.total || 0),
-    available: Number(r.available || 0),
-    issued: Number(r.issued || 0),
-    damaged: Number(r.damaged || 0),
-    lost: Number(r.lost || 0),
-    retired: Number(r.retired || 0),
-  }));
+  const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+
+  // 1. First populate all configured slot colors from time_slots
+  try {
+    const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
+    for (const slot of slotRows) {
+      const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
+      const key = (resolved.name || slot.color_name || slot.label).trim().toLowerCase();
+      if (!colorBreakdownMap.has(key)) {
+        colorBreakdownMap.set(key, {
+          color_name: resolved.name,
+          color_hex: resolved.hex,
+          total: 0,
+          available: 0,
+          issued: 0,
+          damaged: 0,
+          lost: 0,
+          retired: 0,
+        });
+      }
+    }
+  } catch (slotErr) {
+    console.warn("[Band Inventory SQLite] Could not read time_slots for palette:", slotErr);
+  }
+
+  // 2. Also ensure default wristband palette colors exist
+  for (const p of WRISTBAND_PALETTE) {
+    const key = p.name.trim().toLowerCase();
+    if (!colorBreakdownMap.has(key)) {
+      colorBreakdownMap.set(key, {
+        color_name: p.name,
+        color_hex: p.hex,
+        total: 0,
+        available: 0,
+        issued: 0,
+        damaged: 0,
+        lost: 0,
+        retired: 0,
+      });
+    }
+  }
+
+  // 3. Merge actual SQLite inventory counts
+  for (const r of colorRows) {
+    const key = (r.color_name || "").trim().toLowerCase();
+    const existing = colorBreakdownMap.get(key);
+    if (existing) {
+      existing.color_name = r.color_name;
+      existing.color_hex = r.color_hex || existing.color_hex;
+      existing.total = Number(r.total || 0);
+      existing.available = Number(r.available || 0);
+      existing.issued = Number(r.issued || 0);
+      existing.damaged = Number(r.damaged || 0);
+      existing.lost = Number(r.lost || 0);
+      existing.retired = Number(r.retired || 0);
+    } else {
+      colorBreakdownMap.set(key, {
+        color_name: r.color_name,
+        color_hex: r.color_hex,
+        total: Number(r.total || 0),
+        available: Number(r.available || 0),
+        issued: Number(r.issued || 0),
+        damaged: Number(r.damaged || 0),
+        lost: Number(r.lost || 0),
+        retired: Number(r.retired || 0),
+      });
+    }
+  }
+
+  const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
+    if (b.total !== a.total) return b.total - a.total;
+    return a.color_name.localeCompare(b.color_name);
+  });
 
   const lowStockColors = colorBreakdown
-    .filter(c => c.available < 3)
+    .filter(c => c.total > 0 && c.available < 3)
     .map(c => ({
       color_name: c.color_name,
       color_hex: c.color_hex,

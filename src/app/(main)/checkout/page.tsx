@@ -494,9 +494,8 @@ export default function CheckoutPage() {
                         })()}
                       </div>
                     </div>
-                  </div>
-              </div>
-            </section>
+                </div>
+              </section>
 
             {/* Payment Section */}
             <section>

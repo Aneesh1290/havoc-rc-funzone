@@ -408,89 +408,93 @@ export default function CheckoutPage() {
                     className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] transition-all"
                   />
                 </div>
-                <div className="space-y-2 md:col-span-2">
+                <div className="space-y-1.5 md:col-span-2">
                   <label className="text-sm font-bold text-gray-700 uppercase tracking-wide">Phone Number</label>
-                  <div className="flex relative">
-                    {/* Country Code Select Dropdown */}
                     <div className="relative">
-                      <button
-                        type="button"
-                        onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
-                        aria-label="Country Dial Code"
-                        className="h-full bg-gray-50 hover:bg-gray-100 border border-gray-200 border-r-0 rounded-l-xl px-3.5 py-3.5 font-bold text-gray-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] cursor-pointer transition-colors flex items-center gap-2 select-none"
-                      >
-                        <span className="text-base leading-none">{selectedCountry.flag}</span>
-                        <span>{selectedCountry.dialCode}</span>
-                        <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
-                      </button>
+                      {/* Unified Input Box */}
+                      <div className="group flex items-center bg-white border border-gray-200 rounded-xl transition-all focus-within:ring-2 focus-within:ring-[#ff5a1f]/20 focus-within:border-[#ff5a1f] shadow-sm hover:border-gray-300">
+                        {/* Country Selector Button */}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsCountryDropdownOpen(!isCountryDropdownOpen)}
+                            aria-label="Country Dial Code"
+                            className="h-full bg-gray-50/70 hover:bg-gray-100/90 rounded-l-xl px-3.5 py-3.5 font-bold text-gray-800 text-sm focus:outline-none cursor-pointer transition-colors flex items-center gap-2 select-none border-r border-gray-200"
+                          >
+                            <span className="text-base leading-none">{selectedCountry.flag}</span>
+                            <span className="font-semibold text-gray-800 text-sm">{selectedCountry.code}</span>
+                            <span className="font-mono text-gray-600 text-xs font-semibold">{selectedCountry.dialCode}</span>
+                            <ChevronDown className="w-3.5 h-3.5 text-gray-400" />
+                          </button>
 
-                      {isCountryDropdownOpen && (
-                        <>
-                          <div 
-                            className="fixed inset-0 z-40" 
-                            onClick={() => setIsCountryDropdownOpen(false)}
-                          />
-                          <div className="absolute top-full left-0 mt-1.5 w-72 max-h-64 overflow-y-auto bg-white rounded-xl shadow-xl border border-gray-200 z-50 py-1.5 animate-in fade-in zoom-in-95 duration-100 divide-y divide-gray-50">
-                            {COUNTRY_CODES.map((country) => (
-                              <button
-                                key={country.code}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCountry(country);
-                                  setIsCountryDropdownOpen(false);
-                                }}
-                                className={`w-full text-left px-3.5 py-2.5 text-xs hover:bg-orange-50 transition-colors flex items-center justify-between ${
-                                  selectedCountry.code === country.code ? "bg-orange-50/70 font-bold text-[#ff5a1f]" : "text-gray-700"
-                                }`}
-                              >
-                                <span className="flex items-center gap-2 truncate pr-2">
-                                  <span className="text-base leading-none shrink-0">{country.flag}</span>
-                                  <span className="truncate">{country.name}</span>
-                                </span>
-                                <span className="font-mono font-semibold text-gray-500 shrink-0">
-                                  {country.dialCode}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    {/* Phone Number Input */}
-                    {(() => {
-                      const { min, max, placeholder } = getExpectedPhoneDigits(selectedCountry);
-                      return (
-                        <div className="flex-1 min-w-0 flex flex-col">
-                          <input 
-                            type="tel" 
-                            inputMode="numeric"
-                            required
-                            placeholder={`e.g. ${placeholder}`} 
-                            value={formData.phone}
-                            maxLength={max}
-                            onChange={(e) => {
-                              const digits = e.target.value.replace(/\D/g, "").slice(0, max);
-                              setFormData({ ...formData, phone: digits });
-                              if (validationError) setValidationError(null);
-                            }}
-                            className="w-full bg-white border border-gray-200 rounded-r-xl px-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] text-gray-900 transition-all font-medium font-mono text-base tracking-wide"
-                          />
-                          <div className="flex items-center justify-between text-[11px] text-gray-400 mt-1 px-1">
-                            <span>
-                              {min === max
-                                ? `Requires exactly ${min} digits`
-                                : `Between ${min} and ${max} digits`}
-                            </span>
-                            <span className={formData.phone.length === max ? "text-emerald-600 font-bold" : ""}>
-                              {formData.phone.length} / {max}
-                            </span>
-                          </div>
+                          {isCountryDropdownOpen && (
+                            <>
+                              <div 
+                                className="fixed inset-0 z-40" 
+                                onClick={() => setIsCountryDropdownOpen(false)}
+                              />
+                              <div className="absolute top-full left-0 mt-2 w-72 max-h-64 overflow-y-auto bg-white rounded-xl shadow-2xl border border-gray-200 z-50 py-1.5 animate-in fade-in zoom-in-95 duration-100 divide-y divide-gray-50">
+                                {COUNTRY_CODES.map((country) => (
+                                  <button
+                                    key={country.code}
+                                    type="button"
+                                    onClick={() => {
+                                      setSelectedCountry(country);
+                                      setIsCountryDropdownOpen(false);
+                                    }}
+                                    className={`w-full text-left px-3.5 py-2.5 text-xs hover:bg-orange-50 transition-colors flex items-center justify-between ${
+                                      selectedCountry.code === country.code ? "bg-orange-50/70 font-bold text-[#ff5a1f]" : "text-gray-700"
+                                    }`}
+                                  >
+                                    <span className="flex items-center gap-2 truncate pr-2">
+                                      <span className="text-base leading-none shrink-0">{country.flag}</span>
+                                      <span className="truncate">{country.name}</span>
+                                    </span>
+                                    <span className="font-mono font-semibold text-gray-500 shrink-0">
+                                      {country.dialCode}
+                                    </span>
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
                         </div>
-                      );
-                    })()}
+
+                        {/* Phone Number Input */}
+                        {(() => {
+                          const { min, max, placeholder } = getExpectedPhoneDigits(selectedCountry);
+                          const isComplete = formData.phone.length === max;
+                          return (
+                            <div className="flex-1 min-w-0 relative flex items-center">
+                              <input 
+                                type="tel" 
+                                inputMode="numeric"
+                                required
+                                placeholder={`e.g. ${placeholder}`} 
+                                value={formData.phone}
+                                maxLength={max}
+                                onChange={(e) => {
+                                  const digits = e.target.value.replace(/\D/g, "").slice(0, max);
+                                  setFormData({ ...formData, phone: digits });
+                                  if (validationError) setValidationError(null);
+                                }}
+                                className="w-full bg-transparent px-4 py-3.5 text-gray-900 focus:outline-none font-medium font-mono text-base tracking-wide placeholder:font-sans placeholder:text-sm placeholder:text-gray-400 placeholder:tracking-normal"
+                              />
+                              <div className="pr-4 shrink-0 flex items-center">
+                                <span className={`text-[11px] font-mono px-2 py-0.5 rounded-md font-semibold transition-colors ${
+                                  isComplete 
+                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200" 
+                                    : "bg-gray-100 text-gray-500"
+                                }`}>
+                                  {formData.phone.length}/{max}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
                   </div>
-                </div>
               </div>
             </section>
 

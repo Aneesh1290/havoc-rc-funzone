@@ -15,6 +15,8 @@ import {
   restoreBandItem,
   updateBandItem,
   deleteBandItem,
+  bulkDeleteBandItems,
+  deleteAllBandInventory,
   getBandTransactions,
   BandItem,
   BandTransaction,
@@ -224,10 +226,7 @@ export async function updateBandItemAction(
 
 export async function deleteBandItemAction(id: number): Promise<{ success: boolean; error?: string }> {
   try {
-    const session = await getStaffSession();
-    if (session.role !== "super_admin" && session.username?.toLowerCase() !== "admin") {
-      return { success: false, error: "Only administrators can delete band records." };
-    }
+    await getStaffSession();
     const res = await deleteBandItem(id);
     if (res.success) {
       revalidatePath("/admin/bands");
@@ -235,6 +234,35 @@ export async function deleteBandItemAction(id: number): Promise<{ success: boole
     return res;
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to delete band" };
+  }
+}
+
+export async function bulkDeleteBandItemsAction(ids: number[]): Promise<{ success: boolean; count: number; error?: string }> {
+  try {
+    await getStaffSession();
+    if (!ids || ids.length === 0) {
+      return { success: true, count: 0 };
+    }
+    const res = await bulkDeleteBandItems(ids);
+    if (res.success) {
+      revalidatePath("/admin/bands");
+    }
+    return res;
+  } catch (err: any) {
+    return { success: false, count: 0, error: err.message || "Failed to bulk delete bands" };
+  }
+}
+
+export async function deleteAllBandInventoryAction(options?: { resetStarterStock?: boolean }): Promise<{ success: boolean; error?: string }> {
+  try {
+    await getStaffSession();
+    const res = await deleteAllBandInventory(options);
+    if (res.success) {
+      revalidatePath("/admin/bands");
+    }
+    return res;
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to clear band inventory" };
   }
 }
 

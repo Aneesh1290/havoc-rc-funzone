@@ -36,6 +36,7 @@ import {
   BandItem, 
   BandTransaction, 
   BandInventorySummary, 
+  BandColorBreakdown,
   BandCategory, 
   BandStatus, 
   BandTransactionType 
@@ -52,6 +53,8 @@ import {
   restoreBandAction,
   updateBandItemAction,
   deleteBandItemAction,
+  bulkDeleteBandItemsAction,
+  deleteAllBandInventoryAction,
   quickLookupBandAction
 } from "@/app/actions/band-inventory";
 
@@ -109,6 +112,36 @@ export default function BandInventoryPage() {
   const [returnCondition, setReturnCondition] = useState<"good" | "damaged" | "lost">("good");
   const [returnNotes, setReturnNotes] = useState("");
   const [isSubmittingReturn, setIsSubmittingReturn] = useState(false);
+
+  // Selection States for Bulk Actions
+  const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  // Color Quick Action Modal (when pressing color card in summary)
+  const [selectedColorForAction, setSelectedColorForAction] = useState<{
+    color_name: string;
+    color_hex: string;
+    total: number;
+    available: number;
+    issued: number;
+    damaged: number;
+    lost: number;
+    retired: number;
+  } | null>(null);
+  const [isColorManageModalOpen, setIsColorManageModalOpen] = useState(false);
+
+  // Clear / Reset All Inventory Modal
+  const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
+  const [isClearingAll, setIsClearingAll] = useState(false);
+  const [clearResetStarterStock, setClearResetStarterStock] = useState(false);
+
+  // Edit Single Band Modal
+  const [isEditBandModalOpen, setIsEditBandModalOpen] = useState(false);
+  const [editingBand, setEditingBand] = useState<BandItem | null>(null);
+  const [editStatus, setEditStatus] = useState<BandStatus>("available");
+  const [editCategory, setEditCategory] = useState<BandCategory>("Standard");
+  const [editNotes, setEditNotes] = useState("");
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
 
   // Auto-clear feedback after 5 seconds
   useEffect(() => {
@@ -349,6 +382,7 @@ export default function BandInventoryPage() {
       const res = await deleteBandItemAction(item.id);
       if (res.success) {
         setFeedback({ type: "success", message: `Wristband ${item.band_code} deleted.` });
+        setSelectedItemIds((prev) => prev.filter((id) => id !== item.id));
         loadData();
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to delete band." });
@@ -356,6 +390,93 @@ export default function BandInventoryPage() {
     } catch (err: any) {
       setFeedback({ type: "error", message: err.message });
     }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedItemIds.length === 0) return;
+    if (!confirm(`Permanently delete ${selectedItemIds.length} selected wristbands and their transaction logs? This action cannot be undone.`)) {
+      return;
+    }
+    setIsDeletingBulk(true);
+    try {
+      const res = await bulkDeleteBandItemsAction(selectedItemIds);
+      if (res.success) {
+        setFeedback({ type: "success", message: `Successfully deleted ${res.count} wristbands from inventory.` });
+        setSelectedItemIds([]);
+        loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to bulk delete bands." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message });
+    } finally {
+      setIsDeletingBulk(false);
+    }
+  };
+
+  const handleClearAllInventory = async () => {
+    setIsClearingAll(true);
+    try {
+      const res = await deleteAllBandInventoryAction({ resetStarterStock: clearResetStarterStock });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: clearResetStarterStock
+            ? "All inventory cleared and reset to 10 starter bands per slot color."
+            : "All wristband inventory and logs permanently deleted.",
+        });
+        setIsClearAllModalOpen(false);
+        setSelectedItemIds([]);
+        loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to clear inventory." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message });
+    } finally {
+      setIsClearingAll(false);
+    }
+  };
+
+  const handleOpenEditBand = (item: BandItem) => {
+    setEditingBand(item);
+    setEditStatus(item.status);
+    setEditCategory(item.category);
+    setEditNotes(item.notes || "");
+    setIsEditBandModalOpen(true);
+  };
+
+  const handleSaveEditBand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBand) return;
+    setIsSubmittingEdit(true);
+    try {
+      const res = await updateBandItemAction(editingBand.id, {
+        band_code: editingBand.band_code,
+        color_name: editingBand.color_name,
+        color_hex: editingBand.color_hex,
+        status: editStatus,
+        category: editCategory,
+        notes: editNotes,
+      });
+      if (res.success) {
+        setFeedback({ type: "success", message: `Wristband ${editingBand.band_code} updated.` });
+        setIsEditBandModalOpen(false);
+        setEditingBand(null);
+        loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to update band." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message });
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  const handleColorCardPress = (color: BandColorBreakdown) => {
+    setSelectedColorForAction(color);
+    setIsColorManageModalOpen(true);
   };
 
   // Helper for Status Badge
@@ -496,6 +617,18 @@ export default function BandInventoryPage() {
           >
             <Plus className="w-4 h-4" />
             <span>+ Stock In</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setClearResetStarterStock(false);
+              setIsClearAllModalOpen(true);
+            }}
+            className="bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
+            title="Wipe or reset entire inventory"
+          >
+            <Trash2 className="w-4 h-4 text-red-400" />
+            <span>Clear / Reset All</span>
           </button>
 
           <button
@@ -725,8 +858,13 @@ export default function BandInventoryPage() {
                 return (
                   <div
                     key={color.color_name}
-                    className="p-4 rounded-xl border border-gray-200 bg-white hover:border-gray-300 transition-all shadow-sm flex flex-col justify-between"
+                    onClick={() => handleColorCardPress(color)}
+                    role="button"
+                    tabIndex={0}
+                    className="p-4 rounded-xl border border-gray-200 bg-white hover:border-[#ff5a1f] hover:shadow-md transition-all shadow-sm flex flex-col justify-between cursor-pointer group relative overflow-hidden"
                   >
+                    <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-transparent via-[#ff5a1f]/0 to-transparent group-hover:via-[#ff5a1f] transition-all" />
+
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2">
@@ -734,7 +872,9 @@ export default function BandInventoryPage() {
                             className="w-3.5 h-3.5 rounded-full border shadow-xs"
                             style={{ backgroundColor: color.color_hex }}
                           />
-                          <span className="font-bold text-sm text-gray-900">{color.color_name}</span>
+                          <span className="font-bold text-sm text-gray-900 group-hover:text-[#ff5a1f] transition-colors">
+                            {color.color_name}
+                          </span>
                         </div>
                         <span
                           className="text-[10px] font-bold px-2 py-0.5 rounded-md border"
@@ -748,17 +888,17 @@ export default function BandInventoryPage() {
                       <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
                         <div
                           className="bg-emerald-500 h-full transition-all duration-300"
-                          style={{ width: `${(color.available / color.total) * 100}%` }}
+                          style={{ width: `${color.total > 0 ? (color.available / color.total) * 100 : 0}%` }}
                           title={`Available: ${color.available}`}
                         />
                         <div
                           className="bg-amber-400 h-full transition-all duration-300"
-                          style={{ width: `${(color.issued / color.total) * 100}%` }}
+                          style={{ width: `${color.total > 0 ? (color.issued / color.total) * 100 : 0}%` }}
                           title={`Issued: ${color.issued}`}
                         />
                         <div
                           className="bg-red-400 h-full transition-all duration-300"
-                          style={{ width: `${(color.damaged / color.total) * 100}%` }}
+                          style={{ width: `${color.total > 0 ? (color.damaged / color.total) * 100 : 0}%` }}
                           title={`Damaged: ${color.damaged}`}
                         />
                       </div>
@@ -779,6 +919,16 @@ export default function BandInventoryPage() {
                         <span className="block text-[10px] uppercase font-bold text-gray-400">Damaged</span>
                         <span className="font-mono font-bold text-xs text-red-600">{color.damaged}</span>
                       </div>
+                    </div>
+
+                    <div className="mt-2.5 pt-2 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400 group-hover:text-[#ff5a1f] font-medium transition-colors">
+                      <span className="flex items-center gap-1">
+                        <Edit3 className="w-3 h-3" />
+                        Manage &amp; Series
+                      </span>
+                      <span className="flex items-center gap-0.5 font-bold">
+                        Options <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                      </span>
                     </div>
                   </div>
                 );
@@ -851,11 +1001,54 @@ export default function BandInventoryPage() {
             </div>
           </div>
 
+          {/* Bulk Selection Action Bar */}
+          {selectedItemIds.length > 0 && (
+            <div className="bg-orange-50 border-y border-orange-200 px-4 py-2.5 flex items-center justify-between gap-4 animate-in fade-in">
+              <div className="flex items-center gap-2 text-xs font-bold text-orange-900">
+                <span className="w-5 h-5 rounded-full bg-[#ff5a1f] text-white inline-flex items-center justify-center text-[11px]">
+                  {selectedItemIds.length}
+                </span>
+                <span>wristband(s) selected</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setSelectedItemIds([])}
+                  className="px-2.5 py-1 text-xs text-gray-600 hover:text-gray-900 font-semibold"
+                >
+                  Deselect All
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={isDeletingBulk}
+                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeletingBulk ? "Deleting..." : `Delete Selected (${selectedItemIds.length})`}</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Master Table */}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-gray-100/70 border-b border-gray-200 text-gray-600 font-bold uppercase tracking-wider text-[11px]">
+                  <th className="py-3.5 px-3 w-10 text-center">
+                    <input
+                      type="checkbox"
+                      checked={items.length > 0 && selectedItemIds.length === items.length}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedItemIds(items.map((i) => i.id));
+                        } else {
+                          setSelectedItemIds([]);
+                        }
+                      }}
+                      className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
+                      title="Select all on this page"
+                    />
+                  </th>
                   <th className="py-3.5 px-4">Unique Band ID</th>
                   <th className="py-3.5 px-4">Color / Scheme</th>
                   <th className="py-3.5 px-4">Category</th>
@@ -869,15 +1062,32 @@ export default function BandInventoryPage() {
               <tbody className="divide-y divide-gray-100">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="py-12 text-center text-gray-500">
+                    <td colSpan={9} className="py-12 text-center text-gray-500">
                       No wristbands found matching your filter criteria.
                     </td>
                   </tr>
                 ) : (
                   items.map((item) => {
                     const badgeStyle = getWristbandBadgeStyle(item.color_hex);
+                    const isSelected = selectedItemIds.includes(item.id);
                     return (
-                      <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                      <tr key={item.id} className={`hover:bg-gray-50/80 transition-colors ${isSelected ? "bg-orange-50/40" : ""}`}>
+                        {/* Checkbox */}
+                        <td className="py-3 px-3 text-center">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedItemIds((prev) => [...prev, item.id]);
+                              } else {
+                                setSelectedItemIds((prev) => prev.filter((id) => id !== item.id));
+                              }
+                            }}
+                            className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
+                          />
+                        </td>
+
                         {/* Unique Band ID */}
                         <td className="py-3 px-4 font-mono font-bold text-gray-900">
                           <span className="bg-gray-100 px-2.5 py-1 rounded-md border border-gray-200">
@@ -956,25 +1166,33 @@ export default function BandInventoryPage() {
                               </button>
                             )}
 
-                            {(item.status === "damaged" || item.status === "lost") && (
+                            {(item.status === "damaged" || item.status === "lost" || item.status === "retired") && (
                               <button
                                 onClick={() => handleRestoreBand(item)}
-                                className="px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-bold text-[11px] transition-colors"
+                                className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-bold text-[11px] transition-colors"
                                 title="Restore to Available"
                               >
                                 Restore
                               </button>
                             )}
 
-                            {item.status !== "retired" && (
-                              <button
-                                onClick={() => handleStockOutBand(item)}
-                                className="p-1 rounded-lg text-gray-400 hover:text-red-600 hover:bg-gray-100 transition-colors"
-                                title="Retire / Stock Out"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            {/* Edit Band Details */}
+                            <button
+                              onClick={() => handleOpenEditBand(item)}
+                              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                              title="Edit Band"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Delete Band Directly */}
+                            <button
+                              onClick={() => handleDeleteBand(item)}
+                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                              title="Permanently Delete Band"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -1644,6 +1862,386 @@ export default function BandInventoryPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {/* ========================================================================= */}
+      {/* MODAL 4: COLOR-WISE MANAGEMENT & NEW SERIES (FROM CLICKING CARD)           */}
+      {/* ========================================================================= */}
+      {isColorManageModalOpen && selectedColorForAction && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-gray-200 relative my-auto">
+            <button
+              onClick={() => {
+                setIsColorManageModalOpen(false);
+                setSelectedColorForAction(null);
+              }}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs"
+                style={{ backgroundColor: selectedColorForAction.color_hex }}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff5a1f] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
+                Color Stock Quick Hub
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold text-gray-900 flex items-center gap-2">
+              <span>{selectedColorForAction.color_name} Wristbands</span>
+            </h2>
+            <p className="text-xs text-gray-500 mb-5">
+              Manage stock levels, batch generate a new band series, or view and edit individual items.
+            </p>
+
+            {/* Quick Metrics Bar */}
+            <div className="grid grid-cols-4 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-6 text-center text-xs">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
+                <span className="font-mono font-bold text-gray-900">{selectedColorForAction.total}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-emerald-600 block">Available</span>
+                <span className="font-mono font-bold text-emerald-700">{selectedColorForAction.available}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-amber-600 block">Issued</span>
+                <span className="font-mono font-bold text-amber-700">{selectedColorForAction.issued}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-red-600 block">Damaged/Lost</span>
+                <span className="font-mono font-bold text-red-600">{selectedColorForAction.damaged + selectedColorForAction.lost}</span>
+              </div>
+            </div>
+
+            {/* Action Cards Grid */}
+            <div className="space-y-3">
+              {/* Option 1: Add New Band Series */}
+              <button
+                onClick={() => {
+                  const matchedPalette = WRISTBAND_PALETTE.find(
+                    (p) => p.name.toLowerCase() === selectedColorForAction.color_name.toLowerCase()
+                  ) || {
+                    hex: selectedColorForAction.color_hex,
+                    name: selectedColorForAction.color_name,
+                    bgClass: "bg-gray-100",
+                    textClass: "text-gray-800",
+                    borderClass: "border-gray-300",
+                    ringClass: "ring-gray-400",
+                  };
+                  setSelectedColor(matchedPalette);
+                  const short = selectedColorForAction.color_name.split("/")[0].trim().slice(0, 4).toUpperCase();
+                  setBulkPrefix(`BND-${short}`);
+                  setBulkStartNum(selectedColorForAction.total + 1);
+                  setBulkCount(10);
+                  setIsBulkMode(true);
+                  setIsColorManageModalOpen(false);
+                  setIsStockInModalOpen(true);
+                }}
+                className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-[#ff5a1f] hover:bg-orange-50/30 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-orange-100 text-[#ff5a1f] group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-gray-900 group-hover:text-[#ff5a1f] transition-colors">
+                      + Add New Band Series
+                    </strong>
+                    <span className="text-[11px] text-gray-500">
+                      Batch generate BND-{selectedColorForAction.color_name.slice(0, 3).toUpperCase()}-... bands into inventory
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-[#ff5a1f] group-hover:translate-x-1 transition-all" />
+              </button>
+
+              {/* Option 2: View and Edit in Master Catalog */}
+              <button
+                onClick={() => {
+                  setColorFilter(selectedColorForAction.color_name);
+                  setStatusFilter("all");
+                  setActiveTab("master");
+                  setIsColorManageModalOpen(false);
+                }}
+                className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-blue-500 hover:bg-blue-50/30 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-blue-100 text-blue-600 group-hover:scale-105 transition-transform">
+                    <Layers className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
+                      View &amp; Edit All {selectedColorForAction.color_name} Bands
+                    </strong>
+                    <span className="text-[11px] text-gray-500">
+                      Filter Master Items Catalog to edit status, notes, or delete bands
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600 group-hover:translate-x-1 transition-all" />
+              </button>
+
+              {/* Option 3: Quick Issue a Band from this Color */}
+              <button
+                onClick={() => {
+                  setIsColorManageModalOpen(false);
+                  handleOpenIssueModal();
+                }}
+                className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-emerald-500 hover:bg-emerald-50/30 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-emerald-100 text-emerald-600 group-hover:scale-105 transition-transform">
+                    <ArrowUpRight className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-gray-900 group-hover:text-emerald-600 transition-colors">
+                      Quick Issue Wristband
+                    </strong>
+                    <span className="text-[11px] text-gray-500">
+                      Assign an available {selectedColorForAction.color_name} band to an active player
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
+              </button>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsColorManageModalOpen(false);
+                  setSelectedColorForAction(null);
+                }}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 5: EDIT SINGLE BAND DETAILS                                         */}
+      {/* ========================================================================= */}
+      {isEditBandModalOpen && editingBand && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-gray-200 relative my-auto">
+            <button
+              onClick={() => {
+                setIsEditBandModalOpen(false);
+                setEditingBand(null);
+              }}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="w-3 h-3 rounded-full border border-black/10"
+                style={{ backgroundColor: editingBand.color_hex }}
+              />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700 bg-blue-50 px-2.5 py-0.5 rounded-full border border-blue-200">
+                Edit Band Details
+              </span>
+            </div>
+            <h2 className="text-xl font-extrabold text-gray-900 font-mono">
+              {editingBand.band_code}
+            </h2>
+            <p className="text-xs text-gray-500 mb-5">
+              Modify inventory status, category, or audit notes for this wristband.
+            </p>
+
+            <form onSubmit={handleSaveEditBand} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Current Status
+                </label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value as BandStatus)}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                >
+                  <option value="available">🟢 Available (In Counter)</option>
+                  <option value="issued">🟡 Issued (Active with player)</option>
+                  <option value="damaged">🔴 Damaged (Quarantine)</option>
+                  <option value="lost">⚪ Lost (Missing)</option>
+                  <option value="retired">⚫ Retired (Written off)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Category
+                </label>
+                <select
+                  value={editCategory}
+                  onChange={(e) => setEditCategory(e.target.value as BandCategory)}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                >
+                  <option value="Standard">Standard</option>
+                  <option value="VIP">VIP</option>
+                  <option value="Child">Child</option>
+                  <option value="Staff / Marshal">Staff / Marshal</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                  Notes
+                </label>
+                <input
+                  type="text"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="e.g. Starter stock, clasp verified"
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+              </div>
+
+              <div className="pt-3 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditBandModalOpen(false);
+                    handleDeleteBand(editingBand);
+                  }}
+                  className="text-xs font-bold text-red-600 hover:text-red-800 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete Band</span>
+                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditBandModalOpen(false);
+                      setEditingBand(null);
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingEdit}
+                    className="bg-[#ff5a1f] hover:bg-[#e04812] text-white px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-[#ff5a1f]/20 disabled:opacity-50"
+                  >
+                    {isSubmittingEdit ? "Saving..." : "Save Changes"}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 6: CLEAR / RESET ALL INVENTORY                                      */}
+      {/* ========================================================================= */}
+      {isClearAllModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-red-200 relative my-auto">
+            <button
+              onClick={() => setIsClearAllModalOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <span className="p-2 rounded-xl bg-red-100 text-red-600">
+                <AlertCircle className="w-5 h-5" />
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-red-700">
+                Danger Zone
+              </span>
+            </div>
+
+            <h2 className="text-xl font-extrabold text-gray-900">Clear All Band Inventory?</h2>
+            <p className="text-xs text-gray-600 mt-1 mb-5 leading-relaxed">
+              This will permanently delete all wristbands and transaction audit logs. Please select how you want to proceed:
+            </p>
+
+            <div className="space-y-3 mb-6">
+              <label
+                className={`p-3.5 rounded-xl border block cursor-pointer transition-all ${
+                  !clearResetStarterStock
+                    ? "border-red-500 bg-red-50/50 text-red-900 font-medium"
+                    : "border-gray-200 hover:border-gray-300 text-gray-700"
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="radio"
+                    name="clearMode"
+                    checked={!clearResetStarterStock}
+                    onChange={() => setClearResetStarterStock(false)}
+                    className="mt-0.5 text-red-600 focus:ring-red-500"
+                  />
+                  <div>
+                    <strong className="block text-xs font-bold text-gray-900">
+                      Wipe Everything Completely
+                    </strong>
+                    <span className="text-[11px] text-gray-500 block mt-0.5">
+                      Empty inventory to 0 bands. You can create your own custom band codes manually or in bulk later.
+                    </span>
+                  </div>
+                </div>
+              </label>
+
+              <label
+                className={`p-3.5 rounded-xl border block cursor-pointer transition-all ${
+                  clearResetStarterStock
+                    ? "border-[#ff5a1f] bg-orange-50/50 text-orange-950 font-medium"
+                    : "border-gray-200 hover:border-gray-300 text-gray-700"
+                }`}
+              >
+                <div className="flex items-start gap-2.5">
+                  <input
+                    type="radio"
+                    name="clearMode"
+                    checked={clearResetStarterStock}
+                    onChange={() => setClearResetStarterStock(true)}
+                    className="mt-0.5 text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                  />
+                  <div>
+                    <strong className="block text-xs font-bold text-gray-900">
+                      Clear &amp; Reset to Clean Starter Stock
+                    </strong>
+                    <span className="text-[11px] text-gray-500 block mt-0.5">
+                      Wipes all current items and generates exactly 10 fresh, available bands for each of the 10 slot colors (BND-XXX-001 to 010).
+                    </span>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsClearAllModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllInventory}
+                disabled={isClearingAll}
+                className="bg-red-600 hover:bg-red-700 text-white px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-red-600/20 disabled:opacity-50"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{isClearingAll ? "Clearing..." : clearResetStarterStock ? "Reset Starter Stock" : "Wipe Everything"}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

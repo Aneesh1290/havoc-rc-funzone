@@ -141,12 +141,22 @@ export const TARGET_SLOT_BAND_COLORS = [
   { code: "GLD", name: "Gold",   hex: "#FFD700", count: 10 },
 ];
 
-export async function ensureBandInventorySeeded() {
+export async function ensureBandInventorySeeded(force: boolean = false) {
   initDB();
+
+  // Check persistent seeded flag in SQLite unless force is true
+  try {
+    const flagRow = db.prepare("SELECT value FROM site_settings WHERE key = 'band_inventory_seeded'").get() as { value: string } | undefined;
+    if (flagRow?.value === '1' && !force) {
+      // Already seeded previously; do not re-add deleted bands!
+      return;
+    }
+  } catch (ignore) {}
 
   if (isPostgresActive()) {
     await ensurePgSchema();
     try {
+      // Check Postgres site_settings / flag or items
       for (const item of TARGET_SLOT_BAND_COLORS) {
         const check = await simulatorPool.query(
           "SELECT COUNT(*)::int as count FROM band_items WHERE UPPER(color_name) = UPPER($1) OR UPPER(color_hex) = UPPER($2)",
@@ -204,6 +214,13 @@ export async function ensureBandInventorySeeded() {
         }
       }
     }
+
+    // Set persistent seeded flag in SQLite
+    db.prepare(`
+      INSERT INTO site_settings (key, value, description)
+      VALUES ('band_inventory_seeded', '1', 'Flag indicating initial band inventory seed completed')
+      ON CONFLICT(key) DO UPDATE SET value = '1'
+    `).run();
   } catch (err) {
     console.error("[Band Inventory SQLite] Failed to seed initial bands:", err);
   }
@@ -1249,6 +1266,95 @@ export async function deleteBandItem(id: number): Promise<{ success: boolean; er
   } catch (err: any) {
     console.error("[Delete Band Error]", err);
     return { success: false, error: err.message || "Failed to delete band." };
+  }
+}
+
+export async function bulkDeleteBandItems(ids: number[]): Promise<{ success: boolean; count: number; error?: string }> {
+  if (!ids || ids.length === 0) {
+    return { success: true, count: 0 };
+  }
+
+  try {
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("DELETE FROM band_transactions WHERE band_id = ANY($1::int[])", [ids]);
+          const res = await client.query("DELETE FROM band_items WHERE id = ANY($1::int[])", [ids]);
+          await client.query("COMMIT");
+          return { success: true, count: res.rowCount || ids.length };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for bulkDeleteBandItems:", pgErr);
+      }
+    }
+
+    // SQLite fallback
+    const placeholders = ids.map(() => "?").join(",");
+    const tx = db.transaction(() => {
+      db.prepare(`DELETE FROM band_transactions WHERE band_id IN (${placeholders})`).run(...ids);
+      db.prepare(`DELETE FROM band_items WHERE id IN (${placeholders})`).run(...ids);
+    });
+    tx();
+    return { success: true, count: ids.length };
+  } catch (err: any) {
+    console.error("[Bulk Delete Band Error]", err);
+    return { success: false, count: 0, error: err.message || "Failed to bulk delete bands." };
+  }
+}
+
+export async function deleteAllBandInventory(options?: { resetStarterStock?: boolean }): Promise<{ success: boolean; error?: string }> {
+  try {
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("DELETE FROM band_transactions");
+          await client.query("DELETE FROM band_items");
+          await client.query("COMMIT");
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for deleteAllBandInventory:", pgErr);
+      }
+    }
+
+    // SQLite fallback
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM band_transactions").run();
+      db.prepare("DELETE FROM band_items").run();
+    });
+    tx();
+
+    if (options?.resetStarterStock) {
+      // Re-seed 10 starter stock per slot color
+      await ensureBandInventorySeeded(true);
+    } else {
+      // Mark as seeded so empty inventory stays empty
+      try {
+        db.prepare(`
+          INSERT INTO site_settings (key, value, description)
+          VALUES ('band_inventory_seeded', '1', 'Flag indicating initial band inventory seed completed')
+          ON CONFLICT(key) DO UPDATE SET value = '1'
+        `).run();
+      } catch (ignore) {}
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    console.error("[Delete All Band Inventory Error]", err);
+    return { success: false, error: err.message || "Failed to clear band inventory." };
   }
 }
 

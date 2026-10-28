@@ -43,7 +43,7 @@ export async function getBandInventorySummaryAction(): Promise<{
 }> {
   try {
     await getStaffSession();
-    const summary = getBandInventorySummary();
+    const summary = await getBandInventorySummary();
     return { success: true, data: summary };
   } catch (err: any) {
     console.error("[getBandInventorySummaryAction Error]", err);
@@ -58,7 +58,7 @@ export async function getBandItemsAction(options: GetBandItemsOptions = {}): Pro
 }> {
   try {
     await getStaffSession();
-    const result = getBandItems(options);
+    const result = await getBandItems(options);
     return { success: true, data: result };
   } catch (err: any) {
     console.error("[getBandItemsAction Error]", err);
@@ -73,7 +73,7 @@ export async function getBandTransactionsAction(options: GetBandTransactionsOpti
 }> {
   try {
     await getStaffSession();
-    const result = getBandTransactions(options);
+    const result = await getBandTransactions(options);
     return { success: true, data: result };
   } catch (err: any) {
     console.error("[getBandTransactionsAction Error]", err);
@@ -91,7 +91,7 @@ export async function createBandItemAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = createBandItem({ ...data, staff_name: staffName });
+    const res = await createBandItem({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -113,7 +113,7 @@ export async function bulkCreateBandItemsAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = bulkCreateBandItems({ ...data, staff_name: staffName });
+    const res = await bulkCreateBandItems({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -134,7 +134,7 @@ export async function issueBandAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = issueBandItem({ ...data, staff_name: staffName });
+    const res = await issueBandItem({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
       revalidatePath("/admin/bookings");
@@ -154,7 +154,7 @@ export async function returnBandAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = returnBandItem({ ...data, staff_name: staffName });
+    const res = await returnBandItem({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
       revalidatePath("/admin/bookings");
@@ -172,7 +172,7 @@ export async function stockOutBandAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = stockOutBandItem({ ...data, staff_name: staffName });
+    const res = await stockOutBandItem({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -189,7 +189,7 @@ export async function restoreBandAction(data: {
   try {
     const session = await getStaffSession();
     const staffName = session.username || "Staff";
-    const res = restoreBandItem({ ...data, staff_name: staffName });
+    const res = await restoreBandItem({ ...data, staff_name: staffName });
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -212,7 +212,7 @@ export async function updateBandItemAction(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     await getStaffSession();
-    const res = updateBandItem(id, data);
+    const res = await updateBandItem(id, data);
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -228,7 +228,7 @@ export async function deleteBandItemAction(id: number): Promise<{ success: boole
     if (session.role !== "super_admin" && session.username?.toLowerCase() !== "admin") {
       return { success: false, error: "Only administrators can delete band records." };
     }
-    const res = deleteBandItem(id);
+    const res = await deleteBandItem(id);
     if (res.success) {
       revalidatePath("/admin/bands");
     }
@@ -248,7 +248,7 @@ export async function quickLookupBandAction(code: string): Promise<{
     if (!code || !code.trim()) {
       return { success: false, error: "Band code is required." };
     }
-    const item = getBandItemByCode(code.trim());
+    const item = await getBandItemByCode(code.trim());
     if (!item) {
       return { success: false, error: `Band with code '${code}' not found in inventory.` };
     }

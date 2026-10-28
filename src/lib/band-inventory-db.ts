@@ -1,4 +1,5 @@
 import { db, initDB } from "./db";
+import { simulatorPool } from "./simulator-db";
 import { WRISTBAND_PALETTE } from "./slotColors";
 
 export type BandStatus = "available" | "issued" | "damaged" | "lost" | "retired";
@@ -62,26 +63,119 @@ export interface BandInventorySummary {
   damaged: number;
   lost: number;
   retired: number;
-  activeInventory: number; // total minus retired
+  activeInventory: number;
   issuedToday: number;
   returnedToday: number;
-  availabilityRate: number; // percentage
+  availabilityRate: number;
   colorBreakdown: BandColorBreakdown[];
   categoryBreakdown: { category: string; total: number; available: number; issued: number }[];
   lowStockColors: { color_name: string; color_hex: string; available: number }[];
 }
 
-/**
- * Ensures table existence and auto-seeds initial starter band items if the table is empty.
- */
-export function ensureBandInventorySeeded() {
+function isPostgresActive(): boolean {
+  return Boolean(process.env.SIMULATOR_DATABASE_URL && simulatorPool);
+}
+
+let pgSchemaInitialized = false;
+async function ensurePgSchema() {
+  if (pgSchemaInitialized || !isPostgresActive()) return;
+  try {
+    await simulatorPool.query(`
+      CREATE TABLE IF NOT EXISTS band_items (
+        id SERIAL PRIMARY KEY,
+        band_code VARCHAR(100) NOT NULL UNIQUE,
+        color_name VARCHAR(100) NOT NULL,
+        color_hex VARCHAR(50) NOT NULL,
+        category VARCHAR(50) DEFAULT 'Standard',
+        status VARCHAR(50) DEFAULT 'available',
+        current_holder_name VARCHAR(255),
+        current_booking_id INTEGER,
+        current_order_number VARCHAR(100),
+        total_uses INTEGER DEFAULT 0,
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
+      CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
+      CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
+
+      CREATE TABLE IF NOT EXISTS band_transactions (
+        id SERIAL PRIMARY KEY,
+        band_id INTEGER NOT NULL REFERENCES band_items(id) ON DELETE CASCADE,
+        band_code VARCHAR(100) NOT NULL,
+        color_name VARCHAR(100) NOT NULL,
+        color_hex VARCHAR(50) NOT NULL,
+        transaction_type VARCHAR(50) NOT NULL,
+        quantity INTEGER DEFAULT 1,
+        customer_name VARCHAR(255),
+        booking_id INTEGER,
+        order_number VARCHAR(100),
+        staff_name VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_band_tx_band_id ON band_transactions(band_id);
+      CREATE INDEX IF NOT EXISTS idx_band_tx_type ON band_transactions(transaction_type);
+      CREATE INDEX IF NOT EXISTS idx_band_tx_created ON band_transactions(created_at);
+    `);
+    pgSchemaInitialized = true;
+  } catch (err) {
+    console.warn("[Band Inventory] Could not auto-initialize Postgres schema:", err);
+  }
+}
+
+export async function ensureBandInventorySeeded() {
   initDB();
 
+  if (isPostgresActive()) {
+    await ensurePgSchema();
+    try {
+      const checkRes = await simulatorPool.query("SELECT COUNT(*)::int as count FROM band_items");
+      if (checkRes.rows[0]?.count === 0) {
+        console.log("[Band Inventory Postgres] Seeding starter wristband inventory into shared DB...");
+        const seedColors = [
+          { code: "CYAN", name: "Cyan / Neon Blue", hex: "#06B6D4", count: 10 },
+          { code: "GRN",  name: "Emerald Green",    hex: "#10B981", count: 10 },
+          { code: "AMB",  name: "Amber Yellow",     hex: "#F59E0B", count: 10 },
+          { code: "ORG",  name: "Vibrant Orange",   hex: "#F97316", count: 10 },
+          { code: "RED",  name: "Ruby Red",         hex: "#EF4444", count: 10 },
+          { code: "PUR",  name: "Electric Purple",  hex: "#8B5CF6", count: 10 },
+        ];
+
+        for (const item of seedColors) {
+          for (let i = 1; i <= item.count; i++) {
+            const padNum = String(i).padStart(3, "0");
+            const bandCode = `BND-${item.code}-${padNum}`;
+            const insRes = await simulatorPool.query(
+              `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
+                 VALUES ($1, $2, $3, 'Standard', 'available', 0, 'Initial Starter Stock')
+                 RETURNING id`,
+              [bandCode, item.name, item.hex]
+            );
+            const newId = insRes.rows[0]?.id;
+            if (newId) {
+              await simulatorPool.query(
+                `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
+                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, 'System Setup', 'Initial Master Stock In')`,
+                [newId, bandCode, item.name, item.hex]
+              );
+            }
+          }
+        }
+        console.log("[Band Inventory Postgres] Seeded 60 starter wristbands in shared DB.");
+      }
+    } catch (err) {
+      console.error("[Band Inventory Postgres] Failed check/seed in Postgres:", err);
+    }
+  }
+
+  // Also seed local SQLite as backup
   try {
     const countRow = db.prepare("SELECT COUNT(*) as count FROM band_items").get() as { count: number } | undefined;
     if (countRow && countRow.count === 0) {
-      console.log("[Band Inventory] Seeding starter wristband inventory...");
-      
       const seedColors = [
         { code: "CYAN", name: "Cyan / Neon Blue", hex: "#06B6D4", count: 10 },
         { code: "GRN",  name: "Emerald Green",    hex: "#10B981", count: 10 },
@@ -111,22 +205,122 @@ export function ensureBandInventorySeeded() {
           }
         }
       });
-
       seedTx();
-      console.log("[Band Inventory] Seeded 60 starter wristbands successfully.");
     }
   } catch (err) {
-    console.error("[Band Inventory] Failed to seed initial bands:", err);
+    console.error("[Band Inventory SQLite] Failed to seed initial bands:", err);
   }
 }
 
-/**
- * Calculates real-time stock summary, availability counts, and color breakdowns.
- */
-export function getBandInventorySummary(): BandInventorySummary {
-  ensureBandInventorySeeded();
+export async function getBandInventorySummary(): Promise<BandInventorySummary> {
+  await ensureBandInventorySeeded();
 
-  // Basic counts
+  if (isPostgresActive()) {
+    try {
+      const countsRes = await simulatorPool.query(`
+        SELECT
+          COUNT(*)::int AS total,
+          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int AS available,
+          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int AS issued,
+          SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int AS damaged,
+          SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int AS lost,
+          SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int AS retired
+        FROM band_items
+      `);
+      const counts = countsRes.rows[0] || {};
+      const totalBands = Number(counts.total || 0);
+      const available = Number(counts.available || 0);
+      const issued = Number(counts.issued || 0);
+      const damaged = Number(counts.damaged || 0);
+      const lost = Number(counts.lost || 0);
+      const retired = Number(counts.retired || 0);
+      const activeInventory = Math.max(0, totalBands - retired);
+      const availabilityRate = activeInventory > 0 ? Math.round((available / activeInventory) * 100) : 0;
+
+      const todayRes = await simulatorPool.query(`
+        SELECT
+          SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END)::int AS issued_today,
+          SUM(CASE WHEN transaction_type = 'RETURN' THEN 1 ELSE 0 END)::int AS returned_today
+        FROM band_transactions
+        WHERE created_at::date = CURRENT_DATE
+      `);
+      const todayRow = todayRes.rows[0] || {};
+      const issuedToday = Number(todayRow.issued_today || 0);
+      const returnedToday = Number(todayRow.returned_today || 0);
+
+      const colorRowsRes = await simulatorPool.query(`
+        SELECT
+          color_name,
+          color_hex,
+          COUNT(*)::int as total,
+          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
+          SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
+          SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
+          SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired
+        FROM band_items
+        GROUP BY color_name, color_hex
+        ORDER BY total DESC, color_name ASC
+      `);
+
+      const colorBreakdown: BandColorBreakdown[] = colorRowsRes.rows.map(r => ({
+        color_name: r.color_name,
+        color_hex: r.color_hex,
+        total: Number(r.total || 0),
+        available: Number(r.available || 0),
+        issued: Number(r.issued || 0),
+        damaged: Number(r.damaged || 0),
+        lost: Number(r.lost || 0),
+        retired: Number(r.retired || 0),
+      }));
+
+      const lowStockColors = colorBreakdown
+        .filter(c => c.available < 3)
+        .map(c => ({
+          color_name: c.color_name,
+          color_hex: c.color_hex,
+          available: c.available,
+        }));
+
+      const catRes = await simulatorPool.query(`
+        SELECT
+          category,
+          COUNT(*)::int as total,
+          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued
+        FROM band_items
+        GROUP BY category
+        ORDER BY total DESC
+      `);
+
+      const categoryBreakdown = catRes.rows.map(r => ({
+        category: r.category || 'Standard',
+        total: Number(r.total || 0),
+        available: Number(r.available || 0),
+        issued: Number(r.issued || 0),
+      }));
+
+      return {
+        totalBands,
+        available,
+        issued,
+        damaged,
+        lost,
+        retired,
+        activeInventory,
+        issuedToday,
+        returnedToday,
+        availabilityRate,
+        colorBreakdown,
+        categoryBreakdown,
+        lowStockColors,
+      };
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for summary:", pgErr);
+    }
+  }
+
+  // SQLite fallback
   const counts = db.prepare(`
     SELECT
       COUNT(*) AS total,
@@ -147,7 +341,6 @@ export function getBandInventorySummary(): BandInventorySummary {
   const activeInventory = Math.max(0, totalBands - retired);
   const availabilityRate = activeInventory > 0 ? Math.round((available / activeInventory) * 100) : 0;
 
-  // Today's movements (using SQLite localdate)
   const todayRow = db.prepare(`
     SELECT
       SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END) AS issued_today,
@@ -159,7 +352,6 @@ export function getBandInventorySummary(): BandInventorySummary {
   const issuedToday = Number(todayRow?.issued_today || 0);
   const returnedToday = Number(todayRow?.returned_today || 0);
 
-  // Group by color
   const colorRows = db.prepare(`
     SELECT
       color_name,
@@ -186,7 +378,6 @@ export function getBandInventorySummary(): BandInventorySummary {
     retired: Number(r.retired || 0),
   }));
 
-  // Low stock colors (< 3 available)
   const lowStockColors = colorBreakdown
     .filter(c => c.available < 3)
     .map(c => ({
@@ -195,7 +386,6 @@ export function getBandInventorySummary(): BandInventorySummary {
       available: c.available,
     }));
 
-  // Group by category
   const categoryRows = db.prepare(`
     SELECT
       category,
@@ -242,12 +432,62 @@ export interface GetBandItemsOptions {
   sortOrder?: "ASC" | "DESC";
 }
 
-/**
- * Retrieves master band items with filtering and pagination.
- */
-export function getBandItems(options: GetBandItemsOptions = {}): { items: BandItem[]; totalCount: number } {
-  ensureBandInventorySeeded();
+export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{ items: BandItem[]; totalCount: number }> {
+  await ensureBandInventorySeeded();
 
+  if (isPostgresActive()) {
+    try {
+      const whereClauses: string[] = [];
+      const params: any[] = [];
+      let pIdx = 1;
+
+      if (options.search && options.search.trim()) {
+        const s = `%${options.search.trim()}%`;
+        whereClauses.push(`(band_code ILIKE $${pIdx} OR current_holder_name ILIKE $${pIdx} OR current_order_number ILIKE $${pIdx} OR notes ILIKE $${pIdx})`);
+        params.push(s);
+        pIdx++;
+      }
+
+      if (options.status && options.status !== 'all') {
+        whereClauses.push(`status = $${pIdx}`);
+        params.push(options.status.trim().toLowerCase());
+        pIdx++;
+      }
+
+      if (options.color_name && options.color_name !== 'all') {
+        whereClauses.push(`color_name = $${pIdx}`);
+        params.push(options.color_name.trim());
+        pIdx++;
+      }
+
+      if (options.category && options.category !== 'all') {
+        whereClauses.push(`category = $${pIdx}`);
+        params.push(options.category.trim());
+        pIdx++;
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+      const countRes = await simulatorPool.query(`SELECT COUNT(*)::int as cnt FROM band_items ${whereSql}`, params);
+      const totalCount = countRes.rows[0]?.cnt || 0;
+
+      const allowedSortCols = ['band_code', 'status', 'total_uses', 'created_at', 'updated_at'];
+      const sortBy = allowedSortCols.includes(options.sortBy || '') ? options.sortBy! : 'updated_at';
+      const sortOrder = options.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+
+      let querySql = `SELECT * FROM band_items ${whereSql} ORDER BY ${sortBy} ${sortOrder}`;
+      if (options.limit && options.limit > 0) {
+        querySql += ` LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+        params.push(options.limit, Math.max(0, options.offset || 0));
+      }
+
+      const itemsRes = await simulatorPool.query(querySql, params);
+      return { items: itemsRes.rows as BandItem[], totalCount };
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for items:", pgErr);
+    }
+  }
+
+  // SQLite fallback
   const whereClauses: string[] = [];
   const params: any[] = [];
 
@@ -273,12 +513,9 @@ export function getBandItems(options: GetBandItemsOptions = {}): { items: BandIt
   }
 
   const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-
-  // Get total count
   const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM band_items ${whereSql}`).get(...params) as { cnt: number };
   const totalCount = countRow ? countRow.cnt : 0;
 
-  // Sorting
   const allowedSortCols = ["band_code", "status", "total_uses", "created_at", "updated_at"];
   const sortBy = allowedSortCols.includes(options.sortBy || "") ? options.sortBy! : "updated_at";
   const sortOrder = options.sortOrder === "ASC" ? "ASC" : "DESC";
@@ -300,33 +537,47 @@ export function getBandItems(options: GetBandItemsOptions = {}): { items: BandIt
   return { items, totalCount };
 }
 
-export function getBandItemById(id: number): BandItem | undefined {
+export async function getBandItemById(id: number): Promise<BandItem | undefined> {
+  if (isPostgresActive()) {
+    try {
+      const res = await simulatorPool.query("SELECT * FROM band_items WHERE id = $1", [id]);
+      if (res.rows.length > 0) return res.rows[0] as BandItem;
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for getById:", pgErr);
+    }
+  }
   return db.prepare("SELECT * FROM band_items WHERE id = ?").get(id) as BandItem | undefined;
 }
 
-export function getBandItemByCode(code: string): BandItem | undefined {
+export async function getBandItemByCode(code: string): Promise<BandItem | undefined> {
   if (!code) return undefined;
-  return db.prepare("SELECT * FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(code.trim()) as BandItem | undefined;
+  const clean = code.trim();
+  if (isPostgresActive()) {
+    try {
+      const res = await simulatorPool.query("SELECT * FROM band_items WHERE UPPER(band_code) = UPPER($1)", [clean]);
+      if (res.rows.length > 0) return res.rows[0] as BandItem;
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for getByCode:", pgErr);
+    }
+  }
+  return db.prepare("SELECT * FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(clean) as BandItem | undefined;
 }
 
-/**
- * Creates a single new band item and records the STOCK_IN audit log.
- */
-export function createBandItem(data: {
+export async function createBandItem(data: {
   band_code: string;
   color_name: string;
   color_hex: string;
   category?: BandCategory;
   notes?: string;
   staff_name?: string;
-}): { success: boolean; id?: number; error?: string } {
+}): Promise<{ success: boolean; id?: number; error?: string }> {
   try {
-    ensureBandInventorySeeded();
+    await ensureBandInventorySeeded();
 
     const cleanCode = data.band_code.trim().toUpperCase();
     if (!cleanCode) return { success: false, error: "Unique Band ID / Code is required." };
 
-    const existing = getBandItemByCode(cleanCode);
+    const existing = await getBandItemByCode(cleanCode);
     if (existing) {
       return { success: false, error: `Band ID '${cleanCode}' already exists in master inventory.` };
     }
@@ -335,6 +586,37 @@ export function createBandItem(data: {
     const notes = data.notes?.trim() || null;
     const staffName = data.staff_name || "Admin Staff";
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          const insRes = await client.query(
+            `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
+               VALUES ($1, $2, $3, $4, 'available', 0, $5)
+               RETURNING id`,
+            [cleanCode, data.color_name.trim(), data.color_hex.trim(), category, notes]
+          );
+          const newId = insRes.rows[0].id;
+          await client.query(
+            `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
+               VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, $5, $6)`,
+            [newId, cleanCode, data.color_name.trim(), data.color_hex.trim(), staffName, notes || 'Manual stock-in']
+          );
+          await client.query("COMMIT");
+          return { success: true, id: newId };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for createBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const insertTx = db.transaction(() => {
       const info = db.prepare(`
         INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
@@ -359,10 +641,7 @@ export function createBandItem(data: {
   }
 }
 
-/**
- * Bulk generate and stock-in multiple wristband items with sequential IDs.
- */
-export function bulkCreateBandItems(data: {
+export async function bulkCreateBandItems(data: {
   prefix: string;
   startingNumber: number;
   count: number;
@@ -371,17 +650,64 @@ export function bulkCreateBandItems(data: {
   category?: BandCategory;
   notes?: string;
   staff_name?: string;
-}): { success: boolean; createdCount: number; error?: string } {
+}): Promise<{ success: boolean; createdCount: number; error?: string }> {
   try {
-    ensureBandInventorySeeded();
+    await ensureBandInventorySeeded();
 
     const prefix = data.prefix.trim().toUpperCase();
-    const count = Math.min(Math.max(1, data.count), 200); // capped at 200 per batch
+    const count = Math.min(Math.max(1, data.count), 200);
     const startNum = Math.max(1, data.startingNumber || 1);
     const category = data.category || "Standard";
     const staffName = data.staff_name || "Admin Staff";
     const notes = data.notes?.trim() || `Batch Stock-In of ${count} bands`;
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          let createdCount = 0;
+          for (let i = 0; i < count; i++) {
+            const curNum = startNum + i;
+            const padCode = String(curNum).padStart(3, "0");
+            const code = prefix.endsWith("-") ? `${prefix}${padCode}` : `${prefix}-${padCode}`;
+
+            const existCheck = await client.query("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER($1)", [code]);
+            if (existCheck.rows.length > 0) continue;
+
+            const insRes = await client.query(
+              `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
+                 VALUES ($1, $2, $3, $4, 'available', 0, $5)
+                 RETURNING id`,
+              [code, data.color_name.trim(), data.color_hex.trim(), category, notes]
+            );
+            const newId = insRes.rows[0]?.id;
+            if (newId) {
+              await client.query(
+                `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
+                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, $5, $6)`,
+                [newId, code, data.color_name.trim(), data.color_hex.trim(), staffName, notes]
+              );
+              createdCount++;
+            }
+          }
+          await client.query("COMMIT");
+          if (createdCount === 0) {
+            return { success: false, createdCount: 0, error: "No new bands created (all codes in range already exist)." };
+          }
+          return { success: true, createdCount };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for bulkCreate:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const insertItem = db.prepare(`
       INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
       VALUES (?, ?, ?, ?, 'available', 0, ?)
@@ -393,14 +719,12 @@ export function bulkCreateBandItems(data: {
     `);
 
     let createdCount = 0;
-
     const runBulk = db.transaction(() => {
       for (let i = 0; i < count; i++) {
         const curNum = startNum + i;
         const padCode = String(curNum).padStart(3, "0");
         const code = prefix.endsWith("-") ? `${prefix}${padCode}` : `${prefix}-${padCode}`;
 
-        // Skip duplicates safely
         const exists = db.prepare("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(code);
         if (exists) continue;
 
@@ -423,10 +747,7 @@ export function bulkCreateBandItems(data: {
   }
 }
 
-/**
- * Issues a wristband to a customer or booking.
- */
-export function issueBandItem(data: {
+export async function issueBandItem(data: {
   band_id?: number;
   band_code?: string;
   customer_name?: string;
@@ -434,11 +755,11 @@ export function issueBandItem(data: {
   order_number?: string;
   staff_name?: string;
   notes?: string;
-}): { success: boolean; item?: BandItem; error?: string } {
+}): Promise<{ success: boolean; item?: BandItem; error?: string }> {
   try {
     const band = data.band_id 
-      ? getBandItemById(data.band_id) 
-      : (data.band_code ? getBandItemByCode(data.band_code) : undefined);
+      ? await getBandItemById(data.band_id) 
+      : (data.band_code ? await getBandItemByCode(data.band_code) : undefined);
 
     if (!band) {
       return { success: false, error: `Wristband '${data.band_code || data.band_id}' not found in inventory.` };
@@ -463,6 +784,47 @@ export function issueBandItem(data: {
     const staffName = data.staff_name || "Admin Staff";
     const notes = data.notes?.trim() || null;
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE band_items
+               SET status = 'issued',
+                   current_holder_name = $1,
+                   current_booking_id = $2,
+                   current_order_number = $3,
+                   total_uses = total_uses + 1,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $4`,
+            [customerName, data.booking_id || null, orderNumber, band.id]
+          );
+
+          await client.query(
+            `INSERT INTO band_transactions (
+                band_id, band_code, color_name, color_hex, transaction_type, 
+                quantity, customer_name, booking_id, order_number, staff_name, notes
+              )
+              VALUES ($1, $2, $3, $4, 'ISSUE', 1, $5, $6, $7, $8, $9)`,
+            [band.id, band.band_code, band.color_name, band.color_hex, customerName, data.booking_id || null, orderNumber, staffName, notes || 'Issued at Reception / Track Desk']
+          );
+          await client.query("COMMIT");
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+
+        const updated = await getBandItemById(band.id);
+        return { success: true, item: updated };
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for issueBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE band_items
@@ -495,7 +857,7 @@ export function issueBandItem(data: {
     });
 
     tx();
-    const updated = getBandItemById(band.id);
+    const updated = await getBandItemById(band.id);
     return { success: true, item: updated };
   } catch (err: any) {
     console.error("[Issue Band Error]", err);
@@ -503,20 +865,17 @@ export function issueBandItem(data: {
   }
 }
 
-/**
- * Returns a wristband back to stock and checks condition.
- */
-export function returnBandItem(data: {
+export async function returnBandItem(data: {
   band_id?: number;
   band_code?: string;
   condition: "good" | "damaged" | "lost";
   staff_name?: string;
   notes?: string;
-}): { success: boolean; item?: BandItem; error?: string } {
+}): Promise<{ success: boolean; item?: BandItem; error?: string }> {
   try {
     const band = data.band_id 
-      ? getBandItemById(data.band_id) 
-      : (data.band_code ? getBandItemByCode(data.band_code) : undefined);
+      ? await getBandItemById(data.band_id) 
+      : (data.band_code ? await getBandItemByCode(data.band_code) : undefined);
 
     if (!band) {
       return { success: false, error: `Wristband '${data.band_code || data.band_id}' not found.` };
@@ -539,6 +898,57 @@ export function returnBandItem(data: {
       txType = "LOST";
     }
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE band_items
+               SET status = $1,
+                   current_holder_name = NULL,
+                   current_booking_id = NULL,
+                   current_order_number = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $2`,
+            [newStatus, band.id]
+          );
+
+          await client.query(
+            `INSERT INTO band_transactions (
+                band_id, band_code, color_name, color_hex, transaction_type, 
+                quantity, customer_name, booking_id, order_number, staff_name, notes
+              )
+              VALUES ($1, $2, $3, $4, $5, 1, $6, $7, $8, $9, $10)`,
+            [
+              band.id,
+              band.band_code,
+              band.color_name,
+              band.color_hex,
+              txType,
+              prevHolder || null,
+              prevBookingId || null,
+              prevOrder || null,
+              staffName,
+              notes || `Returned condition: ${data.condition.toUpperCase()}`
+            ]
+          );
+          await client.query("COMMIT");
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+
+        const updated = await getBandItemById(band.id);
+        return { success: true, item: updated };
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for returnBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE band_items
@@ -571,7 +981,7 @@ export function returnBandItem(data: {
     });
 
     tx();
-    const updated = getBandItemById(band.id);
+    const updated = await getBandItemById(band.id);
     return { success: true, item: updated };
   } catch (err: any) {
     console.error("[Return Band Error]", err);
@@ -579,21 +989,56 @@ export function returnBandItem(data: {
   }
 }
 
-/**
- * Retires / write-off band from inventory (STOCK_OUT).
- */
-export function stockOutBandItem(data: {
+export async function stockOutBandItem(data: {
   band_id: number;
   reason?: string;
   staff_name?: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   try {
-    const band = getBandItemById(data.band_id);
+    const band = await getBandItemById(data.band_id);
     if (!band) return { success: false, error: "Band item not found." };
 
     const reason = data.reason?.trim() || "Item retired / discarded";
     const staffName = data.staff_name || "Admin Staff";
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE band_items 
+               SET status = 'retired',
+                   current_holder_name = NULL,
+                   current_booking_id = NULL,
+                   current_order_number = NULL,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+            [band.id]
+          );
+
+          await client.query(
+            `INSERT INTO band_transactions (
+                band_id, band_code, color_name, color_hex, transaction_type, 
+                quantity, staff_name, notes
+              )
+              VALUES ($1, $2, $3, $4, 'STOCK_OUT', 1, $5, $6)`,
+            [band.id, band.band_code, band.color_name, band.color_hex, staffName, reason]
+          );
+          await client.query("COMMIT");
+          return { success: true };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for stockOutBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE band_items 
@@ -622,21 +1067,53 @@ export function stockOutBandItem(data: {
   }
 }
 
-/**
- * Marks a damaged or lost band as repaired / recovered back to 'available'.
- */
-export function restoreBandItem(data: {
+export async function restoreBandItem(data: {
   band_id: number;
   staff_name?: string;
   notes?: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   try {
-    const band = getBandItemById(data.band_id);
+    const band = await getBandItemById(data.band_id);
     if (!band) return { success: false, error: "Band item not found." };
 
     const staffName = data.staff_name || "Admin Staff";
     const notes = data.notes?.trim() || "Restored back to available stock";
 
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query(
+            `UPDATE band_items 
+               SET status = 'available',
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE id = $1`,
+            [band.id]
+          );
+
+          await client.query(
+            `INSERT INTO band_transactions (
+                band_id, band_code, color_name, color_hex, transaction_type, 
+                quantity, staff_name, notes
+              )
+              VALUES ($1, $2, $3, $4, 'STATUS_CHANGE', 1, $5, $6)`,
+            [band.id, band.band_code, band.color_name, band.color_hex, staffName, notes]
+          );
+          await client.query("COMMIT");
+          return { success: true };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for restoreBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const tx = db.transaction(() => {
       db.prepare(`
         UPDATE band_items 
@@ -662,19 +1139,55 @@ export function restoreBandItem(data: {
   }
 }
 
-export function updateBandItem(id: number, data: {
+export async function updateBandItem(id: number, data: {
   band_code: string;
   color_name: string;
   color_hex: string;
   category?: BandCategory;
   status?: BandStatus;
   notes?: string;
-}): { success: boolean; error?: string } {
+}): Promise<{ success: boolean; error?: string }> {
   try {
     const cleanCode = data.band_code.trim().toUpperCase();
     if (!cleanCode) return { success: false, error: "Band code is required." };
 
-    // Check collision
+    if (isPostgresActive()) {
+      try {
+        const existRes = await simulatorPool.query(
+          "SELECT id FROM band_items WHERE UPPER(band_code) = UPPER($1) AND id != $2",
+          [cleanCode, id]
+        );
+        if (existRes.rows.length > 0) {
+          return { success: false, error: `Band code '${cleanCode}' is already used by another item.` };
+        }
+
+        await simulatorPool.query(
+          `UPDATE band_items
+             SET band_code = $1,
+                 color_name = $2,
+                 color_hex = $3,
+                 category = COALESCE($4, category),
+                 status = COALESCE($5, status),
+                 notes = $6,
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = $7`,
+          [
+            cleanCode,
+            data.color_name.trim(),
+            data.color_hex.trim(),
+            data.category || null,
+            data.status || null,
+            data.notes?.trim() || null,
+            id
+          ]
+        );
+        return { success: true };
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for updateBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const existing = db.prepare("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER(?) AND id != ?").get(cleanCode, id);
     if (existing) {
       return { success: false, error: `Band code '${cleanCode}' is already used by another item.` };
@@ -707,8 +1220,29 @@ export function updateBandItem(id: number, data: {
   }
 }
 
-export function deleteBandItem(id: number): { success: boolean; error?: string } {
+export async function deleteBandItem(id: number): Promise<{ success: boolean; error?: string }> {
   try {
+    if (isPostgresActive()) {
+      try {
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+          await client.query("DELETE FROM band_transactions WHERE band_id = $1", [id]);
+          await client.query("DELETE FROM band_items WHERE id = $1", [id]);
+          await client.query("COMMIT");
+          return { success: true };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for deleteBandItem:", pgErr);
+      }
+    }
+
+    // SQLite fallback
     const tx = db.transaction(() => {
       db.prepare("DELETE FROM band_transactions WHERE band_id = ?").run(id);
       db.prepare("DELETE FROM band_items WHERE id = ?").run(id);
@@ -732,12 +1266,70 @@ export interface GetBandTransactionsOptions {
   offset?: number;
 }
 
-/**
- * Retrieves audit log of all band movements (Stock in, Issue, Return, Damaged, Lost).
- */
-export function getBandTransactions(options: GetBandTransactionsOptions = {}): { transactions: BandTransaction[]; totalCount: number } {
-  ensureBandInventorySeeded();
+export async function getBandTransactions(options: GetBandTransactionsOptions = {}): Promise<{ transactions: BandTransaction[]; totalCount: number }> {
+  await ensureBandInventorySeeded();
 
+  if (isPostgresActive()) {
+    try {
+      const whereClauses: string[] = [];
+      const params: any[] = [];
+      let pIdx = 1;
+
+      if (options.band_id) {
+        whereClauses.push(`band_id = $${pIdx}`);
+        params.push(options.band_id);
+        pIdx++;
+      }
+
+      if (options.band_code && options.band_code.trim()) {
+        whereClauses.push(`UPPER(band_code) = UPPER($${pIdx})`);
+        params.push(options.band_code.trim());
+        pIdx++;
+      }
+
+      if (options.type && options.type !== 'all') {
+        whereClauses.push(`transaction_type = $${pIdx}`);
+        params.push(options.type.trim().toUpperCase());
+        pIdx++;
+      }
+
+      if (options.search && options.search.trim()) {
+        const s = `%${options.search.trim()}%`;
+        whereClauses.push(`(band_code ILIKE $${pIdx} OR customer_name ILIKE $${pIdx} OR order_number ILIKE $${pIdx} OR staff_name ILIKE $${pIdx} OR notes ILIKE $${pIdx})`);
+        params.push(s);
+        pIdx++;
+      }
+
+      if (options.startDate) {
+        whereClauses.push(`created_at::date >= $${pIdx}::date`);
+        params.push(options.startDate);
+        pIdx++;
+      }
+
+      if (options.endDate) {
+        whereClauses.push(`created_at::date <= $${pIdx}::date`);
+        params.push(options.endDate);
+        pIdx++;
+      }
+
+      const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
+      const countRes = await simulatorPool.query(`SELECT COUNT(*)::int as cnt FROM band_transactions ${whereSql}`, params);
+      const totalCount = countRes.rows[0]?.cnt || 0;
+
+      let querySql = `SELECT * FROM band_transactions ${whereSql} ORDER BY created_at DESC, id DESC`;
+      if (options.limit && options.limit > 0) {
+        querySql += ` LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
+        params.push(options.limit, Math.max(0, options.offset || 0));
+      }
+
+      const txRes = await simulatorPool.query(querySql, params);
+      return { transactions: txRes.rows as BandTransaction[], totalCount };
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for getBandTransactions:", pgErr);
+    }
+  }
+
+  // SQLite fallback
   const whereClauses: string[] = [];
   const params: any[] = [];
 

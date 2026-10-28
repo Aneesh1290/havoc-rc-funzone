@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
     const nowStr = new Date().toISOString().split("T")[0];
 
     if (reportType === "summary") {
-      const summary = getBandInventorySummary();
+      const summary = await getBandInventorySummary();
       const lines: string[] = [];
 
       lines.push("RC FUNZONE - WRISTBAND INVENTORY STOCK SUMMARY REPORT");
@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
     }
 
     if (reportType === "movements") {
-      const { transactions } = getBandTransactions({ limit: 1000 });
+      const { transactions } = await getBandTransactions({ limit: 1000 });
       const lines: string[] = [];
 
       lines.push("Date & Time,Band Code,Color,Movement Type,Customer Name,Order / Booking ID,Staff Member,Remarks / Notes");
@@ -98,7 +98,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Default: 'master' list
-    const { items } = getBandItems({});
+    const { items } = await getBandItems({});
     const lines: string[] = [];
 
     lines.push("Band ID,Color Name,Color Hex,Category,Current Status,Current Holder,Order #,Total Uses,Notes,Last Updated,Created At");

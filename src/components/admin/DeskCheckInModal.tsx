@@ -873,34 +873,73 @@ export default function DeskCheckInModal({
                     </div>
 
                     <div className="space-y-4">
-                      {/* Group sessions by time slot so sessions are neat & clean */}
-                      {Array.from(new Set(foundSessions.map((s) => s.time_slot))).map((slotTime) => {
-                        const slotSessions = foundSessions.filter((s) => s.time_slot === slotTime);
-                        const firstSession = slotSessions[0];
-                        const slotWristband = getSlotWristbandColor(slotTime, firstSession.slot_color, firstSession.slot_color_name);
-                        const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
+                      {/* Group sessions by Order Number (#FZ_X) so each order is cleanly separated */}
+                      {Array.from(new Set(foundSessions.map((s) => s.order_number || s.id))).map((orderNum) => {
+                        const orderSessions = foundSessions.filter((s) => (s.order_number || s.id) === orderNum);
+                        const firstSession = orderSessions[0];
+                        const totalOrderPlayers = orderSessions.reduce(
+                          (sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity),
+                          0
+                        );
+                        const orderTotalAmount = orderSessions.reduce((sum, s) => sum + s.total_amount, 0);
+                        const allOrderPaid = orderSessions.every((s) => (s.payment_status || "").toLowerCase() === "paid");
+                        const timeSlotsInOrder = Array.from(new Set(orderSessions.map((s) => s.time_slot)));
 
                         return (
-                          <div key={slotTime} className="rounded-2xl border border-gray-200/90 bg-gray-50/50 p-3 sm:p-3.5 space-y-2.5">
-                            {/* Slot Group Header */}
-                            <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/70">
-                              <div className="flex items-center gap-2">
-                                <span className="font-mono font-bold text-sm text-gray-900 flex items-center gap-1.5">
-                                  <Clock className="w-3.5 h-3.5 text-amber-600" />
-                                  <span>{slotTime}</span>
+                          <div key={orderNum} className="rounded-2xl border border-gray-200/90 bg-gray-50/60 p-3 sm:p-4 space-y-3 shadow-xs">
+                            {/* Order Header */}
+                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-gray-200/80 gap-2">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono font-black text-sm text-gray-900 bg-amber-100/90 text-amber-950 px-2.5 py-0.5 rounded-lg border border-amber-300">
+                                  Order #FZ_{orderNum}
                                 </span>
-                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-xs" style={slotBadgeStyle}>
-                                  {slotWristband.name} Wristband
+
+                                {/* Slots in this order */}
+                                {timeSlotsInOrder.map((slotTime) => {
+                                  const matchingSession = orderSessions.find((s) => s.time_slot === slotTime);
+                                  const slotWristband = getSlotWristbandColor(
+                                    slotTime,
+                                    matchingSession?.slot_color,
+                                    matchingSession?.slot_color_name
+                                  );
+                                  const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
+                                  return (
+                                    <div key={slotTime} className="flex items-center gap-1.5 text-xs font-semibold">
+                                      <span className="font-mono text-gray-700 flex items-center gap-1">
+                                        <Clock className="w-3 h-3 text-amber-600" />
+                                        <span>{slotTime}</span>
+                                      </span>
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-2xs" style={slotBadgeStyle}>
+                                        {slotWristband.name} Wristband
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="flex items-center gap-2 text-xs font-mono">
+                                <span className="font-bold text-gray-700">
+                                  {totalOrderPlayers} Player(s)
+                                </span>
+                                <span className="text-gray-300">•</span>
+                                <span className="font-bold text-gray-900">
+                                  {formatInr(orderTotalAmount)}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                                    allOrderPaid
+                                      ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                      : "bg-amber-50 text-amber-700 border border-amber-200"
+                                  }`}
+                                >
+                                  {allOrderPaid ? "PAID" : "UNPAID"}
                                 </span>
                               </div>
-                              <span className="text-[11px] font-mono text-gray-500">
-                                {slotSessions.reduce((sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity), 0)} Player(s)
-                              </span>
                             </div>
 
-                            {/* Sessions for this slot */}
+                            {/* Sessions for this order */}
                             <div className="space-y-2">
-                              {slotSessions.map((session) => {
+                              {orderSessions.map((session) => {
                                 const isPaid = (session.payment_status || "").toLowerCase() === "paid";
                                 const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
                                 const isFulfilled =
@@ -1274,33 +1313,73 @@ export default function DeskCheckInModal({
                 </div>
 
                 <div className="space-y-4">
-                  {Array.from(new Set(verifiedSessions.map((s) => s.time_slot))).map((slotTime) => {
-                    const slotSessions = verifiedSessions.filter((s) => s.time_slot === slotTime);
-                    const firstSession = slotSessions[0];
-                    const slotWristband = getSlotWristbandColor(slotTime, firstSession.slot_color, firstSession.slot_color_name);
-                    const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
+                  {/* Group verified sessions by Order Number (#FZ_X) */}
+                  {Array.from(new Set(verifiedSessions.map((s) => s.order_number || s.id))).map((orderNum) => {
+                    const orderSessions = verifiedSessions.filter((s) => (s.order_number || s.id) === orderNum);
+                    const firstSession = orderSessions[0];
+                    const totalOrderPlayers = orderSessions.reduce(
+                      (sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity),
+                      0
+                    );
+                    const orderTotalAmount = orderSessions.reduce((sum, s) => sum + s.total_amount, 0);
+                    const allOrderPaid = orderSessions.every((s) => (s.payment_status || "").toLowerCase() === "paid");
+                    const timeSlotsInOrder = Array.from(new Set(orderSessions.map((s) => s.time_slot)));
 
                     return (
-                      <div key={slotTime} className="rounded-2xl border border-gray-200/90 bg-gray-50/50 p-3 sm:p-3.5 space-y-2.5">
-                        {/* Slot Group Header */}
-                        <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/70">
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono font-bold text-sm text-gray-900 flex items-center gap-1.5">
-                              <Clock className="w-3.5 h-3.5 text-amber-600" />
-                              <span>{slotTime}</span>
+                      <div key={orderNum} className="rounded-2xl border border-gray-200/90 bg-gray-50/60 p-3 sm:p-4 space-y-3 shadow-xs">
+                        {/* Order Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-gray-200/80 gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-black text-sm text-gray-900 bg-amber-100/90 text-amber-950 px-2.5 py-0.5 rounded-lg border border-amber-300">
+                              Order #FZ_{orderNum}
                             </span>
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-xs" style={slotBadgeStyle}>
-                              {slotWristband.name} Wristband
+
+                            {/* Slots in this order */}
+                            {timeSlotsInOrder.map((slotTime) => {
+                              const matchingSession = orderSessions.find((s) => s.time_slot === slotTime);
+                              const slotWristband = getSlotWristbandColor(
+                                slotTime,
+                                matchingSession?.slot_color,
+                                matchingSession?.slot_color_name
+                              );
+                              const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
+                              return (
+                                <div key={slotTime} className="flex items-center gap-1.5 text-xs font-semibold">
+                                  <span className="font-mono text-gray-700 flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-amber-600" />
+                                    <span>{slotTime}</span>
+                                  </span>
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-2xs" style={slotBadgeStyle}>
+                                    {slotWristband.name} Wristband
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          <div className="flex items-center gap-2 text-xs font-mono">
+                            <span className="font-bold text-gray-700">
+                              {totalOrderPlayers} Player(s)
+                            </span>
+                            <span className="text-gray-300">•</span>
+                            <span className="font-bold text-gray-900">
+                              {formatInr(orderTotalAmount)}
+                            </span>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider ${
+                                allOrderPaid
+                                  ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                  : "bg-amber-50 text-amber-700 border border-amber-200"
+                              }`}
+                            >
+                              {allOrderPaid ? "PAID" : "UNPAID"}
                             </span>
                           </div>
-                          <span className="text-[11px] font-mono text-gray-500">
-                            {slotSessions.reduce((sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity), 0)} Player(s)
-                          </span>
                         </div>
 
-                        {/* Sessions for this slot */}
+                        {/* Sessions for this order */}
                         <div className="space-y-2">
-                          {slotSessions.map((session) => {
+                          {orderSessions.map((session) => {
                             const isPaid = (session.payment_status || "").toLowerCase() === "paid";
                             const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
                             const isFulfilled =

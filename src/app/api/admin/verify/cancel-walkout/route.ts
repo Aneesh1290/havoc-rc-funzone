@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBookingById, cancelDeskBookings } from "@/lib/db";
+import { getBookingById, cancelDeskBookings, reduceBookingQuantity } from "@/lib/db";
 import { deleteSimulatorSlotLocks } from "@/lib/simulator-db";
 import { checkSessionAction } from "@/app/login/actions";
 
@@ -11,13 +11,42 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { order_ids, reason, release_slots = true } = body || {};
+    const { order_ids, reason, release_slots = true, reduce_quantity } = body || {};
 
     if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: "No orders specified for cancellation." },
         { status: 400 }
       );
+    }
+
+    // 1. Partial quantity reduction mode (e.g. 1 out of 4 participants backed out)
+    if (reduce_quantity && typeof reduce_quantity === "number" && reduce_quantity > 0 && order_ids.length === 1) {
+      const targetId = Number(order_ids[0]);
+      const booking = getBookingById(targetId) as any;
+      if (!booking) {
+        return NextResponse.json({ success: false, error: "Booking session not found." }, { status: 404 });
+      }
+
+      const finalReason = reason && typeof reason === "string" && reason.trim()
+        ? reason.trim()
+        : "Partial Walkout at Desk";
+
+      const reductionResult = reduceBookingQuantity(targetId, reduce_quantity, finalReason);
+      if (!reductionResult) {
+        return NextResponse.json({ success: false, error: "Failed to reduce session quantity." }, { status: 500 });
+      }
+
+      return NextResponse.json({
+        success: true,
+        reduced: true,
+        canceled: reductionResult.canceled,
+        new_quantity: reductionResult.newQuantity,
+        new_total: reductionResult.newTotal,
+        message: reductionResult.canceled
+          ? "All participants in this ticket backed out. Session canceled."
+          : `Removed ${reduce_quantity} participant(s). Remaining: ${reductionResult.newQuantity}.`,
+      });
     }
 
     const validIds: number[] = [];

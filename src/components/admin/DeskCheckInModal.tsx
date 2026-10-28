@@ -23,6 +23,7 @@ import {
   Layers,
   UserMinus,
   Trash2,
+  Minus,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -391,6 +392,76 @@ export default function DeskCheckInModal({
       .reduce((sum, s) => sum + s.total_amount, 0);
   };
 
+  // Handler: Drop 1 participant from a multi-quantity ticket (e.g. 1 of 4 backed out)
+  const handleReduceParticipant = async (sessionId: number) => {
+    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const session = list.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const currentQty = session.quantity;
+    if (currentQty <= 1) {
+      // If only 1, standard walkout / cancellation
+      return handleCancelWalkout([sessionId], "Player Backed Out at Desk");
+    }
+
+    const confirmMsg = `Remove 1 player from "${session.ticket_name}" (Current: ${currentQty} → New: ${currentQty - 1})?\nThis will adjust the amount due immediately.`;
+    if (!confirm(confirmMsg)) return;
+
+    setIsCancelingWalkout(true);
+    setWalkoutNotice(null);
+
+    try {
+      const res = await fetch("/api/admin/verify/cancel-walkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_ids: [sessionId],
+          reduce_quantity: 1,
+          reason: "Participant Backed Out at Desk",
+          release_slots: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setWalkoutNotice({ type: "error", message: data.error || "Failed to adjust player count." });
+        return;
+      }
+
+      setWalkoutNotice({
+        type: "success",
+        message: `Removed 1 player from ${session.ticket_name}. Updated quantity: ${data.new_quantity}.`,
+      });
+
+      // Update state in both Step 1 or Step 3
+      const updater = (prev: SessionBooking[]) =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          if (data.canceled) {
+            return { ...s, fulfillment_status: "Canceled", quantity: 0, total_amount: 0 };
+          }
+          return {
+            ...s,
+            quantity: data.new_quantity,
+            total_amount: data.new_total,
+          };
+        });
+
+      if (currentStep === 3) {
+        setVerifiedSessions(updater);
+      } else {
+        setFoundSessions(updater);
+      }
+
+      onSuccess();
+    } catch (err: any) {
+      console.error("Reduce participant error:", err);
+      setWalkoutNotice({ type: "error", message: "Network error while updating participant count." });
+    } finally {
+      setIsCancelingWalkout(false);
+    }
+  };
+
   // Handler: Customer Walkout / Not Interested (Single or All)
   const handleCancelWalkout = async (targetSessionIds?: number[], reasonText = "Customer Not Interested / Walkout") => {
     const idsToCancel = targetSessionIds && targetSessionIds.length > 0 
@@ -747,116 +818,151 @@ export default function DeskCheckInModal({
                       </span>
                     </div>
 
-                    <div className="space-y-2">
-                      {foundSessions.map((session) => {
-                        const isPaid = (session.payment_status || "").toLowerCase() === "paid";
-                        const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
-                        const isFulfilled =
-                          (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
-                          (session.fulfillment_status || "").toLowerCase() === "fulfilled";
-                        const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
-
-                        // Get wristband styling
-                        const wristband = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
-                        const bandStyle = getWristbandBadgeStyle(wristband.hex);
+                    <div className="space-y-4">
+                      {/* Group sessions by time slot so sessions are neat & clean */}
+                      {Array.from(new Set(foundSessions.map((s) => s.time_slot))).map((slotTime) => {
+                        const slotSessions = foundSessions.filter((s) => s.time_slot === slotTime);
+                        const firstSession = slotSessions[0];
+                        const slotWristband = getSlotWristbandColor(slotTime, firstSession.slot_color, firstSession.slot_color_name);
+                        const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
 
                         return (
-                          <div
-                            key={session.id}
-                            className={`p-3 sm:p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 transition-all ${
-                              isCanceled
-                                ? "bg-red-50/40 border-red-200 opacity-60"
-                                : isSelected
-                                ? "bg-white border-gray-200 shadow-sm"
-                                : "bg-gray-50/60 border-gray-200/80 opacity-75"
-                            }`}
-                          >
-                            <div className="flex items-start sm:items-center gap-3">
-                              {/* Checkbox for partial participation */}
-                              {!isCanceled && (
-                                <input
-                                  type="checkbox"
-                                  checked={isSelected}
-                                  onChange={() => toggleSessionActive(session.id)}
-                                  className="w-4 h-4 mt-1 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
-                                  title="Check if this player is attending"
-                                />
-                              )}
-
-                              <div className="w-9 h-9 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0">
-                                <Car className="w-4 h-4 text-amber-700" />
+                          <div key={slotTime} className="rounded-2xl border border-gray-200/90 bg-gray-50/50 p-3 sm:p-3.5 space-y-2.5">
+                            {/* Slot Group Header */}
+                            <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/70">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-sm text-gray-900 flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>{slotTime}</span>
+                                </span>
+                                <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-xs" style={slotBadgeStyle}>
+                                  {slotWristband.name} Wristband
+                                </span>
                               </div>
-                              <div>
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`font-bold text-sm ${isCanceled ? "line-through text-gray-500" : "text-gray-900"}`}>
-                                    {session.ticket_name}
-                                  </span>
-                                  <span className="text-xs text-gray-500 font-mono">
-                                    x {session.quantity}
-                                  </span>
-                                  {/* Wristband badge */}
-                                  <span
-                                    className="text-[10px] font-bold px-2 py-0.5 rounded-md border"
-                                    style={bandStyle}
-                                  >
-                                    {wristband.name}
-                                  </span>
-                                </div>
-                                <div className="flex items-center gap-2 text-xs text-gray-500 font-mono mt-0.5">
-                                  <span className="text-gray-700 font-semibold">{session.time_slot}</span>
-                                  {session.simulator_name && (
-                                    <>
-                                      <span>•</span>
-                                      <span className="text-amber-700 font-medium">
-                                        {session.simulator_name} ({session.simulator_slot || "Auto"})
-                                      </span>
-                                    </>
-                                  )}
-                                </div>
-                              </div>
+                              <span className="text-[11px] font-mono text-gray-500">
+                                {slotSessions.reduce((sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity), 0)} Player(s)
+                              </span>
                             </div>
 
-                            <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
-                              <span className={`font-mono font-bold text-sm ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
-                                {formatInr(session.total_amount)}
-                              </span>
+                            {/* Sessions for this slot */}
+                            <div className="space-y-2">
+                              {slotSessions.map((session) => {
+                                const isPaid = (session.payment_status || "").toLowerCase() === "paid";
+                                const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
+                                const isFulfilled =
+                                  (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
+                                  (session.fulfillment_status || "").toLowerCase() === "fulfilled";
+                                const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
 
-                              {/* Payment Badge */}
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                                  isPaid
-                                    ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                    : "bg-amber-50 text-amber-700 border border-amber-200"
-                                }`}
-                              >
-                                {isPaid ? "PAID" : "UNPAID"}
-                              </span>
+                                return (
+                                  <div
+                                    key={session.id}
+                                    className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 transition-all ${
+                                      isCanceled
+                                        ? "bg-red-50/40 border-red-200 opacity-60"
+                                        : isSelected
+                                        ? "bg-white border-gray-200 shadow-sm"
+                                        : "bg-gray-100/60 border-gray-200/80 opacity-75"
+                                    }`}
+                                  >
+                                    <div className="flex items-start sm:items-center gap-2.5">
+                                      {/* Checkbox for partial participation */}
+                                      {!isCanceled && (
+                                        <input
+                                          type="checkbox"
+                                          checked={isSelected}
+                                          onChange={() => toggleSessionActive(session.id)}
+                                          className="w-4 h-4 mt-1 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
+                                          title="Check if this player is attending"
+                                        />
+                                      )}
 
-                              {/* Status Badge */}
-                              <span
-                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
-                                  isCanceled
-                                    ? "bg-red-50 text-red-700 border border-red-200"
-                                    : isFulfilled
-                                    ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                    : "bg-gray-100 text-gray-600 border border-gray-200"
-                                }`}
-                              >
-                                {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
-                              </span>
+                                      <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0">
+                                        <Car className="w-3.5 h-3.5 text-amber-700" />
+                                      </div>
 
-                              {/* Per-session Walkout Button */}
-                              {!isCanceled && (
-                                <button
-                                  type="button"
-                                  onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
-                                  disabled={isCancelingWalkout}
-                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
-                                  title="Player not interested / backed out (Release slot)"
-                                >
-                                  <UserMinus className="w-3.5 h-3.5" />
-                                </button>
-                              )}
+                                      <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className={`font-bold text-sm ${isCanceled ? "line-through text-gray-500" : "text-gray-900"}`}>
+                                            {session.ticket_name}
+                                          </span>
+                                          <span className="text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                            × {session.quantity}
+                                          </span>
+                                          {session.order_number && (
+                                            <span className="text-[10px] text-gray-400 font-mono">
+                                              #FZ_{session.order_number}
+                                            </span>
+                                          )}
+                                        </div>
+                                        {session.simulator_name && (
+                                          <div className="text-[11px] text-amber-700 font-medium mt-0.5">
+                                            {session.simulator_name} ({session.simulator_slot || "Auto"})
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+
+                                    <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
+                                      <span className={`font-mono font-bold text-sm ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                                        {formatInr(session.total_amount)}
+                                      </span>
+
+                                      {/* Payment Badge */}
+                                      <span
+                                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                                          isPaid
+                                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                            : "bg-amber-50 text-amber-700 border border-amber-200"
+                                        }`}
+                                      >
+                                        {isPaid ? "PAID" : "UNPAID"}
+                                      </span>
+
+                                      {/* Status Badge */}
+                                      <span
+                                        className={`text-[10px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider ${
+                                          isCanceled
+                                            ? "bg-red-50 text-red-700 border border-red-200"
+                                            : isFulfilled
+                                            ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                            : "bg-gray-100 text-gray-600 border border-gray-200"
+                                        }`}
+                                      >
+                                        {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
+                                      </span>
+
+                                      {/* Per-ticket Actions: Drop 1 player or Cancel entire line */}
+                                      {!isCanceled && (
+                                        <div className="flex items-center gap-1 ml-1">
+                                          {session.quantity > 1 && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleReduceParticipant(session.id)}
+                                              disabled={isCancelingWalkout}
+                                              className="px-2 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                                              title={`Remove 1 player from this ${session.ticket_name} (Current: ${session.quantity})`}
+                                            >
+                                              <Minus className="w-3 h-3 text-amber-700" />
+                                              <span>-1</span>
+                                            </button>
+                                          )}
+
+                                          <button
+                                            type="button"
+                                            onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
+                                            disabled={isCancelingWalkout}
+                                            className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                            title="Release entire slot / backed out"
+                                          >
+                                            <UserMinus className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           </div>
                         );
@@ -1092,95 +1198,145 @@ export default function DeskCheckInModal({
                   </span>
                 </div>
 
-                <div className="space-y-2">
-                  {verifiedSessions.map((session) => {
-                    const isPaid = (session.payment_status || "").toLowerCase() === "paid";
-                    const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
-                    const isFulfilled =
-                      (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
-                      (session.fulfillment_status || "").toLowerCase() === "fulfilled";
-                    const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
-
-                    const wristband = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
-                    const bandStyle = getWristbandBadgeStyle(wristband.hex);
+                <div className="space-y-4">
+                  {Array.from(new Set(verifiedSessions.map((s) => s.time_slot))).map((slotTime) => {
+                    const slotSessions = verifiedSessions.filter((s) => s.time_slot === slotTime);
+                    const firstSession = slotSessions[0];
+                    const slotWristband = getSlotWristbandColor(slotTime, firstSession.slot_color, firstSession.slot_color_name);
+                    const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
 
                     return (
-                      <div
-                        key={session.id}
-                        className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs transition-all ${
-                          isCanceled
-                            ? "bg-red-50/40 border-red-200 opacity-60"
-                            : isSelected
-                            ? "bg-white border-gray-200 shadow-sm"
-                            : "bg-gray-50/60 border-gray-200/80 opacity-75"
-                        }`}
-                      >
-                        <div className="flex items-start sm:items-center gap-2.5">
-                          {/* Attending Checkbox */}
-                          {!isCanceled && !isPaid && (
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleSessionActive(session.id)}
-                              className="w-4 h-4 mt-0.5 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
-                              title="Check if this player is playing and paying"
-                            />
-                          )}
-
-                          <Car className="w-4 h-4 text-amber-600 shrink-0 mt-0.5 sm:mt-0" />
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className={`font-bold ${isCanceled ? "line-through text-gray-400" : "text-gray-900"}`}>
-                                {session.ticket_name}
-                              </span>
-                              <span className="text-gray-500 font-mono">x {session.quantity}</span>
-                              <span className="text-[10px] font-bold px-1.5 py-0.2 rounded" style={bandStyle}>
-                                {wristband.name}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-gray-500 font-mono">
-                              {session.time_slot} {session.payment_ref ? `(Ref: ${session.payment_ref})` : ""}
-                            </div>
+                      <div key={slotTime} className="rounded-2xl border border-gray-200/90 bg-gray-50/50 p-3 sm:p-3.5 space-y-2.5">
+                        {/* Slot Group Header */}
+                        <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/70">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono font-bold text-sm text-gray-900 flex items-center gap-1.5">
+                              <Clock className="w-3.5 h-3.5 text-amber-600" />
+                              <span>{slotTime}</span>
+                            </span>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-xs" style={slotBadgeStyle}>
+                              {slotWristband.name} Wristband
+                            </span>
                           </div>
+                          <span className="text-[11px] font-mono text-gray-500">
+                            {slotSessions.reduce((sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity), 0)} Player(s)
+                          </span>
                         </div>
 
-                        <div className="flex items-center justify-between sm:justify-end gap-2">
-                          <span className={`font-mono font-bold ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
-                            {formatInr(session.total_amount)}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              isPaid
-                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-                                : "bg-amber-50 text-amber-700 border border-amber-200"
-                            }`}
-                          >
-                            {isPaid ? "PAID" : "UNPAID"}
-                          </span>
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
-                              isCanceled
-                                ? "bg-red-50 text-red-700 border border-red-200"
-                                : isFulfilled
-                                ? "bg-blue-50 text-blue-700 border border-blue-200"
-                                : "bg-gray-100 text-gray-600 border border-gray-200"
-                            }`}
-                          >
-                            {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
-                          </span>
+                        {/* Sessions for this slot */}
+                        <div className="space-y-2">
+                          {slotSessions.map((session) => {
+                            const isPaid = (session.payment_status || "").toLowerCase() === "paid";
+                            const isCanceled = (session.fulfillment_status || "").toLowerCase() === "canceled";
+                            const isFulfilled =
+                              (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
+                              (session.fulfillment_status || "").toLowerCase() === "fulfilled";
+                            const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
 
-                          {/* Individual Walkout Release button */}
-                          {!isCanceled && (
-                            <button
-                              type="button"
-                              onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
-                              disabled={isCancelingWalkout}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors ml-1"
-                              title="Player not interested / backed out (Release slot)"
-                            >
-                              <UserMinus className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                            return (
+                              <div
+                                key={session.id}
+                                className={`p-3 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-xs transition-all ${
+                                  isCanceled
+                                    ? "bg-red-50/40 border-red-200 opacity-60"
+                                    : isSelected
+                                    ? "bg-white border-gray-200 shadow-sm"
+                                    : "bg-gray-100/60 border-gray-200/80 opacity-75"
+                                }`}
+                              >
+                                <div className="flex items-start sm:items-center gap-2.5">
+                                  {/* Attending Checkbox */}
+                                  {!isCanceled && !isPaid && (
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleSessionActive(session.id)}
+                                      className="w-4 h-4 mt-0.5 sm:mt-0 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer shrink-0"
+                                      title="Check if this player is playing and paying"
+                                    />
+                                  )}
+
+                                  <div className="w-8 h-8 rounded-lg bg-amber-50 border border-amber-200/80 flex items-center justify-center shrink-0">
+                                    <Car className="w-3.5 h-3.5 text-amber-700" />
+                                  </div>
+
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`font-bold ${isCanceled ? "line-through text-gray-400" : "text-gray-900"}`}>
+                                        {session.ticket_name}
+                                      </span>
+                                      <span className="text-xs font-mono font-bold px-1.5 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                                        × {session.quantity}
+                                      </span>
+                                      {session.order_number && (
+                                        <span className="text-[10px] text-gray-400 font-mono">
+                                          #FZ_{session.order_number}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="text-[11px] text-gray-500 font-mono mt-0.5">
+                                      {session.payment_ref ? `Ref: ${session.payment_ref}` : ""}
+                                      {session.simulator_name ? ` • ${session.simulator_name} (${session.simulator_slot || "Auto"})` : ""}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center justify-between sm:justify-end gap-2">
+                                  <span className={`font-mono font-bold ${isCanceled ? "text-gray-400 line-through" : "text-gray-900"}`}>
+                                    {formatInr(session.total_amount)}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      isPaid
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : "bg-amber-50 text-amber-700 border border-amber-200"
+                                    }`}
+                                  >
+                                    {isPaid ? "PAID" : "UNPAID"}
+                                  </span>
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      isCanceled
+                                        ? "bg-red-50 text-red-700 border border-red-200"
+                                        : isFulfilled
+                                        ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                        : "bg-gray-100 text-gray-600 border border-gray-200"
+                                    }`}
+                                  >
+                                    {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
+                                  </span>
+
+                                  {/* Individual Walkout / Participant Reduction button */}
+                                  {!isCanceled && (
+                                    <div className="flex items-center gap-1 ml-1">
+                                      {session.quantity > 1 && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleReduceParticipant(session.id)}
+                                          disabled={isCancelingWalkout}
+                                          className="px-2 py-1 rounded-lg text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors flex items-center gap-1 text-[11px] font-bold"
+                                          title={`Remove 1 player from this ${session.ticket_name} (Current: ${session.quantity})`}
+                                        >
+                                          <Minus className="w-3 h-3 text-amber-700" />
+                                          <span>-1</span>
+                                        </button>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelWalkout([session.id], "Player Backed Out at Desk")}
+                                        disabled={isCancelingWalkout}
+                                        className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                        title="Player not interested / backed out (Release slot)"
+                                      >
+                                        <UserMinus className="w-3.5 h-3.5" />
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );

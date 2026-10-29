@@ -120,9 +120,83 @@ async function ensurePgSchema() {
 
       CREATE INDEX IF NOT EXISTS idx_band_tx_band_id ON band_transactions(band_id);
       CREATE INDEX IF NOT EXISTS idx_band_tx_type ON band_transactions(transaction_type);
-      CREATE INDEX IF NOT EXISTS idx_band_tx_created ON band_transactions(created_at);
+      CREATE TABLE IF NOT EXISTS time_slots (
+        id SERIAL PRIMARY KEY,
+        label VARCHAR(100) NOT NULL UNIQUE,
+        start_hour NUMERIC,
+        end_hour NUMERIC,
+        active INTEGER DEFAULT 1,
+        sort_order INTEGER DEFAULT 0,
+        color VARCHAR(50),
+        color_name VARCHAR(100),
+        remark TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS site_settings (
+        key VARCHAR(100) PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     pgSchemaInitialized = true;
+
+    // Safely sync active time_slots into PostgreSQL so both Havoc RC Fun Zone and Havoc Sim Podium see them
+    try {
+      initDB();
+      const localSlots = db.prepare("SELECT label, start_hour, end_hour, active, sort_order, color, color_name, remark FROM time_slots WHERE active = 1").all() as any[];
+      for (const slot of localSlots) {
+        await simulatorPool.query(`
+          INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          ON CONFLICT (label) DO UPDATE 
+          SET color = COALESCE(time_slots.color, EXCLUDED.color),
+              color_name = COALESCE(time_slots.color_name, EXCLUDED.color_name),
+              sort_order = EXCLUDED.sort_order,
+              active = EXCLUDED.active
+        `, [slot.label, slot.start_hour, slot.end_hour, slot.active ?? 1, slot.sort_order ?? 0, slot.color, slot.color_name, slot.remark]);
+      }
+    } catch (slotSyncErr) {
+      console.warn("[Band Inventory] Could not sync time_slots to Postgres:", slotSyncErr);
+    }
+
+    // Safely sync initial wristband inventory if Postgres has 0 band_items
+    try {
+      const pgCountRes = await simulatorPool.query("SELECT COUNT(*)::int as count FROM band_items");
+      if (Number(pgCountRes.rows[0]?.count || 0) === 0) {
+        initDB();
+        const localBands = db.prepare("SELECT band_code, color_name, color_hex, category, status, total_uses, notes FROM band_items").all() as any[];
+        if (localBands.length > 0) {
+          const client = await simulatorPool.connect();
+          try {
+            await client.query("BEGIN");
+            for (const b of localBands) {
+              const insRes = await client.query(`
+                INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                ON CONFLICT (band_code) DO NOTHING
+                RETURNING id
+              `, [b.band_code, b.color_name, b.color_hex, b.category || 'Standard', b.status || 'available', b.total_uses || 0, b.notes]);
+              const newId = insRes.rows[0]?.id;
+              if (newId) {
+                await client.query(`
+                  INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, staff_name, notes)
+                  VALUES ($1, $2, $3, $4, 'STOCK_IN', 'System Migration', 'Initial migration from SQLite')
+                `, [newId, b.band_code, b.color_name, b.color_hex]);
+              }
+            }
+            await client.query("COMMIT");
+          } catch (migErr) {
+            await client.query("ROLLBACK");
+            console.warn("[Band Inventory] Band items migration error:", migErr);
+          } finally {
+            client.release();
+          }
+        }
+      }
+    } catch (bandSyncErr) {
+      console.warn("[Band Inventory] Could not sync band_items to Postgres:", bandSyncErr);
+    }
   } catch (err) {
     console.warn("[Band Inventory] Could not auto-initialize Postgres schema:", err);
   }
@@ -238,9 +312,16 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
       const colorBreakdownMap = new Map<string, BandColorBreakdown>();
 
-      // 1. First populate all configured slot colors from active time_slots
+      // 1. First populate all configured slot colors from active time_slots (PostgreSQL if available, else SQLite)
       try {
-        const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
+        let slotRows: any[] = [];
+        try {
+          const pgSlotsRes = await simulatorPool.query("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC");
+          slotRows = pgSlotsRes.rows;
+        } catch (pgSlotsErr) {
+          slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
+        }
+
         for (const slot of slotRows) {
           const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
           const key = (resolved.name || slot.color_name || slot.label).trim().toLowerCase();

@@ -18,7 +18,10 @@ import {
   Power,
   Palette,
   Hash,
-  Check
+  Check,
+  Package,
+  Layers,
+  Sparkles
 } from "lucide-react";
 import { 
   fetchBlockedSlotsAction, 
@@ -36,6 +39,13 @@ import {
   toggleOpenedSpecificDateAction,
   fetchTicketsAction
 } from "@/app/actions/tickets";
+import {
+  getColorInventoryAction,
+  syncColorInventoryAction,
+  updateColorStockAction,
+  deleteColorInventoryAction,
+} from "@/app/actions/color-inventory";
+import type { WristbandColorInventoryItem } from "@/lib/color-inventory-db";
 import type { BlockedSlotRow, TimeSlotRow, TicketRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -45,7 +55,17 @@ const MONTH_NAMES = [
 ];
 
 export default function SlotsManagementPage() {
-  const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots'>('block_slots');
+  const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots' | 'color_inventory'>('block_slots');
+
+  // Wristband Colour Inventory State
+  const [colorInventory, setColorInventory] = useState<WristbandColorInventoryItem[]>([]);
+  const [isLoadingInventory, setIsLoadingInventory] = useState(false);
+  const [isSyncingInventory, setIsSyncingInventory] = useState(false);
+  const [stockModalItem, setStockModalItem] = useState<WristbandColorInventoryItem | null>(null);
+  const [stockAmountToAdd, setStockAmountToAdd] = useState(10);
+  const [isUpdatingStock, setIsUpdatingStock] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<WristbandColorInventoryItem | null>(null);
+  const [isDeletingRecord, setIsDeletingRecord] = useState(false);
 
   // Time Slots State
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
@@ -116,6 +136,20 @@ export default function SlotsManagementPage() {
     }
   }, []);
 
+  const loadColorInventory = async () => {
+    setIsLoadingInventory(true);
+    try {
+      const res = await getColorInventoryAction();
+      if (res.success && res.data) {
+        setColorInventory(res.data);
+      }
+    } catch (err) {
+      console.error("[loadColorInventory Error]", err);
+    } finally {
+      setIsLoadingInventory(false);
+    }
+  };
+
   const loadAllData = async () => {
     setIsLoadingSlots(true);
     setIsLoadingBlocked(true);
@@ -142,6 +176,100 @@ export default function SlotsManagementPage() {
     } finally {
       setIsLoadingSlots(false);
       setIsLoadingBlocked(false);
+    }
+    loadColorInventory();
+  };
+
+  const handleSyncInventory = async () => {
+    setIsSyncingInventory(true);
+    try {
+      const res = await syncColorInventoryAction();
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: res.message || "Inventory synchronized with slot colours successfully."
+        });
+        await loadColorInventory();
+      } else {
+        setFeedback({
+          type: "error",
+          message: res.error || "Failed to synchronize inventory."
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err.message || "An unexpected error occurred during inventory synchronization."
+      });
+    } finally {
+      setIsSyncingInventory(false);
+    }
+  };
+
+  const handleAddStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stockModalItem) return;
+    if (stockAmountToAdd <= 0) {
+      setFeedback({ type: "error", message: "Please specify a positive quantity to add." });
+      return;
+    }
+
+    setIsUpdatingStock(true);
+    try {
+      const res = await updateColorStockAction({
+        id: stockModalItem.id,
+        addAmount: stockAmountToAdd
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Successfully added +${stockAmountToAdd} to '${stockModalItem.color_name}'. New available quantity is ${res.item?.quantity ?? (stockModalItem.quantity + stockAmountToAdd)}.`
+        });
+        setStockModalItem(null);
+        setStockAmountToAdd(10);
+        await loadColorInventory();
+      } else {
+        setFeedback({
+          type: "error",
+          message: res.error || "Failed to update stock quantity."
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err.message || "An error occurred while updating stock."
+      });
+    } finally {
+      setIsUpdatingStock(false);
+    }
+  };
+
+  const handleDeleteInventoryRecordConfirm = async () => {
+    if (!itemToDelete) return;
+    setIsDeletingRecord(true);
+    try {
+      const res = await deleteColorInventoryAction(itemToDelete.id);
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Inventory record for '${itemToDelete.color_name}' has been permanently removed.`
+        });
+        setItemToDelete(null);
+        await loadColorInventory();
+      } else {
+        setFeedback({
+          type: "error",
+          message: res.error || "Failed to delete inventory record."
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err.message || "An error occurred while deleting the inventory record."
+      });
+    } finally {
+      setIsDeletingRecord(false);
     }
   };
 
@@ -441,6 +569,21 @@ export default function SlotsManagementPage() {
         >
           <Settings className="w-4 h-4 text-[#ff5a1f]" />
           Configure Hourly Slots ({timeSlots.length})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('color_inventory');
+            loadColorInventory();
+          }}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'color_inventory'
+              ? 'bg-[#0d1b2a] text-white shadow-md'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Palette className="w-4 h-4 text-emerald-400" />
+          Wristband Colour Inventory ({colorInventory.length})
         </button>
       </div>
 
@@ -1480,6 +1623,344 @@ export default function SlotsManagementPage() {
           </div>
         </div>
       )}
+
+      {/* TAB 3: WRISTBAND COLOUR INVENTORY MANAGEMENT (POSTGRESQL) */}
+      {activeTab === 'color_inventory' && (
+        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-100 shadow-sm space-y-6">
+          {/* Header & Sync Controls */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-gray-100">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                  PostgreSQL Persistent
+                </span>
+                <span className="text-xs text-gray-400 font-medium">
+                  {colorInventory.length} distinct colour record{colorInventory.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <h2 className="text-xl font-black font-heading text-gray-900 mt-1 flex items-center gap-2">
+                <Palette className="w-5 h-5 text-emerald-600" />
+                Wristband Colour Inventory
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5 max-w-2xl">
+                Dedicated inventory pool in PostgreSQL for slot colours. Add stock manually or synchronize newly created colours from your hourly slots. Stock quantities are preserved permanently across restarts.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={loadColorInventory}
+                disabled={isLoadingInventory || isSyncingInventory}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold transition-all disabled:opacity-50"
+                title="Refresh inventory from PostgreSQL"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isLoadingInventory ? 'animate-spin text-emerald-600' : ''}`} />
+                Refresh
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSyncInventory}
+                disabled={isSyncingInventory || isLoadingInventory}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50"
+                title="Read slots and create records for newly added colours (initial quantity 0)"
+              >
+                <Sparkles className={`w-4 h-4 ${isSyncingInventory ? 'animate-spin' : ''}`} />
+                {isSyncingInventory ? "Syncing..." : "Sync Inventory"}
+              </button>
+            </div>
+          </div>
+
+          {/* Sync Rules Notice Banner */}
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-700 flex items-center justify-center shrink-0">
+                <Check className="w-4 h-4" />
+              </div>
+              <div>
+                <strong className="font-bold text-gray-900">Safe Sync Guarantee:</strong> Syncing reads all slot colours, identifies missing ones, and sets their initial stock to <code className="bg-white px-1.5 py-0.5 rounded border border-gray-300 font-mono font-bold text-emerald-700">0</code>. Existing stock quantities are never wiped, reset, or duplicated.
+              </div>
+            </div>
+          </div>
+
+          {/* Table of Color Records */}
+          {isLoadingInventory ? (
+            <div className="py-16 text-center text-gray-400 text-sm font-medium flex flex-col items-center justify-center gap-2">
+              <RefreshCw className="w-6 h-6 animate-spin text-emerald-600" />
+              Loading inventory records from PostgreSQL...
+            </div>
+          ) : colorInventory.length === 0 ? (
+            <div className="py-16 text-center border-2 border-dashed border-gray-200 rounded-2xl p-8 space-y-3">
+              <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto">
+                <Palette className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900">No Inventory Records in PostgreSQL Yet</h3>
+              <p className="text-xs text-gray-500 max-w-md mx-auto">
+                Click &ldquo;Sync Inventory&rdquo; above to read the wristband colours from your operating time slots and initialize persistent inventory records with quantity 0.
+              </p>
+              <button
+                type="button"
+                onClick={handleSyncInventory}
+                disabled={isSyncingInventory}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all"
+              >
+                <Sparkles className="w-4 h-4" />
+                {isSyncingInventory ? "Syncing..." : "Sync Inventory Now"}
+              </button>
+            </div>
+          ) : (
+            <div className="overflow-x-auto rounded-2xl border border-gray-100">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="bg-gray-50/80 text-[11px] font-black uppercase text-gray-500 tracking-wider border-b border-gray-100">
+                    <th className="py-3 px-4">#</th>
+                    <th className="py-3 px-4">Wristband Colour</th>
+                    <th className="py-3 px-4">Colour Code (HEX)</th>
+                    <th className="py-3 px-4">Configured Slot(s)</th>
+                    <th className="py-3 px-4 text-center">Slot Status</th>
+                    <th className="py-3 px-4 text-right">Available Quantity</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-xs font-medium">
+                  {colorInventory.map((item, idx) => {
+                    const badge = getWristbandBadgeStyle(item.color_hex);
+                    return (
+                      <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
+                        <td className="py-3.5 px-4 font-mono text-gray-400">
+                          #{idx + 1}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div 
+                            className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold shadow-xs"
+                            style={{
+                              backgroundColor: badge.backgroundColor,
+                              borderColor: badge.borderColor,
+                              color: badge.color
+                            }}
+                          >
+                            <span 
+                              className="w-3.5 h-3.5 rounded-full border shrink-0 shadow-inner"
+                              style={{ 
+                                backgroundColor: item.color_hex,
+                                borderColor: badge.dotBorderColor
+                              }}
+                            />
+                            <span className="tracking-wide uppercase font-bold">
+                              {item.color_name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 font-mono font-bold text-gray-700">
+                          {item.color_hex}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {item.slot_labels && item.slot_labels.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {item.slot_labels.map(lbl => (
+                                <span key={lbl} className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 text-gray-800 text-[11px] font-bold border border-gray-200">
+                                  {lbl}
+                                </span>
+                              ))}
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 italic text-[11px]">No active slots assigned</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          {item.is_active_in_slots ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              <Check className="w-3 h-3" /> In Use
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Unused
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="inline-flex items-center gap-2">
+                            <span className={`inline-flex items-center justify-center px-3 py-1 rounded-xl text-sm font-black font-mono border ${
+                              item.quantity > 0 
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300' 
+                                : 'bg-gray-100 text-gray-500 border-gray-200'
+                            }`}>
+                              {item.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setStockModalItem(item);
+                                setStockAmountToAdd(10);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-all shadow-xs inline-flex items-center gap-1"
+                              title="Add stock to this colour"
+                            >
+                              <Plus className="w-3 h-3" />
+                              Add Stock
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setItemToDelete(item)}
+                            className="p-1.5 rounded-lg border border-gray-200 text-gray-400 hover:text-red-600 hover:border-red-300 hover:bg-red-50 transition-all"
+                            title="Explicit manual deletion (Admin only)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* MODAL: ADD STOCK TO COLOUR */}
+      {stockModalItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-gray-100 space-y-6">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div className="flex items-center gap-3">
+                <span 
+                  className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
+                  style={{ backgroundColor: stockModalItem.color_hex }}
+                />
+                <div>
+                  <h3 className="text-base font-black text-gray-900">
+                    Add Stock: {stockModalItem.color_name}
+                  </h3>
+                  <span className="text-[11px] font-mono text-gray-400 font-bold">
+                    {stockModalItem.color_hex}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setStockModalItem(null)}
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleAddStockSubmit} className="space-y-5">
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200/80 flex items-center justify-between">
+                <span className="text-xs text-gray-500 font-bold">Current Available Quantity:</span>
+                <span className="text-lg font-black font-mono text-gray-900">
+                  {stockModalItem.quantity}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-600 mb-2">
+                  Quantity to Add (+):
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max="10000"
+                    required
+                    value={stockAmountToAdd}
+                    onChange={(e) => setStockAmountToAdd(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[10, 25, 50, 100].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setStockAmountToAdd(amt)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                          stockAmountToAdd === amt
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1.5">
+                  Resulting available quantity will be <strong className="text-emerald-700 font-bold font-mono">{(stockModalItem.quantity || 0) + (stockAmountToAdd || 0)}</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setStockModalItem(null)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isUpdatingStock}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {isUpdatingStock ? "Updating..." : "Save to PostgreSQL"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: EXPLICIT MANUAL DELETION CONFIRMATION */}
+      {itemToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-8 shadow-2xl border border-gray-100 space-y-5">
+            <div className="w-12 h-12 rounded-2xl bg-red-50 text-red-600 flex items-center justify-center mx-auto">
+              <ShieldAlert className="w-6 h-6" />
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="text-lg font-black text-gray-900">
+                Permanently Delete Record?
+              </h3>
+              <p className="text-xs text-gray-500">
+                Are you sure you want to delete the inventory record for <strong className="text-gray-900 font-bold">&ldquo;{itemToDelete.color_name}&rdquo;</strong> ({itemToDelete.color_hex})?
+              </p>
+            </div>
+
+            <div className="p-3.5 rounded-xl bg-red-50/70 border border-red-200 text-xs text-red-700 space-y-1">
+              <div>• Current stock recorded: <strong className="font-mono font-bold">{itemToDelete.quantity}</strong></div>
+              <div>• This will remove the inventory record from PostgreSQL.</div>
+              <div>• Existing time slots configured with this colour will NOT be affected.</div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setItemToDelete(null)}
+                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteInventoryRecordConfirm}
+                disabled={isDeletingRecord}
+                className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {isDeletingRecord ? "Deleting..." : "Yes, Delete Record"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

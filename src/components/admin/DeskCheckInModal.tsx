@@ -1603,19 +1603,11 @@ export default function DeskCheckInModal({
                       All selected sessions for this customer are verified, fully paid, and marked ATTENDED in the system. Customer is cleared to receive wristbands and enter the track.
                     </p>
 
-                    <div className="pt-2 flex flex-col sm:flex-row items-center justify-center gap-2.5">
-                      <a
-                        href="/admin/bands"
-                        target="_blank"
-                        className="w-full sm:w-auto px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-[#ff5a1f] text-white hover:bg-[#e04812] transition-colors shadow-sm flex items-center justify-center gap-1.5"
-                      >
-                        <Layers className="w-4 h-4" />
-                        <span>Issue Wristbands in Inventory →</span>
-                      </a>
+                    <div className="pt-2 flex items-center justify-center">
                       <button
                         type="button"
                         onClick={handleClose}
-                        className="w-full sm:w-auto px-6 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-white text-gray-800 border border-gray-300 hover:bg-gray-50 transition-colors shadow-sm"
+                        className="w-full sm:w-auto px-8 py-2.5 rounded-xl text-xs sm:text-sm font-bold bg-[#ff5a1f] text-white hover:bg-[#e04812] transition-colors shadow-sm"
                       >
                         Done / Close Modal
                       </button>

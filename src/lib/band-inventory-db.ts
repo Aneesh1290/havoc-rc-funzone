@@ -264,6 +264,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
   if (isPostgresActive()) {
     try {
+      await ensurePgSchema();
       const countsRes = await simulatorPool.query(`
         SELECT
           COUNT(*)::int AS total,
@@ -324,11 +325,11 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
         for (const slot of slotRows) {
           const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
-          const key = (resolved.name || slot.color_name || slot.label).trim().toLowerCase();
-          if (!colorBreakdownMap.has(key)) {
-            colorBreakdownMap.set(key, {
+          const hexKey = (resolved.hex || slot.color || "").trim().toUpperCase();
+          if (hexKey && !colorBreakdownMap.has(hexKey)) {
+            colorBreakdownMap.set(hexKey, {
               color_name: resolved.name,
-              color_hex: resolved.hex,
+              color_hex: hexKey,
               total: 0,
               available: 0,
               issued: 0,
@@ -342,13 +343,17 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         console.warn("[Band Inventory] Could not read time_slots for palette:", slotErr);
       }
 
-      // 2. Merge actual Postgres inventory counts (only adding items that exist or match slot colors)
+      // 2. Merge actual Postgres inventory counts (matching by HEX first, then by name)
       for (const r of colorRowsRes.rows) {
-        const key = (r.color_name || "").trim().toLowerCase();
-        const existing = colorBreakdownMap.get(key);
+        const hex = (r.color_hex || "").trim().toUpperCase();
+        const name = (r.color_name || "").trim();
+        const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+
         if (existing) {
-          existing.color_name = r.color_name;
-          existing.color_hex = r.color_hex || existing.color_hex;
+          if (name && (!existing.color_name || existing.color_name === existing.color_hex)) {
+            existing.color_name = name;
+          }
+          existing.color_hex = hex || existing.color_hex;
           existing.total = Number(r.total || 0);
           existing.available = Number(r.available || 0);
           existing.issued = Number(r.issued || 0);
@@ -356,9 +361,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           existing.lost = Number(r.lost || 0);
           existing.retired = Number(r.retired || 0);
         } else {
-          colorBreakdownMap.set(key, {
-            color_name: r.color_name,
-            color_hex: r.color_hex,
+          colorBreakdownMap.set(hex || name.toLowerCase(), {
+            color_name: name || hex,
+            color_hex: hex,
             total: Number(r.total || 0),
             available: Number(r.available || 0),
             issued: Number(r.issued || 0),
@@ -474,11 +479,11 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
     for (const slot of slotRows) {
       const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
-      const key = (resolved.name || slot.color_name || slot.label).trim().toLowerCase();
-      if (!colorBreakdownMap.has(key)) {
-        colorBreakdownMap.set(key, {
+      const hexKey = (resolved.hex || slot.color || "").trim().toUpperCase();
+      if (hexKey && !colorBreakdownMap.has(hexKey)) {
+        colorBreakdownMap.set(hexKey, {
           color_name: resolved.name,
-          color_hex: resolved.hex,
+          color_hex: hexKey,
           total: 0,
           available: 0,
           issued: 0,
@@ -492,13 +497,17 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     console.warn("[Band Inventory SQLite] Could not read time_slots for palette:", slotErr);
   }
 
-  // 2. Merge actual SQLite inventory counts (only adding items that exist or match slot colors)
+  // 2. Merge actual SQLite inventory counts (matching by HEX first, then by name)
   for (const r of colorRows) {
-    const key = (r.color_name || "").trim().toLowerCase();
-    const existing = colorBreakdownMap.get(key);
+    const hex = (r.color_hex || "").trim().toUpperCase();
+    const name = (r.color_name || "").trim();
+    const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+
     if (existing) {
-      existing.color_name = r.color_name;
-      existing.color_hex = r.color_hex || existing.color_hex;
+      if (name && (!existing.color_name || existing.color_name === existing.color_hex)) {
+        existing.color_name = name;
+      }
+      existing.color_hex = hex || existing.color_hex;
       existing.total = Number(r.total || 0);
       existing.available = Number(r.available || 0);
       existing.issued = Number(r.issued || 0);
@@ -506,9 +515,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       existing.lost = Number(r.lost || 0);
       existing.retired = Number(r.retired || 0);
     } else {
-      colorBreakdownMap.set(key, {
-        color_name: r.color_name,
-        color_hex: r.color_hex,
+      colorBreakdownMap.set(hex || name.toLowerCase(), {
+        color_name: name || hex,
+        color_hex: hex,
         total: Number(r.total || 0),
         available: Number(r.available || 0),
         issued: Number(r.issued || 0),
@@ -583,6 +592,7 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
 
   if (isPostgresActive()) {
     try {
+      await ensurePgSchema();
       const whereClauses: string[] = [];
       const params: any[] = [];
       let pIdx = 1;

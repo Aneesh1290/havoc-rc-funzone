@@ -8,12 +8,13 @@ import {
   updateBookingStatusAction, 
   updateBookingPaymentRefAction,
   updateBookingTagsAction,
+  updateBookingWristbandNumberAction,
   cancelBookingAction
 } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -35,6 +36,29 @@ export default function OrderDetailPage() {
   const [isEditingPaymentRef, setIsEditingPaymentRef] = useState(false);
   const [paymentRefInput, setPaymentRefInput] = useState("");
   const [isSavingRef, setIsSavingRef] = useState(false);
+
+  // Wristband Number editing per item
+  const [editingBandId, setEditingBandId] = useState<number | null>(null);
+  const [bandNumberInput, setBandNumberInput] = useState("");
+  const [isSavingBand, setIsSavingBand] = useState(false);
+
+  const handleStartEditBand = (itemId: number, currentVal?: string) => {
+    setEditingBandId(itemId);
+    setBandNumberInput(currentVal || "");
+  };
+
+  const handleSaveWristbandNumber = async (itemId: number) => {
+    setIsSavingBand(true);
+    try {
+      await updateBookingWristbandNumberAction(itemId, bandNumberInput);
+      setEditingBandId(null);
+      await loadBooking();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsSavingBand(false);
+    }
+  };
 
   const loadBooking = async () => {
     if (!id) return;
@@ -339,7 +363,7 @@ export default function OrderDetailPage() {
                       <p className="text-xs text-gray-500">
                         Select Date: <strong className="text-gray-700 font-semibold">{item.booking_date}</strong>
                       </p>
-                      <div className="text-xs text-gray-500 flex items-center gap-2">
+                      <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2 pt-0.5">
                         <span>Select Time Slot:</span>
                         <strong className="text-gray-900 font-bold">{item.time_slot}</strong>
                         {item.time_slot && (() => {
@@ -365,6 +389,60 @@ export default function OrderDetailPage() {
                             </span>
                           );
                         })()}
+
+                        {/* Wristband Number Section */}
+                        {editingBandId === item.id ? (
+                          <div className="inline-flex items-center gap-1.5 bg-gray-50 border border-blue-400 rounded-lg px-2 py-0.5">
+                            <span className="text-[10px] font-bold text-gray-500 uppercase">Band #:</span>
+                            <input
+                              type="text"
+                              value={bandNumberInput}
+                              onChange={(e) => setBandNumberInput(e.target.value)}
+                              placeholder="e.g. 104, BND-01"
+                              className="w-24 text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              autoFocus
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveWristbandNumber(item.id);
+                                if (e.key === "Escape") setEditingBandId(null);
+                              }}
+                            />
+                            <button
+                              onClick={() => handleSaveWristbandNumber(item.id)}
+                              disabled={isSavingBand}
+                              className="text-green-600 hover:text-green-700 p-0.5 hover:bg-green-100 rounded"
+                              title="Save Band #"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditingBandId(null)}
+                              disabled={isSavingBand}
+                              className="text-gray-400 hover:text-gray-600 p-0.5 hover:bg-gray-200 rounded"
+                              title="Cancel"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : item.wristband_number ? (
+                          <span className="inline-flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-900 px-2.5 py-0.5 rounded-full text-[11px] font-bold shadow-xs">
+                            <span className="text-amber-600 text-xs font-black">#</span>
+                            <span>Band: <strong className="text-amber-950 font-black">{item.wristband_number}</strong></span>
+                            <button
+                              onClick={() => handleStartEditBand(item.id, item.wristband_number)}
+                              className="text-amber-700 hover:text-amber-950 ml-0.5 p-0.5 hover:bg-amber-100 rounded-full transition-colors"
+                              title="Edit Band #"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => handleStartEditBand(item.id, "")}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 border-dashed px-2.5 py-0.5 rounded-full transition-all shadow-2xs"
+                          >
+                            <span>+ Assign Band #</span>
+                          </button>
+                        )}
                       </div>
                       <div className="max-w-md">
                         <SimPerkBadgeList 

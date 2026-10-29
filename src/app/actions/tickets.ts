@@ -30,6 +30,7 @@ import {
   updateOrderGroupStatus,
   updateOrderGroupPaymentRef,
   updateBookingTags,
+  updateBookingWristbandNumber,
   updateOrderGroupTags,
   cancelBooking,
   cancelOrderGroup,
@@ -416,6 +417,17 @@ export async function updateBookingTagsAction(id: number, tags: string) {
   updateOrderGroupTags(targetNum, tags);
   revalidatePath('/admin/bookings');
   return { success: true };
+}
+
+export async function updateBookingWristbandNumberAction(id: number, wristbandNumber: string) {
+  try {
+    updateBookingWristbandNumber(id, wristbandNumber);
+    revalidatePath('/admin/bookings');
+    return { success: true };
+  } catch (err: any) {
+    console.error("[updateBookingWristbandNumberAction Error]", err);
+    return { success: false, error: err.message || "Failed to update wristband number" };
+  }
 }
 
 export async function cancelBookingAction(id: number) {

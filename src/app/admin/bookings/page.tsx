@@ -435,10 +435,10 @@ export default function BookingsPage() {
               type="button"
               onClick={() => setIsDeskCheckInOpen(true)}
               className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-emerald-500 hover:bg-emerald-600 text-white shadow-sm shadow-emerald-500/20 whitespace-nowrap active:scale-[0.98]"
-              title="Customer Desk Check-in & WhatsApp OTP Verification"
+              title="Customer Desk Check-in & Payment Collection"
             >
               <ShieldCheck className="w-4 h-4" />
-              <span>Verify & Check-In Customer</span>
+              <span>Desk Check-In Customer</span>
             </button>
           )}
 

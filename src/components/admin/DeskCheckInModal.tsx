@@ -26,8 +26,10 @@ import {
   Minus,
   Plus,
   Edit3,
+  Tag,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
+import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
 
 interface DeskCheckInModalProps {
   isOpen: boolean;
@@ -51,6 +53,7 @@ interface SessionBooking {
   simulator_slot?: string | null;
   slot_color?: string | null;
   slot_color_name?: string | null;
+  wristband_number?: string | null;
 }
 
 import { 
@@ -65,8 +68,8 @@ export default function DeskCheckInModal({
   onClose,
   onSuccess,
 }: DeskCheckInModalProps) {
-  // Stepper: 1 = Phone Lookup, 2 = OTP Entry, 3 = Verification & Payment
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
+  // Stepper: 1 = Phone Lookup & Session Review, 2 = Check-In & Payment
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
 
   // Step 1 State
   const [countryCode, setCountryCode] = useState("+91");
@@ -78,21 +81,22 @@ export default function DeskCheckInModal({
   const [unpaidCount, setUnpaidCount] = useState(0);
   const [totalDue, setTotalDue] = useState(0);
 
-  // Step 2 State
-  const [otpCode, setOtpCode] = useState("");
-  const [isSendingOtp, setIsSendingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [sendOtpError, setSendOtpError] = useState<string | null>(null);
-  const [otpError, setOtpError] = useState<string | null>(null);
-  const [otpSuccessMessage, setOtpSuccessMessage] = useState<string | null>(null);
+  // Check-In State (Direct without OTP)
+  const [isCheckingInDirect, setIsCheckingInDirect] = useState(false);
+  const [checkInError, setCheckInError] = useState<string | null>(null);
 
-  // Step 3 State
+  // Step 2 State (Check-In & Payment)
   const [verifiedSessions, setVerifiedSessions] = useState<SessionBooking[]>([]);
   const [deskTransactionRef, setDeskTransactionRef] = useState("");
   const [deskAmountCollected, setDeskAmountCollected] = useState("");
   const [isCollectingPayment, setIsCollectingPayment] = useState(false);
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
+
+  // Inline Wristband Assignment State
+  const [editingBandId, setEditingBandId] = useState<number | null>(null);
+  const [bandNumberInput, setBandNumberInput] = useState("");
+  const [isSavingBand, setIsSavingBand] = useState(false);
 
   // Selective Check-in & Walkout States
   const [activeSessionIds, setActiveSessionIds] = useState<number[]>([]);
@@ -132,9 +136,8 @@ export default function DeskCheckInModal({
     }
   };
 
-  // Refs for auto-focus
+  // Ref for auto-focus
   const phoneInputRef = useRef<HTMLInputElement>(null);
-  const otpInputRef = useRef<HTMLInputElement>(null);
 
   // Reset all state when modal opens or closes
   useEffect(() => {
@@ -142,33 +145,23 @@ export default function DeskCheckInModal({
       setCurrentStep(1);
       setPhoneNumber("");
       setLookupError(null);
+      setCheckInError(null);
       setFoundCustomerName("");
       setFoundSessions([]);
       setUnpaidCount(0);
       setTotalDue(0);
-      setOtpCode("");
-      setSendOtpError(null);
-      setOtpError(null);
-      setOtpSuccessMessage(null);
       setDeskTransactionRef("");
       setDeskAmountCollected("");
       setPaymentError(null);
       setPaymentSuccess(false);
+      setEditingBandId(null);
+      setBandNumberInput("");
 
       setTimeout(() => {
         phoneInputRef.current?.focus();
       }, 150);
     }
   }, [isOpen]);
-
-  // Auto-focus OTP input when reaching step 2
-  useEffect(() => {
-    if (currentStep === 2) {
-      setTimeout(() => {
-        otpInputRef.current?.focus();
-      }, 150);
-    }
-  }, [currentStep]);
 
   const handleClose = () => {
     onSuccess();
@@ -190,7 +183,7 @@ export default function DeskCheckInModal({
     setUnpaidCount(0);
     setTotalDue(0);
     setLookupError(null);
-    setSendOtpError(null);
+    setCheckInError(null);
   };
 
   // Step 1: Handle Phone Lookup
@@ -205,7 +198,7 @@ export default function DeskCheckInModal({
 
     setIsLookingUp(true);
     setLookupError(null);
-    setSendOtpError(null);
+    setCheckInError(null);
 
     try {
       const res = await fetch("/api/admin/verify/lookup", {
@@ -237,14 +230,13 @@ export default function DeskCheckInModal({
     }
   };
 
-  // Step 1 -> Step 2: Generate & Send OTP
-  const handleSendOtp = async () => {
-    setIsSendingOtp(true);
-    setOtpError(null);
-    setSendOtpError(null);
+  // Direct Check-In (No OTP required) -> Transition to Step 2
+  const handleDirectCheckIn = async () => {
+    setIsCheckingInDirect(true);
+    setCheckInError(null);
 
     try {
-      const res = await fetch("/api/admin/verify/generate-otp", {
+      const res = await fetch("/api/admin/verify/direct-checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: phoneNumber, countryCode }),
@@ -253,62 +245,50 @@ export default function DeskCheckInModal({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        setSendOtpError(data.error || "Failed to dispatch verification code.");
+        setCheckInError(data.error || "Failed to check-in customer.");
         return;
       }
 
-      setOtpSuccessMessage(data.message || "OTP code sent via WhatsApp.");
-      setCurrentStep(2);
-    } catch (err: any) {
-      console.error("Send OTP error:", err);
-      setSendOtpError("Network error sending OTP. Please try again.");
-    } finally {
-      setIsSendingOtp(false);
-    }
-  };
-
-  // Step 2: Confirm OTP
-  const handleConfirmOtp = async (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    const cleanOtp = otpCode.trim();
-
-    if (cleanOtp.length !== 4) {
-      setOtpError("Please enter the complete 4-digit OTP.");
-      return;
-    }
-
-    setIsVerifyingOtp(true);
-    setOtpError(null);
-
-    try {
-      const res = await fetch("/api/admin/verify/confirm-otp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneNumber, countryCode, otp: cleanOtp }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        setOtpError(data.error || "Invalid or expired OTP. Please check the code.");
-        return;
-      }
-
-      // Step 2 successful! Update state and move to Step 3
+      // Check-in successful! Move to Step 2 (Check-In & Payment)
       const vList = data.bookings || [];
       setVerifiedSessions(vList);
       setActiveSessionIds(vList.map((s: SessionBooking) => s.id));
       setTotalDue(data.total_due || 0);
       setUnpaidCount(data.unpaid_count || 0);
-      setCurrentStep(3);
+      setCurrentStep(2);
 
       // Trigger background reload so dashboard stays fresh
       onSuccess();
     } catch (err: any) {
-      console.error("Confirm OTP error:", err);
-      setOtpError("Verification failed due to network error.");
+      console.error("Direct check-in error:", err);
+      setCheckInError("Check-in failed due to network error. Please try again.");
     } finally {
-      setIsVerifyingOtp(false);
+      setIsCheckingInDirect(false);
+    }
+  };
+
+  // Inline wristband number assignment handler
+  const handleStartEditBand = (sessionId: number, currentVal?: string | null) => {
+    setEditingBandId(sessionId);
+    setBandNumberInput(currentVal || "");
+  };
+
+  const handleSaveWristband = async (sessionId: number) => {
+    setIsSavingBand(true);
+    try {
+      await updateBookingWristbandNumberAction(sessionId, bandNumberInput);
+      setVerifiedSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, wristband_number: bandNumberInput.trim() || null } : s))
+      );
+      setFoundSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, wristband_number: bandNumberInput.trim() || null } : s))
+      );
+      setEditingBandId(null);
+      onSuccess();
+    } catch (e) {
+      console.error("Save band error:", e);
+    } finally {
+      setIsSavingBand(false);
     }
   };
 
@@ -396,7 +376,7 @@ export default function DeskCheckInModal({
 
   // Handler: Drop 1 participant from a multi-quantity ticket (e.g. 1 of 4 backed out)
   const handleReduceParticipant = async (sessionId: number) => {
-    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
 
@@ -414,7 +394,7 @@ export default function DeskCheckInModal({
 
   // Handler: Add 1 player back to the ticket (e.g. player changed mind or arrived late)
   const handleIncreaseParticipant = async (sessionId: number) => {
-    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
 
@@ -425,7 +405,7 @@ export default function DeskCheckInModal({
 
   // Handler: Set exact participant count (e.g. remove 2, 3, or set to specific number)
   const handleCustomParticipantCount = async (sessionId: number) => {
-    const list = currentStep === 3 ? verifiedSessions : foundSessions;
+    const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
 
@@ -479,7 +459,7 @@ export default function DeskCheckInModal({
         message: `${actionDescription}. Updated quantity: ${data.new_quantity}.`,
       });
 
-      // Update state in both Step 1 or Step 3
+      // Update state in both Step 1 or Step 2
       const updater = (prev: SessionBooking[]) =>
         prev.map((s) => {
           if (s.id !== sessionId) return s;
@@ -494,7 +474,7 @@ export default function DeskCheckInModal({
           };
         });
 
-      if (currentStep === 3) {
+      if (currentStep === 2) {
         setVerifiedSessions(updater);
       } else {
         setFoundSessions(updater);
@@ -520,11 +500,11 @@ export default function DeskCheckInModal({
   const handleCancelWalkout = async (targetSessionIds?: number[], reasonText = "Customer Not Interested / Walkout") => {
     const idsToCancel = targetSessionIds && targetSessionIds.length > 0 
       ? targetSessionIds 
-      : (currentStep === 3 ? verifiedSessions.map((s) => s.id) : foundSessions.map((s) => s.id));
+      : (currentStep === 2 ? verifiedSessions.map((s) => s.id) : foundSessions.map((s) => s.id));
 
     if (idsToCancel.length === 0) return;
 
-    const isFull = idsToCancel.length === (currentStep === 3 ? verifiedSessions.length : foundSessions.length);
+    const isFull = idsToCancel.length === (currentStep === 2 ? verifiedSessions.length : foundSessions.length);
     const confirmMsg = isFull
       ? `Release ALL ${idsToCancel.length} session(s) as 'Not Interested / Walkout'? This will free up the slot for walk-in players immediately.`
       : `Mark this player as 'Not Interested / Backed Out' and release their slot?`;
@@ -559,7 +539,7 @@ export default function DeskCheckInModal({
       });
 
       // Update local sessions
-      if (currentStep === 3) {
+      if (currentStep === 2) {
         setVerifiedSessions((prev) =>
           prev.map((s) =>
             idsToCancel.includes(s.id) ? { ...s, fulfillment_status: "Canceled" } : s
@@ -636,65 +616,36 @@ export default function DeskCheckInModal({
             className={`flex items-center gap-2 ${
               currentStep === 1
                 ? "text-amber-800 font-bold"
-                : currentStep > 1
-                ? "text-emerald-700 font-bold"
-                : "text-gray-400"
+                : "text-emerald-700 font-bold"
             }`}
           >
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
                 currentStep === 1
                   ? "bg-amber-500 text-white shadow-sm"
-                  : currentStep > 1
-                  ? "bg-emerald-600 text-white"
-                  : "bg-gray-200 text-gray-500"
+                  : "bg-emerald-600 text-white"
               }`}
             >
               {currentStep > 1 ? "✓" : "1"}
             </div>
-            <span>1. Phone Lookup</span>
+            <span>1. Customer Lookup</span>
           </div>
 
-          <div className="w-8 sm:w-16 h-0.5 bg-gray-200" />
+          <div className="flex-1 max-w-[120px] sm:max-w-[180px] mx-3 h-0.5 bg-gray-200" />
 
           <div
             className={`flex items-center gap-2 ${
-              currentStep === 2
-                ? "text-amber-800 font-bold"
-                : currentStep > 2
-                ? "text-emerald-700 font-bold"
-                : "text-gray-400"
+              currentStep === 2 ? "text-emerald-700 font-bold" : "text-gray-400"
             }`}
           >
             <div
               className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                currentStep === 2
-                  ? "bg-amber-500 text-white shadow-sm"
-                  : currentStep > 2
-                  ? "bg-emerald-600 text-white"
-                  : "bg-gray-200 text-gray-500"
+                currentStep === 2 ? "bg-emerald-600 text-white shadow-sm" : "bg-gray-200 text-gray-500"
               }`}
             >
-              {currentStep > 2 ? "✓" : "2"}
+              2
             </div>
-            <span>2. WhatsApp OTP</span>
-          </div>
-
-          <div className="w-8 sm:w-16 h-0.5 bg-gray-200" />
-
-          <div
-            className={`flex items-center gap-2 ${
-              currentStep === 3 ? "text-emerald-700 font-bold" : "text-gray-400"
-            }`}
-          >
-            <div
-              className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
-                currentStep === 3 ? "bg-emerald-600 text-white shadow-sm" : "bg-gray-200 text-gray-500"
-              }`}
-            >
-              3
-            </div>
-            <span>3. Check-In & Payment</span>
+            <span>2. Check-In & Payment</span>
           </div>
         </div>
 
@@ -733,7 +684,7 @@ export default function DeskCheckInModal({
                           setUnpaidCount(0);
                           setTotalDue(0);
                           setLookupError(null);
-                          setSendOtpError(null);
+                          setCheckInError(null);
                         }}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer text-base"
                         title="Select Country Code"
@@ -1084,14 +1035,14 @@ export default function DeskCheckInModal({
                     </div>
                   </div>
 
-                  {/* Actions Bar: Send OTP vs Full Walkout Cancellation */}
+                  {/* Actions Bar: Direct Check-In vs Full Walkout Cancellation */}
                   <div className="pt-2 space-y-2.5">
-                    {sendOtpError && (
+                    {checkInError && (
                       <div className="p-3.5 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm flex items-start gap-2.5 animate-in fade-in">
                         <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                         <div className="flex-1">
-                          <strong className="block font-bold text-red-900">WhatsApp Delivery Failed:</strong>
-                          <span className="text-red-700 break-words">{sendOtpError}</span>
+                          <strong className="block font-bold text-red-900">Check-In Failed:</strong>
+                          <span className="text-red-700 break-words">{checkInError}</span>
                         </div>
                       </div>
                     )}
@@ -1099,19 +1050,19 @@ export default function DeskCheckInModal({
                     <div className="flex flex-col sm:flex-row items-center gap-2">
                       <button
                         type="button"
-                        disabled={isSendingOtp || activeSessionIds.length === 0}
-                        onClick={handleSendOtp}
+                        disabled={isCheckingInDirect || activeSessionIds.length === 0}
+                        onClick={handleDirectCheckIn}
                         className="w-full sm:flex-1 py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50"
                       >
-                        {isSendingOtp ? (
+                        {isCheckingInDirect ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin text-white" />
-                            <span>Generating OTP...</span>
+                            <span>Confirming Check-In...</span>
                           </>
                         ) : (
                           <>
-                            <Send className="w-4 h-4 text-white" />
-                            <span>Send OTP for {activeSessionIds.length} Playing Player(s)</span>
+                            <CheckCircle2 className="w-4 h-4 text-white" />
+                            <span>Proceed to Check-In for {activeSessionIds.length} Playing Player(s) →</span>
                           </>
                         )}
                       </button>
@@ -1135,98 +1086,9 @@ export default function DeskCheckInModal({
           )}
 
           {/* ========================================================================= */}
-          {/* STEP 2: OTP ENTRY                                                         */}
+          {/* STEP 2: CHECK-IN RESULT & PAYMENT COLLECTION                              */}
           {/* ========================================================================= */}
           {currentStep === 2 && (
-            <div className="space-y-6 animate-in fade-in duration-200">
-              {/* Top Banner showing target phone */}
-              <div className="p-4 rounded-2xl bg-gray-50 border border-gray-200 text-center">
-                <span className="text-xs font-mono uppercase tracking-wider text-emerald-700 font-bold block mb-1">
-                  WhatsApp Verification
-                </span>
-                <p className="text-sm text-gray-600">
-                  Enter the 4-digit verification code sent to customer:
-                </p>
-                <div className="text-lg font-mono font-black text-gray-900 mt-1">
-                  {countryCode} {phoneNumber}
-                </div>
-              </div>
-
-              {/* 4-Digit OTP Input Form */}
-              <form onSubmit={handleConfirmOtp} className="space-y-5">
-                <div>
-                  <label className="block text-center text-xs uppercase tracking-wider font-bold text-gray-600 mb-2">
-                    4-Digit Verification Code
-                  </label>
-                  <div className="max-w-xs mx-auto">
-                    <input
-                      ref={otpInputRef}
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={4}
-                      value={otpCode}
-                      onChange={(e) => {
-                        const digits = e.target.value.replace(/\D/g, "");
-                        if (digits.length <= 4) {
-                          setOtpCode(digits);
-                          setOtpError(null);
-                        }
-                      }}
-                      placeholder="• • • •"
-                      className="w-full bg-white text-gray-900 font-mono font-bold text-3xl sm:text-4xl text-center py-4 rounded-2xl border-2 border-gray-300 focus:border-amber-500 focus:outline-none focus:ring-4 focus:ring-amber-500/15 tracking-[0.4em] sm:tracking-[0.6em] transition-all placeholder:text-gray-300 shadow-sm"
-                    />
-                  </div>
-                </div>
-
-                {otpError && (
-                  <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs sm:text-sm text-center flex items-center justify-center gap-2">
-                    <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
-                    <span>{otpError}</span>
-                  </div>
-                )}
-
-                {/* Buttons: Change Number vs Confirm & Check-In */}
-                <div className="flex flex-col-reverse sm:flex-row gap-3 pt-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setCurrentStep(1);
-                      setOtpCode("");
-                      setOtpError(null);
-                    }}
-                    className="flex-1 py-3 px-4 rounded-xl font-semibold text-xs sm:text-sm bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 flex items-center justify-center gap-2 transition-colors shadow-sm"
-                  >
-                    <ArrowLeft className="w-4 h-4" />
-                    <span>← Change Number</span>
-                  </button>
-
-                  <button
-                    type="submit"
-                    disabled={isVerifyingOtp || otpCode.length !== 4}
-                    className="flex-1 py-3 px-4 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    {isVerifyingOtp ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin text-white" />
-                        <span>Verifying Code...</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-4 h-4 text-white" />
-                        <span>✓ Verify & Check-In</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {/* ========================================================================= */}
-          {/* STEP 3: VERIFICATION RESULT & PAYMENT COLLECTION                           */}
-          {/* ========================================================================= */}
-          {currentStep === 3 && (
             <div className="space-y-6 animate-in fade-in duration-200">
               {/* Success Header */}
               <div className="p-4 sm:p-5 rounded-2xl bg-emerald-50 border border-emerald-200 flex items-start gap-3.5">
@@ -1236,14 +1098,14 @@ export default function DeskCheckInModal({
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-mono uppercase tracking-wider font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200">
-                      OTP Confirmed
+                      Checked In
                     </span>
                     <span className="text-xs text-emerald-800 font-mono">
                       {new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}
                     </span>
                   </div>
                   <h3 className="text-lg font-bold text-gray-900 mt-1">
-                    Customer Verified ✅
+                    Customer Checked In ✅
                   </h3>
                   <p className="text-xs text-gray-600 mt-0.5 font-medium">
                     {foundCustomerName} • {countryCode} {phoneNumber}
@@ -1428,9 +1290,68 @@ export default function DeskCheckInModal({
                                         </span>
                                       )}
                                     </div>
-                                    <div className="text-[11px] text-gray-500 font-mono mt-0.5">
-                                      {session.payment_ref ? `Ref: ${session.payment_ref}` : ""}
-                                      {session.simulator_name ? ` • ${session.simulator_name} (${session.simulator_slot || "Auto"})` : ""}
+                                    <div className="text-[11px] text-gray-500 font-mono mt-0.5 flex flex-wrap items-center gap-1.5">
+                                      {session.payment_ref ? <span>Ref: {session.payment_ref}</span> : null}
+                                      {session.simulator_name ? <span>• {session.simulator_name} ({session.simulator_slot || "Auto"})</span> : null}
+
+                                      {/* Wristband Number in Check-In session */}
+                                      {!isCanceled && (
+                                        editingBandId === session.id ? (
+                                          <div className="inline-flex items-center gap-1 bg-white border border-blue-400 rounded-md px-1.5 py-0.5 shadow-xs">
+                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Band #:</span>
+                                            <input
+                                              type="text"
+                                              value={bandNumberInput}
+                                              onChange={(e) => setBandNumberInput(e.target.value)}
+                                              placeholder="e.g. 104"
+                                              className="w-16 text-[11px] font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1 py-0.5 focus:outline-none"
+                                              autoFocus
+                                              onKeyDown={(e) => {
+                                                if (e.key === "Enter") handleSaveWristband(session.id);
+                                                if (e.key === "Escape") setEditingBandId(null);
+                                              }}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() => handleSaveWristband(session.id)}
+                                              disabled={isSavingBand}
+                                              className="text-green-600 hover:text-green-700 p-0.5"
+                                              title="Save"
+                                            >
+                                              <CheckCircle2 className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() => setEditingBandId(null)}
+                                              className="text-gray-400 hover:text-gray-600 p-0.5"
+                                              title="Cancel"
+                                            >
+                                              <X className="w-3.5 h-3.5" />
+                                            </button>
+                                          </div>
+                                        ) : session.wristband_number ? (
+                                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full text-[10px] font-bold">
+                                            <span>🏷️ Band: <strong>{session.wristband_number}</strong></span>
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartEditBand(session.id, session.wristband_number)}
+                                              className="text-amber-700 hover:text-amber-950 ml-0.5"
+                                              title="Change Band #"
+                                            >
+                                              <Edit3 className="w-2.5 h-2.5" />
+                                            </button>
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditBand(session.id, "")}
+                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 border-dashed px-1.5 py-0.5 rounded-full"
+                                            title="Assign wristband number"
+                                          >
+                                            <span>+ Band #</span>
+                                          </button>
+                                        )
+                                      )}
                                     </div>
                                   </div>
                                 </div>

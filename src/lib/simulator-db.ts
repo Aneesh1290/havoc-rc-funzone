@@ -324,6 +324,58 @@ export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: n
 }
 
 /**
+ * Specifically release/cancel an individual simulator slot by simulatorName, bookingDate, and bookingTime.
+ * Used when a specific VIP participant (e.g. P1 or P2) is eliminated/backed out.
+ */
+export async function releaseSpecificSimulatorSlot(params: {
+  simulatorName: string;
+  bookingDate: string;
+  bookingTime: string;
+  sourceOrderIdPrefix?: string;
+}): Promise<boolean> {
+  try {
+    const { simulatorName, bookingDate, bookingTime, sourceOrderIdPrefix } = params;
+    const formattedDate = formatToSimulatorDate(bookingDate);
+
+    if (sourceOrderIdPrefix) {
+      await simulatorPool.query(
+        `UPDATE simulator_slot_locks 
+         SET status = 'CANCELLED' 
+         WHERE simulator_name = $1 
+           AND (booking_date = $2 OR booking_date = $3)
+           AND booking_time = $4
+           AND (source_order_id = $5 OR source_order_id LIKE $5 || '_%')
+           AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+        [simulatorName, formattedDate, bookingDate, bookingTime, sourceOrderIdPrefix]
+      );
+
+      await simulatorPool.query(
+        `UPDATE bookings 
+         SET status = 'CANCELLED' 
+         WHERE (order_id = $1 OR order_id LIKE $1 || '_%')
+           AND booking_time = $2`,
+        [sourceOrderIdPrefix, bookingTime]
+      );
+    } else {
+      await simulatorPool.query(
+        `UPDATE simulator_slot_locks 
+         SET status = 'CANCELLED' 
+         WHERE simulator_name = $1 
+           AND (booking_date = $2 OR booking_date = $3)
+           AND booking_time = $4
+           AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+        [simulatorName, formattedDate, bookingDate, bookingTime]
+      );
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error releasing specific simulator slot:', params, err);
+    return false;
+  }
+}
+
+/**
  * Permanently delete temporary slot locks created for an online checkout hold (when hold expires or payment fails/cancelled)
  */
 export async function deleteSimulatorSlotLocks(sourceOrderId: string): Promise<boolean> {

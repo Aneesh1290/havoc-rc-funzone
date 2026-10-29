@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getBookingById, cancelDeskBookings, reduceBookingQuantity, adjustBookingQuantity } from "@/lib/db";
-import { deleteSimulatorSlotLocks } from "@/lib/simulator-db";
+import { getBookingById, cancelDeskBookings, reduceBookingQuantity, adjustBookingQuantity, eliminateBookingParticipant } from "@/lib/db";
+import { deleteSimulatorSlotLocks, releaseSpecificSimulatorSlot } from "@/lib/simulator-db";
 import { checkSessionAction } from "@/app/login/actions";
 
 export async function POST(req: NextRequest) {
@@ -11,13 +11,60 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { order_ids, reason, release_slots = true, reduce_quantity, target_quantity } = body || {};
+    const { order_ids, reason, release_slots = true, reduce_quantity, target_quantity, eliminate_participant_num } = body || {};
 
     if (!order_ids || !Array.isArray(order_ids) || order_ids.length === 0) {
       return NextResponse.json(
         { success: false, error: "No orders specified for cancellation." },
         { status: 400 }
       );
+    }
+
+    // 0. Dedicated Specific Participant Elimination mode (e.g. Participant 1 or Participant 2 backed out)
+    if (typeof eliminate_participant_num === "number" && eliminate_participant_num >= 1 && order_ids.length === 1) {
+      const targetId = Number(order_ids[0]);
+      const booking = getBookingById(targetId) as any;
+      if (!booking) {
+        return NextResponse.json({ success: false, error: "Booking session not found." }, { status: 404 });
+      }
+
+      const finalReason = reason && typeof reason === "string" && reason.trim()
+        ? reason.trim()
+        : `Participant ${eliminate_participant_num} Backed Out at Desk`;
+
+      const result = eliminateBookingParticipant(targetId, eliminate_participant_num, finalReason);
+      if (!result) {
+        return NextResponse.json({ success: false, error: "Failed to eliminate specified participant." }, { status: 500 });
+      }
+
+      // If this participant had specific simulator slot(s), release them immediately in PostgreSQL
+      if (release_slots && result.removedSlotInfo && result.removedSlotInfo.length > 0) {
+        const orderPrefix = booking.order_number ? `RC_${booking.order_number}` : undefined;
+        for (const slotItem of result.removedSlotInfo) {
+          if (slotItem.simulatorName && slotItem.slotLabel && result.bookingDate) {
+            await releaseSpecificSimulatorSlot({
+              simulatorName: slotItem.simulatorName,
+              bookingDate: result.bookingDate,
+              bookingTime: slotItem.slotLabel,
+              sourceOrderIdPrefix: orderPrefix
+            }).catch((err) => {
+              console.warn("[Cancel Walkout] Error releasing specific simulator slot:", slotItem, err);
+            });
+          }
+        }
+      }
+
+      return NextResponse.json({
+        success: true,
+        eliminated_participant: eliminate_participant_num,
+        canceled: result.canceled,
+        new_quantity: result.newQuantity,
+        new_total: result.newTotal,
+        removed_slots: result.removedSlotInfo,
+        message: result.canceled
+          ? `All participants backed out. Session #${booking.order_number || targetId} canceled.`
+          : `Participant ${eliminate_participant_num} eliminated. Remaining players: ${result.newQuantity}.`,
+      });
     }
 
     // 1. Direct target quantity adjustment mode (set exact player count or add/remove multiple)

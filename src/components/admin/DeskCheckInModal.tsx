@@ -27,9 +27,11 @@ import {
   Plus,
   Edit3,
   Tag,
+  UserX,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
+import { parseSimPerkDisplay, ParsedSimSlot } from "@/components/SimPerkBadgeList";
 
 interface DeskCheckInModalProps {
   isOpen: boolean;
@@ -102,6 +104,15 @@ export default function DeskCheckInModal({
   const [activeSessionIds, setActiveSessionIds] = useState<number[]>([]);
   const [isCancelingWalkout, setIsCancelingWalkout] = useState(false);
   const [walkoutNotice, setWalkoutNotice] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Dedicated VIP Participant Elimination State (e.g. Choose between P1 or P2 with different simulators)
+  const [participantEliminationModal, setParticipantEliminationModal] = useState<{
+    isOpen: boolean;
+    session: SessionBooking | null;
+  }>({
+    isOpen: false,
+    session: null,
+  });
 
   // Review resend state
   const [isResendingReview, setIsResendingReview] = useState(false);
@@ -374,11 +385,30 @@ export default function DeskCheckInModal({
       .reduce((sum, s) => sum + s.total_amount, 0);
   };
 
-  // Handler: Drop 1 participant from a multi-quantity ticket (e.g. 1 of 4 backed out)
+  // Helper: check if session has multiple participants with simulator perks configured
+  const hasMultipleSimParticipants = (session: SessionBooking) => {
+    if (session.quantity <= 1) return false;
+    if (!session.simulator_name && !session.simulator_slot) return false;
+    const parsed = parseSimPerkDisplay(session.simulator_name || undefined, session.simulator_slot || undefined);
+    const participantCount = new Set(parsed.map((p) => p.participantNum || p.sessionNum)).size;
+    return participantCount > 1 || parsed.length > 1;
+  };
+
+  // Handler: Drop 1 participant from a ticket
+  // If multiple VIP participants have different simulator slots selected, opens the participant selection modal
   const handleReduceParticipant = async (sessionId: number) => {
     const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
+
+    // If VIP ticket with multiple participants and simulator selections, open dedicated participant selector
+    if (hasMultipleSimParticipants(session)) {
+      setParticipantEliminationModal({
+        isOpen: true,
+        session,
+      });
+      return;
+    }
 
     const currentQty = session.quantity;
     if (currentQty <= 1) {
@@ -390,6 +420,82 @@ export default function DeskCheckInModal({
     if (!confirm(confirmMsg)) return;
 
     await executeQuantityAdjustment(sessionId, currentQty - 1, `Removed 1 player from ${session.ticket_name}`);
+  };
+
+  // Handler: Eliminate a specific VIP participant (e.g. Participant 1 or Participant 2)
+  const executeEliminateParticipant = async (sessionId: number, participantNum: number, simDescription?: string) => {
+    const list = currentStep === 2 ? verifiedSessions : foundSessions;
+    const session = list.find((s) => s.id === sessionId);
+    if (!session) return;
+
+    const actionText = `Eliminate Participant ${participantNum}${simDescription ? ` (${simDescription})` : ""} from ${session.ticket_name}`;
+    const confirmMsg = `Are you sure you want to eliminate Participant ${participantNum}?\n${simDescription ? `Selected Simulator: ${simDescription}\n` : ""}The simulator slot will be freed up and the price adjusted immediately.`;
+    if (!confirm(confirmMsg)) return;
+
+    setIsCancelingWalkout(true);
+    setWalkoutNotice(null);
+
+    try {
+      const res = await fetch("/api/admin/verify/cancel-walkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_ids: [sessionId],
+          eliminate_participant_num: participantNum,
+          reason: actionText,
+          release_slots: true,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setWalkoutNotice({ type: "error", message: data.error || "Failed to eliminate participant." });
+        return;
+      }
+
+      setWalkoutNotice({
+        type: "success",
+        message: `Eliminated Participant ${participantNum}. Remaining players: ${data.new_quantity}.`,
+      });
+
+      // Update state in both Step 1 or Step 2
+      const updater = (prev: SessionBooking[]) =>
+        prev.map((s) => {
+          if (s.id !== sessionId) return s;
+          if (data.canceled) {
+            return { ...s, fulfillment_status: "Canceled", quantity: 0, total_amount: 0, simulator_name: null, simulator_slot: null };
+          }
+
+          // Strip eliminated participant from simulator_name and simulator_slot in state
+          const currentSimName = s.simulator_name || "";
+          const currentSimSlot = s.simulator_slot || "";
+          const names = currentSimName.split("|").map((x) => x.trim()).filter((x) => !x.match(new RegExp(`\\(P${participantNum}\\)`, "i")));
+          const slots = currentSimSlot.replace(/[()]/g, "").split("•").map((x) => x.trim()).filter((x) => !x.match(new RegExp(`\\(P${participantNum}`, "i")));
+
+          return {
+            ...s,
+            quantity: data.new_quantity,
+            total_amount: data.new_total,
+            simulator_name: names.length > 0 ? names.join(" | ") : null,
+            simulator_slot: slots.length > 0 ? (slots.length > 1 ? `(${slots.join(" • ")})` : slots[0]) : null,
+            fulfillment_status: s.fulfillment_status === "Canceled" ? "Unfulfilled" : s.fulfillment_status,
+          };
+        });
+
+      if (currentStep === 2) {
+        setVerifiedSessions(updater);
+      } else {
+        setFoundSessions(updater);
+      }
+
+      setParticipantEliminationModal({ isOpen: false, session: null });
+      onSuccess();
+    } catch (err: any) {
+      console.error("Execute eliminate participant error:", err);
+      setWalkoutNotice({ type: "error", message: "Network error while eliminating participant." });
+    } finally {
+      setIsCancelingWalkout(false);
+    }
   };
 
   // Handler: Add 1 player back to the ticket (e.g. player changed mind or arrived late)
@@ -979,6 +1085,20 @@ export default function DeskCheckInModal({
                                       {/* Per-ticket Actions: Stepper (- / +), Custom Count & Release Slot */}
                                       {!isCanceled && (
                                         <div className="flex items-center gap-1.5 ml-1">
+                                          {/* If VIP session with multiple participants, show dedicated eliminate button */}
+                                          {hasMultipleSimParticipants(session) && (
+                                            <button
+                                              type="button"
+                                              onClick={() => setParticipantEliminationModal({ isOpen: true, session })}
+                                              disabled={isCancelingWalkout}
+                                              className="px-2 py-1 text-[11px] font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200/80 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
+                                              title="Choose which VIP participant to eliminate"
+                                            >
+                                              <UserX className="w-3 h-3 text-red-500" />
+                                              <span>Select Player to Drop</span>
+                                            </button>
+                                          )}
+
                                           {/* Stepper Pill */}
                                           <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
                                             <button
@@ -1384,6 +1504,20 @@ export default function DeskCheckInModal({
                                   {/* Individual Walkout / Participant Reduction button */}
                                   {!isCanceled && (
                                     <div className="flex items-center gap-1.5 ml-1">
+                                      {/* If VIP session with multiple participants, show dedicated eliminate button */}
+                                      {hasMultipleSimParticipants(session) && (
+                                        <button
+                                          type="button"
+                                          onClick={() => setParticipantEliminationModal({ isOpen: true, session })}
+                                          disabled={isCancelingWalkout}
+                                          className="px-2 py-1 text-[11px] font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200/80 rounded-lg transition-colors flex items-center gap-1 shadow-2xs"
+                                          title="Choose which VIP participant to eliminate"
+                                        >
+                                          <UserX className="w-3 h-3 text-red-500" />
+                                          <span>Select Player to Drop</span>
+                                        </button>
+                                      )}
+
                                       {/* Stepper Pill */}
                                       <div className="flex items-center bg-gray-50 border border-gray-200 rounded-lg overflow-hidden shadow-2xs">
                                         <button
@@ -1618,6 +1752,127 @@ export default function DeskCheckInModal({
             </div>
           )}
         </div>
+
+        {/* Dedicated VIP Participant Elimination Dialog */}
+        {participantEliminationModal.isOpen && participantEliminationModal.session && (() => {
+          const sess = participantEliminationModal.session;
+          const parsedSlots = parseSimPerkDisplay(sess.simulator_name || undefined, sess.simulator_slot || undefined);
+
+          // Group by participant
+          const pMap = new Map<number, ParsedSimSlot[]>();
+          if (parsedSlots.some(s => s.participantNum !== undefined)) {
+            for (const item of parsedSlots) {
+              const pNum = item.participantNum || 1;
+              if (!pMap.has(pNum)) pMap.set(pNum, []);
+              pMap.get(pNum)!.push(item);
+            }
+          } else {
+            // If no explicit P1/P2 tag, map by 1..quantity
+            for (let i = 0; i < sess.quantity; i++) {
+              const pNum = i + 1;
+              const slot = parsedSlots[i] || { sessionNum: pNum, simulatorName: sess.simulator_name || "Simulator", slotLabel: sess.simulator_slot || "Pending" };
+              pMap.set(pNum, [slot]);
+            }
+          }
+
+          const participantEntries = Array.from(pMap.entries()).sort((a, b) => a[0] - b[0]);
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+              <div className="bg-white rounded-2xl max-w-lg w-full border border-gray-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+                {/* Header */}
+                <div className="px-5 py-4 border-b border-gray-100 bg-gradient-to-r from-red-50 to-orange-50/50 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600">
+                      <UserX className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-gray-900 text-sm sm:text-base">
+                        Select VIP Participant to Eliminate
+                      </h4>
+                      <p className="text-[11px] text-gray-500 font-mono">
+                        {sess.ticket_name} • Order #FZ_{sess.order_number || sess.id}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setParticipantEliminationModal({ isOpen: false, session: null })}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-white/80 transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Body Explanation */}
+                <div className="p-5 space-y-4">
+                  <div className="p-3 rounded-xl bg-amber-50 border border-amber-200/80 text-amber-900 text-xs flex items-start gap-2">
+                    <Info className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span>
+                      Each participant has a distinct simulator and slot. Select exactly which participant backed out or is not attending to release their specific simulator slot without affecting others.
+                    </span>
+                  </div>
+
+                  {/* List of Participants */}
+                  <div className="space-y-2.5">
+                    {participantEntries.map(([pNum, items]: [number, ParsedSimSlot[]]) => {
+                      const simSummary = items.map((it: ParsedSimSlot) => `${it.simulatorName} (${it.slotLabel})`).join(" & ");
+                      return (
+                        <div
+                          key={pNum}
+                          className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/70 hover:bg-white hover:border-red-300 transition-all flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 shadow-2xs"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="w-6 h-6 rounded-md bg-gray-900 text-white font-black text-xs flex items-center justify-center">
+                                P{pNum}
+                              </span>
+                              <span className="font-bold text-gray-900 text-sm">
+                                Participant {pNum}
+                              </span>
+                            </div>
+                            <div className="pl-8 space-y-0.5">
+                              {items.map((it: ParsedSimSlot, idx: number) => (
+                                <div key={idx} className="text-xs text-gray-600 flex items-center gap-2">
+                                  <span className="font-semibold text-gray-800">{it.simulatorName}</span>
+                                  <span className="text-gray-400">•</span>
+                                  <span className="px-2 py-0.5 rounded bg-orange-100/80 text-[#ff5a1f] font-mono font-bold text-[10px]">
+                                    {it.slotLabel}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            disabled={isCancelingWalkout}
+                            onClick={() => executeEliminateParticipant(sess.id, pNum, simSummary)}
+                            className="self-end sm:self-center px-3 py-1.5 rounded-lg font-bold text-xs bg-red-600 hover:bg-red-700 active:scale-95 text-white shadow-sm flex items-center gap-1.5 transition-all disabled:opacity-50"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Eliminate P{pNum}</span>
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Footer */}
+                <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setParticipantEliminationModal({ isOpen: false, session: null })}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                  >
+                    Cancel / Keep All
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Modal Footer */}
         <div className="px-5 sm:px-7 py-3.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">

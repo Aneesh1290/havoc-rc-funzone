@@ -674,6 +674,136 @@ export function reduceBookingQuantity(bookingId: number, countToReduce: number =
   return adjustBookingQuantity(bookingId, currentQty - countToReduce, reason);
 }
 
+export interface EliminatedSlotInfo {
+  sessionNum?: number;
+  participantNum?: number;
+  simulatorName: string;
+  slotLabel: string;
+}
+
+/**
+ * Eliminates a specific participant from a booking (e.g. Participant 1 or Participant 2).
+ * Adjusts quantity, recalculates price, strips the participant's simulator assignment from simulator_name & simulator_slot,
+ * and returns the removed slot info so it can be unreserved in PostgreSQL.
+ */
+export function eliminateBookingParticipant(
+  bookingId: number,
+  participantNumberToEliminate: number,
+  reason = "Specific Participant Eliminated at Desk"
+): {
+  canceled: boolean;
+  newQuantity: number;
+  newTotal: number;
+  removedSlotInfo: EliminatedSlotInfo[];
+  bookingDate?: string;
+  orderNumber?: number;
+} | null {
+  const current = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId) as any;
+  if (!current) return null;
+
+  const currentQty = Number(current.quantity) || 1;
+  const newQty = Math.max(0, currentQty - 1);
+
+  // Parse simulator selections if present
+  let removedSlotInfo: EliminatedSlotInfo[] = [];
+  let updatedSimName = current.simulator_name || null;
+  let updatedSimSlot = current.simulator_slot || null;
+
+  if (current.simulator_name && current.simulator_slot) {
+    const rawNames = (current.simulator_name as string).split('|').map(s => s.trim()).filter(Boolean);
+    const rawSlots = (current.simulator_slot as string).replace(/[()]/g, '').split('•').map(s => s.trim()).filter(Boolean);
+
+    const count = Math.max(rawNames.length, rawSlots.length);
+    const keptNames: string[] = [];
+    const keptSlots: string[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const nSeg = rawNames[i] || '';
+      const sSeg = rawSlots[i] || '';
+
+      // Check participant number (e.g. (P1) or (P2) or Participant 1)
+      const pMatch = nSeg.match(/\(P(\d+)\)/i) || sSeg.match(/\(P(\d+)/i);
+      const sessMatch = nSeg.match(/#(\d+)/) || sSeg.match(/#(\d+)/);
+
+      const parsedPNum = pMatch ? parseInt(pMatch[1], 10) : (i + 1);
+      const parsedSessNum = sessMatch ? parseInt(sessMatch[1], 10) : (i + 1);
+
+      // Clean simulator name and slot label
+      const cleanSimName = nSeg.replace(/^#\d+(?:\s*\([^)]*\))?:\s*/, '').trim() || 'Simulator';
+      const timeMatch = sSeg.match(/(\d{1,2}(?::\d{2})?(?:AM|PM)-\d{1,2}(?::\d{2})?(?:AM|PM))/i);
+      const cleanSlotLabel = timeMatch ? timeMatch[1] : sSeg.replace(/^#\d+[^:]*:\s*/, '').trim();
+
+      if (parsedPNum === participantNumberToEliminate) {
+        removedSlotInfo.push({
+          sessionNum: parsedSessNum,
+          participantNum: parsedPNum,
+          simulatorName: cleanSimName,
+          slotLabel: cleanSlotLabel
+        });
+      } else {
+        keptNames.push(nSeg);
+        keptSlots.push(sSeg);
+      }
+    }
+
+    if (keptNames.length === 0) {
+      updatedSimName = null;
+      updatedSimSlot = null;
+    } else if (keptNames.length === 1) {
+      // Clean single entry format
+      const singleCleanName = keptNames[0].replace(/^#\d+(?:\s*\([^)]*\))?:\s*/, '').trim();
+      const singleTimeMatch = keptSlots[0]?.match(/(\d{1,2}(?::\d{2})?(?:AM|PM)-\d{1,2}(?::\d{2})?(?:AM|PM))/i);
+      const singleCleanSlot = singleTimeMatch ? singleTimeMatch[1] : (keptSlots[0] || '').replace(/^#\d+[^:]*:\s*/, '').trim();
+
+      updatedSimName = singleCleanName;
+      updatedSimSlot = singleCleanSlot;
+    } else {
+      updatedSimName = keptNames.join(' | ');
+      updatedSimSlot = `(${keptSlots.join(' • ')})`;
+    }
+  }
+
+  // If new quantity is 0, cancel the session completely
+  if (newQty <= 0) {
+    cancelDeskBookings([bookingId], reason);
+    return {
+      canceled: true,
+      newQuantity: 0,
+      newTotal: 0,
+      removedSlotInfo,
+      bookingDate: current.date,
+      orderNumber: current.order_number
+    };
+  }
+
+  // Calculate new total amount
+  const unitPrice = current.ticket_price || (currentQty > 0 ? (current.total_amount / (currentQty * 1.18)) : (current.total_amount || 0));
+  const newTotal = Math.round(unitPrice * newQty * 1.18);
+  const tagNote = `[Eliminated P${participantNumberToEliminate} (Qty ${currentQty} -> ${newQty}): ${reason}]`;
+
+  db.prepare(`
+    UPDATE bookings 
+    SET quantity = ?,
+        total_amount = ?,
+        simulator_name = ?,
+        simulator_slot = ?,
+        tags = CASE 
+          WHEN tags IS NULL OR tags = '' THEN '${tagNote}'
+          ELSE tags || ' ' || '${tagNote}'
+        END
+    WHERE id = ?
+  `).run(newQty, newTotal, updatedSimName, updatedSimSlot, bookingId);
+
+  return {
+    canceled: false,
+    newQuantity: newQty,
+    newTotal,
+    removedSlotInfo,
+    bookingDate: current.date,
+    orderNumber: current.order_number
+  };
+}
+
 export function deleteBookings(ids: number[]) {
   if (!ids || ids.length === 0) return { changes: 0 };
   const placeholders = ids.map(() => '?').join(',');

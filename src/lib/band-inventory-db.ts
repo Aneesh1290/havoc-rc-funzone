@@ -148,81 +148,40 @@ export async function ensureBandInventorySeeded(force: boolean = false) {
   try {
     const flagRow = db.prepare("SELECT value FROM site_settings WHERE key = 'band_inventory_seeded'").get() as { value: string } | undefined;
     if (flagRow?.value === '1' && !force) {
-      // Already seeded previously; do not re-add deleted bands!
+      // Already initialized previously; do not create or re-seed phantom colors!
       return;
     }
   } catch (ignore) {}
 
-  if (isPostgresActive()) {
-    await ensurePgSchema();
-    try {
-      // Check Postgres site_settings / flag or items
-      for (const item of TARGET_SLOT_BAND_COLORS) {
-        const check = await simulatorPool.query(
-          "SELECT COUNT(*)::int as count FROM band_items WHERE UPPER(color_name) = UPPER($1) OR UPPER(color_hex) = UPPER($2)",
-          [item.name, item.hex]
-        );
-        if (check.rows[0]?.count === 0) {
-          for (let i = 1; i <= item.count; i++) {
-            const padNum = String(i).padStart(3, "0");
-            const bandCode = `BND-${item.code}-${padNum}`;
-            const insRes = await simulatorPool.query(
-              `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-                 VALUES ($1, $2, $3, 'Standard', 'available', 0, 'Starter Stock')
-                 ON CONFLICT (band_code) DO NOTHING
-                 RETURNING id`,
-              [bandCode, item.name, item.hex]
-            );
-            const newId = insRes.rows[0]?.id;
-            if (newId) {
-              await simulatorPool.query(
-                `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
-                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, 'System Setup', 'Starter Stock In')`,
-                [newId, bandCode, item.name, item.hex]
-              );
-            }
-          }
-        }
-      }
-    } catch (err) {
-      console.error("[Band Inventory Postgres] Failed check/seed in Postgres:", err);
+  // If items already exist, do NOT insert any synthetic colors
+  let hasExistingBands = false;
+  try {
+    const row = db.prepare("SELECT COUNT(*) as count FROM band_items").get() as { count: number } | undefined;
+    if (Number(row?.count || 0) > 0) {
+      hasExistingBands = true;
     }
+  } catch (e) {}
+
+  if (hasExistingBands && !force) {
+    try {
+      db.prepare(`
+        INSERT INTO site_settings (key, value, description)
+        VALUES ('band_inventory_seeded', '1', 'Flag indicating band inventory seed completed')
+        ON CONFLICT(key) DO UPDATE SET value = '1'
+      `).run();
+    } catch (ignore) {}
+    return;
   }
 
-  // Also ensure all 10 colors in local SQLite
+  // Set persistent seeded flag in SQLite so it never re-seeds on future deployments
   try {
-    for (const item of TARGET_SLOT_BAND_COLORS) {
-      const exist = db.prepare(
-        "SELECT COUNT(*) as count FROM band_items WHERE UPPER(color_name) = UPPER(?) OR UPPER(color_hex) = UPPER(?)"
-      ).get(item.name, item.hex) as { count: number } | undefined;
-
-      if (!exist || exist.count === 0) {
-        for (let i = 1; i <= item.count; i++) {
-          const padNum = String(i).padStart(3, "0");
-          const bandCode = `BND-${item.code}-${padNum}`;
-          try {
-            const info = db.prepare(`
-              INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-              VALUES (?, ?, ?, 'Standard', 'available', 0, 'Starter Stock')
-            `).run(bandCode, item.name, item.hex);
-
-            db.prepare(`
-              INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
-              VALUES (?, ?, ?, ?, 'STOCK_IN', 1, 'System Setup', 'Starter Stock In')
-            `).run(info.lastInsertRowid, bandCode, item.name, item.hex);
-          } catch (ignore) {}
-        }
-      }
-    }
-
-    // Set persistent seeded flag in SQLite
     db.prepare(`
       INSERT INTO site_settings (key, value, description)
-      VALUES ('band_inventory_seeded', '1', 'Flag indicating initial band inventory seed completed')
+      VALUES ('band_inventory_seeded', '1', 'Flag indicating band inventory seed completed')
       ON CONFLICT(key) DO UPDATE SET value = '1'
     `).run();
   } catch (err) {
-    console.error("[Band Inventory SQLite] Failed to seed initial bands:", err);
+    console.error("[Band Inventory SQLite] Failed to set seed flag:", err);
   }
 }
 
@@ -279,7 +238,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
       const colorBreakdownMap = new Map<string, BandColorBreakdown>();
 
-      // 1. First populate all configured slot colors from time_slots
+      // 1. First populate all configured slot colors from active time_slots
       try {
         const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
         for (const slot of slotRows) {
@@ -302,24 +261,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         console.warn("[Band Inventory] Could not read time_slots for palette:", slotErr);
       }
 
-      // 2. Also ensure default wristband palette colors exist
-      for (const p of WRISTBAND_PALETTE) {
-        const key = p.name.trim().toLowerCase();
-        if (!colorBreakdownMap.has(key)) {
-          colorBreakdownMap.set(key, {
-            color_name: p.name,
-            color_hex: p.hex,
-            total: 0,
-            available: 0,
-            issued: 0,
-            damaged: 0,
-            lost: 0,
-            retired: 0,
-          });
-        }
-      }
-
-      // 3. Merge actual Postgres inventory counts
+      // 2. Merge actual Postgres inventory counts (only adding items that exist or match slot colors)
       for (const r of colorRowsRes.rows) {
         const key = (r.color_name || "").trim().toLowerCase();
         const existing = colorBreakdownMap.get(key);
@@ -446,7 +388,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
   const colorBreakdownMap = new Map<string, BandColorBreakdown>();
 
-  // 1. First populate all configured slot colors from time_slots
+  // 1. First populate all configured slot colors from active time_slots
   try {
     const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
     for (const slot of slotRows) {
@@ -469,24 +411,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     console.warn("[Band Inventory SQLite] Could not read time_slots for palette:", slotErr);
   }
 
-  // 2. Also ensure default wristband palette colors exist
-  for (const p of WRISTBAND_PALETTE) {
-    const key = p.name.trim().toLowerCase();
-    if (!colorBreakdownMap.has(key)) {
-      colorBreakdownMap.set(key, {
-        color_name: p.name,
-        color_hex: p.hex,
-        total: 0,
-        available: 0,
-        issued: 0,
-        damaged: 0,
-        lost: 0,
-        retired: 0,
-      });
-    }
-  }
-
-  // 3. Merge actual SQLite inventory counts
+  // 2. Merge actual SQLite inventory counts (only adding items that exist or match slot colors)
   for (const r of colorRows) {
     const key = (r.color_name || "").trim().toLowerCase();
     const existing = colorBreakdownMap.get(key);

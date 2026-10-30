@@ -75,6 +75,21 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: "Booking session not found." }, { status: 404 });
       }
 
+      const currentQty = Number(booking.quantity) || 1;
+      const isVipOrSim = Boolean(
+        (booking.simulator_name && booking.simulator_name.trim().length > 0) ||
+        (booking.simulator_slot && booking.simulator_slot.trim().length > 0) ||
+        (booking.ticket_name && booking.ticket_name.toUpperCase().includes("VIP"))
+      );
+
+      // VIP passes require selecting simulator slots in Havoc Sim Podium, so cannot increase quantity at desk
+      if (isVipOrSim && target_quantity > currentQty) {
+        return NextResponse.json({
+          success: false,
+          error: "Cannot increase VIP participant count at desk. VIP passes require selecting and reserving specific simulator slots in Havoc Sim Podium."
+        }, { status: 400 });
+      }
+
       const finalReason = reason && typeof reason === "string" && reason.trim()
         ? reason.trim()
         : "Desk Player Count Adjustment";

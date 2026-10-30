@@ -385,6 +385,15 @@ export default function DeskCheckInModal({
       .reduce((sum, s) => sum + s.total_amount, 0);
   };
 
+  // Helper: check if session is a VIP or simulator-perk session (where new players cannot be added without booking slots on Sim Podium)
+  const isVipOrSimSession = (session: SessionBooking) => {
+    return Boolean(
+      (session.simulator_name && session.simulator_name.trim().length > 0) ||
+      (session.simulator_slot && session.simulator_slot.trim().length > 0) ||
+      (session.ticket_name && session.ticket_name.toUpperCase().includes("VIP"))
+    );
+  };
+
   // Helper: check if session has multiple participants with simulator perks configured
   const hasMultipleSimParticipants = (session: SessionBooking) => {
     if (session.quantity <= 1) return false;
@@ -499,10 +508,16 @@ export default function DeskCheckInModal({
   };
 
   // Handler: Add 1 player back to the ticket (e.g. player changed mind or arrived late)
+  // Disabled for VIP/Simulator tickets to protect Sim Podium slot reservations
   const handleIncreaseParticipant = async (sessionId: number) => {
     const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
+
+    if (isVipOrSimSession(session)) {
+      alert("Cannot add VIP participants at desk: VIP passes require selecting and reserving specific simulator slots in Havoc Sim Podium. Please create a new booking for new VIP participants.");
+      return;
+    }
 
     const currentQty = session.quantity;
     const newQty = currentQty + 1;
@@ -510,14 +525,18 @@ export default function DeskCheckInModal({
   };
 
   // Handler: Set exact participant count (e.g. remove 2, 3, or set to specific number)
+  // If VIP ticket, only reductions/removals are allowed, not additions
   const handleCustomParticipantCount = async (sessionId: number) => {
     const list = currentStep === 2 ? verifiedSessions : foundSessions;
     const session = list.find((s) => s.id === sessionId);
     if (!session) return;
 
+    const isVip = isVipOrSimSession(session);
     const currentQty = session.quantity;
     const input = prompt(
-      `Set number of playing participants for "${session.ticket_name}":\n(Current: ${currentQty})\nEnter 0 to cancel this session entirely.`,
+      isVip
+        ? `Reduce participant count for "${session.ticket_name}":\n(Current: ${currentQty})\nNote: Cannot add VIP players because simulator slots must be reserved in Sim Podium.\nEnter a lower number, or 0 to cancel:`
+        : `Set number of playing participants for "${session.ticket_name}":\n(Current: ${currentQty})\nEnter 0 to cancel this session entirely.`,
       String(currentQty)
     );
     if (input === null) return; // User cancelled prompt
@@ -529,6 +548,11 @@ export default function DeskCheckInModal({
     }
 
     if (parsed === currentQty) return;
+
+    if (isVip && parsed > currentQty) {
+      alert("Cannot add VIP participants at desk: VIP passes require selecting and reserving specific simulator slots in Havoc Sim Podium. Please create a new booking for new VIP participants.");
+      return;
+    }
 
     if (parsed === 0) {
       return handleCancelWalkout([sessionId], "All Players Backed Out at Desk");
@@ -1122,15 +1146,17 @@ export default function DeskCheckInModal({
                                               <Edit3 className="w-2.5 h-2.5 text-gray-400" />
                                             </button>
 
-                                            <button
-                                              type="button"
-                                              onClick={() => handleIncreaseParticipant(session.id)}
-                                              disabled={isCancelingWalkout}
-                                              className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
-                                              title="Add 1 player back (+1)"
-                                            >
-                                              <Plus className="w-3 h-3" />
-                                            </button>
+                                            {!isVipOrSimSession(session) && (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleIncreaseParticipant(session.id)}
+                                                disabled={isCancelingWalkout}
+                                                className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                                title="Add 1 player back (+1)"
+                                              >
+                                                <Plus className="w-3 h-3" />
+                                              </button>
+                                            )}
                                           </div>
 
                                           <button
@@ -1541,15 +1567,17 @@ export default function DeskCheckInModal({
                                           <Edit3 className="w-2.5 h-2.5 text-gray-400" />
                                         </button>
 
-                                        <button
-                                          type="button"
-                                          onClick={() => handleIncreaseParticipant(session.id)}
-                                          disabled={isCancelingWalkout}
-                                          className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
-                                          title="Add 1 player back (+1)"
-                                        >
-                                          <Plus className="w-3 h-3" />
-                                        </button>
+                                        {!isVipOrSimSession(session) && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleIncreaseParticipant(session.id)}
+                                            disabled={isCancelingWalkout}
+                                            className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-100 transition-colors flex items-center justify-center disabled:opacity-40"
+                                            title="Add 1 player back (+1)"
+                                          >
+                                            <Plus className="w-3 h-3" />
+                                          </button>
+                                        )}
                                       </div>
 
                                       <button

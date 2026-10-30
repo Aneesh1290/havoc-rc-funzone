@@ -49,11 +49,11 @@ export async function POST(req: NextRequest) {
           const rawAmount = Number(booking.total_amount || 0);
           const baseAmount = (booking.ticket_price || 0) * (booking.quantity || 1);
           const effectiveAmount =
-            rawAmount > baseAmount
+            rawAmount > 0
               ? rawAmount
               : baseAmount > 0
               ? Math.round(baseAmount * 1.18)
-              : rawAmount;
+              : 0;
 
           expectedTotal += effectiveAmount;
         }

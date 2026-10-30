@@ -76,11 +76,11 @@ export async function POST(req: NextRequest) {
       const rawAmount = Number(b.total_amount || 0);
       const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
       const effectiveAmount =
-        rawAmount > baseAmount
+        rawAmount > 0
           ? rawAmount
           : baseAmount > 0
           ? Math.round(baseAmount * 1.18)
-          : rawAmount;
+          : 0;
 
       return {
         id: b.id,

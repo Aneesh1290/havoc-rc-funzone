@@ -85,7 +85,7 @@ export default function BookingsPage() {
       if (!map.has(orderNum)) {
         const rawAmount = Number(b.total_amount || 0);
         const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
-        const effectiveAmount = rawAmount > baseAmount ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : rawAmount);
+        const effectiveAmount = rawAmount > 0 ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : 0);
 
         map.set(orderNum, {
           orderNumber: orderNum,
@@ -109,7 +109,7 @@ export default function BookingsPage() {
         const existing = map.get(orderNum)!;
         const rawAmount = Number(b.total_amount || 0);
         const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
-        const effectiveAmount = rawAmount > baseAmount ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : rawAmount);
+        const effectiveAmount = rawAmount > 0 ? rawAmount : (baseAmount > 0 ? Math.round(baseAmount * 1.18) : 0);
 
         existing.total_amount += effectiveAmount;
         existing.total_quantity += (b.quantity || 1);

@@ -125,20 +125,18 @@ export default function OrderDetailPage() {
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
   
-  // Calculate subtotal across all items
-  const itemsSubtotal = orderItems.reduce((acc, item) => {
-    const rawAmt = Number(item.total_amount || 0);
+  // Compute total amount recorded across items
+  const rawSumTotal = orderItems.reduce((acc, item) => acc + Number(item.total_amount || 0), 0);
+  const baseItemsSubtotal = orderItems.reduce((acc, item) => {
     const qty = item.quantity || 1;
-    const price = item.ticket_price || (rawAmt > 0 ? Math.round(rawAmt / qty) : 0);
-    return acc + (price * qty);
+    return acc + ((item.ticket_price || 0) * qty);
   }, 0);
 
-  // Compute total amount and 18% GST
-  const rawSumTotal = orderItems.reduce((acc, item) => acc + Number(item.total_amount || 0), 0);
-  const taxGst = rawSumTotal > itemsSubtotal
-    ? (rawSumTotal - itemsSubtotal)
-    : Math.round(itemsSubtotal * 0.18 * 100) / 100;
-  const totalAmount = rawSumTotal > itemsSubtotal ? rawSumTotal : (itemsSubtotal + taxGst);
+  // If rawSumTotal is recorded (> 0), that is the exact final total (incl. GST & discounts).
+  // Otherwise, fallback to baseItemsSubtotal + 18% GST.
+  const totalAmount = rawSumTotal > 0 ? rawSumTotal : Math.round(baseItemsSubtotal * 1.18);
+  const itemsSubtotal = rawSumTotal > 0 ? Math.round((totalAmount / 1.18) * 100) / 100 : baseItemsSubtotal;
+  const taxGst = Math.round((totalAmount - itemsSubtotal) * 100) / 100;
   const amountDue = isPaid ? 0 : totalAmount;
 
   const handleTogglePayment = async (status: string) => {

@@ -57,11 +57,13 @@ import {
   deleteAllBandInventoryAction,
   quickLookupBandAction
 } from "@/app/actions/band-inventory";
+import { syncColorInventoryAction } from "@/app/actions/color-inventory";
 
 export default function BandInventoryPage() {
   const [activeTab, setActiveTab] = useState<"summary" | "master" | "movements" | "reports">("summary");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncingSlots, setIsSyncingSlots] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
 
   // Data States
@@ -196,6 +198,33 @@ export default function BandInventoryPage() {
   useEffect(() => {
     loadData();
   }, [searchQuery, statusFilter, colorFilter, categoryFilter, movementSearch, movementTypeFilter]);
+
+  const handleSyncSlots = async () => {
+    setIsSyncingSlots(true);
+    setFeedback(null);
+    try {
+      const res = await syncColorInventoryAction();
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: res.message || "Successfully synchronized slot colours to inventory.",
+        });
+        await loadData();
+      } else {
+        setFeedback({
+          type: "error",
+          message: res.error || "Failed to synchronize slot colours.",
+        });
+      }
+    } catch (err: any) {
+      setFeedback({
+        type: "error",
+        message: err.message || "An unexpected error occurred during slot synchronization.",
+      });
+    } finally {
+      setIsSyncingSlots(false);
+    }
+  };
 
   // Quick Action: Pre-fill Issue Modal for a specific row
   const handleOpenIssueModal = (item?: BandItem) => {
@@ -609,6 +638,16 @@ export default function BandInventoryPage() {
           </button>
 
           <button
+            onClick={handleSyncSlots}
+            disabled={isSyncingSlots || isRefreshing}
+            className="bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+            title="Read slot colours and sync inventory records with 0 initial quantity"
+          >
+            <Sparkles className={`w-4 h-4 text-emerald-400 ${isSyncingSlots ? "animate-spin" : ""}`} />
+            <span>{isSyncingSlots ? "Syncing..." : "Sync Slot Colours"}</span>
+          </button>
+
+          <button
             onClick={() => {
               setIsBulkMode(false);
               setIsStockInModalOpen(true);
@@ -838,16 +877,29 @@ export default function BandInventoryPage() {
                   Matches your track time slot color schemes for quick visual verification.
                 </p>
               </div>
-              <button
-                onClick={() => {
-                  setIsBulkMode(true);
-                  setIsStockInModalOpen(true);
-                }}
-                className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1 self-start sm:self-auto"
-              >
-                <span>+ Batch Generate Bands</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
+              <div className="flex items-center gap-3 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={handleSyncSlots}
+                  disabled={isSyncingSlots || isRefreshing}
+                  className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
+                  title="Sync colours from configured slots (initial stock 0)"
+                >
+                  <Sparkles className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingSlots ? "animate-spin" : ""}`} />
+                  <span>{isSyncingSlots ? "Syncing..." : "Sync from Slots"}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    setIsBulkMode(true);
+                    setIsStockInModalOpen(true);
+                  }}
+                  className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1"
+                >
+                  <span>+ Batch Generate Bands</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

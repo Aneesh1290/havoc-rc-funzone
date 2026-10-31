@@ -1,6 +1,7 @@
 import { db, initDB } from "./db";
 import { simulatorPool } from "./simulator-db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "./slotColors";
+import { getDistinctSlotColors, ensureColorInventorySchema } from "./color-inventory-db";
 
 export type BandStatus = "available" | "issued" | "damaged" | "lost" | "retired";
 export type BandCategory = "Standard" | "VIP" | "Child" | "Staff / Marshal";
@@ -297,6 +298,27 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         }
       }
 
+      // 2. Also incorporate any configured slot colors from wristband_color_inventory so synced colors appear with 0 stock
+      try {
+        const slotInvRes = await simulatorPool.query("SELECT color_hex, color_name FROM wristband_color_inventory");
+        for (const sir of slotInvRes.rows) {
+          const hex = (sir.color_hex || "").trim().toUpperCase();
+          const name = (sir.color_name || "").trim();
+          if (hex && !colorBreakdownMap.has(hex) && !colorBreakdownMap.has(name.toLowerCase())) {
+            colorBreakdownMap.set(hex, {
+              color_name: name || hex,
+              color_hex: hex,
+              total: 0,
+              available: 0,
+              issued: 0,
+              damaged: 0,
+              lost: 0,
+              retired: 0,
+            });
+          }
+        }
+      } catch (ignoreInv) {}
+
       const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
         if (b.total !== a.total) return b.total - a.total;
         return a.color_name.localeCompare(b.color_name);
@@ -427,6 +449,27 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       });
     }
   }
+
+  // 2. Also incorporate any configured slot colors from wristband_color_inventory so synced colors appear with 0 stock
+  try {
+    const slotInvRows = db.prepare("SELECT color_hex, color_name FROM wristband_color_inventory").all() as any[];
+    for (const sir of slotInvRows) {
+      const hex = (sir.color_hex || "").trim().toUpperCase();
+      const name = (sir.color_name || "").trim();
+      if (hex && !colorBreakdownMap.has(hex) && !colorBreakdownMap.has(name.toLowerCase())) {
+        colorBreakdownMap.set(hex, {
+          color_name: name || hex,
+          color_hex: hex,
+          total: 0,
+          available: 0,
+          issued: 0,
+          damaged: 0,
+          lost: 0,
+          retired: 0,
+        });
+      }
+    }
+  } catch (ignoreInv) {}
 
   const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;

@@ -57,7 +57,11 @@ import {
   deleteAllBandInventoryAction,
   quickLookupBandAction
 } from "@/app/actions/band-inventory";
-import { syncColorInventoryAction } from "@/app/actions/color-inventory";
+import { 
+  syncColorInventoryAction, 
+  updateColorStockAction, 
+  stockOutColorToReceptionAction 
+} from "@/app/actions/color-inventory";
 
 export default function BandInventoryPage() {
   const [activeTab, setActiveTab] = useState<"summary" | "master" | "movements" | "reports">("summary");
@@ -120,17 +124,18 @@ export default function BandInventoryPage() {
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
 
   // Color Quick Action Modal (when pressing color card in summary)
-  const [selectedColorForAction, setSelectedColorForAction] = useState<{
-    color_name: string;
-    color_hex: string;
-    total: number;
-    available: number;
-    issued: number;
-    damaged: number;
-    lost: number;
-    retired: number;
-  } | null>(null);
+  const [selectedColorForAction, setSelectedColorForAction] = useState<BandColorBreakdown | null>(null);
   const [isColorManageModalOpen, setIsColorManageModalOpen] = useState(false);
+
+  // Quick Stock Out to Reception Modal from Color Cards
+  const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
+  const [colorStockOutAmount, setColorStockOutAmount] = useState(10);
+  const [isSubmittingColorStockOut, setIsSubmittingColorStockOut] = useState(false);
+
+  // Quick Add Main Stock Modal from Color Cards
+  const [isQuickAddStockModalOpen, setIsQuickAddStockModalOpen] = useState(false);
+  const [quickAddStockAmount, setQuickAddStockAmount] = useState(10);
+  const [isSubmittingQuickAddStock, setIsSubmittingQuickAddStock] = useState(false);
 
   // Clear / Reset All Inventory Modal
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
@@ -506,6 +511,80 @@ export default function BandInventoryPage() {
   const handleColorCardPress = (color: BandColorBreakdown) => {
     setSelectedColorForAction(color);
     setIsColorManageModalOpen(true);
+  };
+
+  const handleQuickAddStockSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedColorForAction || !selectedColorForAction.color_inventory_id) {
+      setFeedback({ type: "error", message: "Color inventory record ID not found. Please sync from slots first." });
+      return;
+    }
+    if (quickAddStockAmount <= 0) {
+      setFeedback({ type: "error", message: "Please specify a positive quantity to add." });
+      return;
+    }
+
+    setIsSubmittingQuickAddStock(true);
+    try {
+      const res = await updateColorStockAction({
+        id: selectedColorForAction.color_inventory_id,
+        addAmount: quickAddStockAmount
+      });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Added +${quickAddStockAmount} stock to '${selectedColorForAction.color_name}'. Available stock is now ${res.item?.quantity ?? (selectedColorForAction.available + quickAddStockAmount)}.`
+        });
+        setIsQuickAddStockModalOpen(false);
+        setQuickAddStockAmount(10);
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to add stock." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred while adding stock." });
+    } finally {
+      setIsSubmittingQuickAddStock(false);
+    }
+  };
+
+  const handleQuickStockOutSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedColorForAction || !selectedColorForAction.color_inventory_id) {
+      setFeedback({ type: "error", message: "Color inventory record ID not found. Please sync from slots first." });
+      return;
+    }
+    if (colorStockOutAmount <= 0) {
+      setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
+      return;
+    }
+    if (colorStockOutAmount > selectedColorForAction.available) {
+      setFeedback({ type: "error", message: `Cannot stock out ${colorStockOutAmount}. Only ${selectedColorForAction.available} bands available in warehouse.` });
+      return;
+    }
+
+    setIsSubmittingColorStockOut(true);
+    try {
+      const res = await stockOutColorToReceptionAction({
+        id: selectedColorForAction.color_inventory_id,
+        amount: colorStockOutAmount
+      });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Stock Out Recorded: ${colorStockOutAmount} '${selectedColorForAction.color_name}' bands handed over to Reception! (At Reception: ${res.item?.in_reception ?? (selectedColorForAction.in_reception || 0) + colorStockOutAmount})`
+        });
+        setIsStockOutModalForColorOpen(false);
+        setColorStockOutAmount(10);
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to record stock out." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred while stocking out." });
+    } finally {
+      setIsSubmittingColorStockOut(false);
+    }
   };
 
   // Helper for Status Badge
@@ -962,7 +1041,7 @@ export default function BandInventoryPage() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-gray-100 text-center">
+                    <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-gray-100 text-center">
                       <div>
                         <span className="block text-[10px] uppercase font-bold text-gray-400">In Stock</span>
                         <span className={`font-mono font-bold text-xs ${color.available > 0 ? "text-emerald-700" : "text-gray-400"}`}>
@@ -970,8 +1049,14 @@ export default function BandInventoryPage() {
                         </span>
                       </div>
                       <div>
+                        <span className="block text-[10px] uppercase font-bold text-amber-600">Reception</span>
+                        <span className={`font-mono font-bold text-xs ${(color.in_reception || 0) > 0 ? "text-amber-700 font-black" : "text-gray-400"}`}>
+                          {color.in_reception || 0}
+                        </span>
+                      </div>
+                      <div>
                         <span className="block text-[10px] uppercase font-bold text-gray-400">Issued</span>
-                        <span className={`font-mono font-bold text-xs ${color.issued > 0 ? "text-amber-700" : "text-gray-400"}`}>
+                        <span className={`font-mono font-bold text-xs ${color.issued > 0 ? "text-blue-700" : "text-gray-400"}`}>
                           {color.issued}
                         </span>
                       </div>
@@ -1960,18 +2045,22 @@ export default function BandInventoryPage() {
             </p>
 
             {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-4 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-6 text-center text-xs">
+            <div className="grid grid-cols-5 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-6 text-center text-xs">
               <div>
                 <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
                 <span className="font-mono font-bold text-gray-900">{selectedColorForAction.total}</span>
               </div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-emerald-600 block">Available</span>
+                <span className="text-[10px] uppercase font-bold text-emerald-600 block">Warehouse</span>
                 <span className="font-mono font-bold text-emerald-700">{selectedColorForAction.available}</span>
               </div>
               <div>
-                <span className="text-[10px] uppercase font-bold text-amber-600 block">Issued</span>
-                <span className="font-mono font-bold text-amber-700">{selectedColorForAction.issued}</span>
+                <span className="text-[10px] uppercase font-bold text-amber-600 block">Reception</span>
+                <span className="font-mono font-bold text-amber-700">{selectedColorForAction.in_reception || 0}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-blue-600 block">Issued</span>
+                <span className="font-mono font-bold text-blue-700">{selectedColorForAction.issued}</span>
               </div>
               <div>
                 <span className="text-[10px] uppercase font-bold text-red-600 block">Damaged/Lost</span>
@@ -1981,6 +2070,57 @@ export default function BandInventoryPage() {
 
             {/* Action Cards Grid */}
             <div className="space-y-3">
+              {/* Option: Stock Out to Reception */}
+              <button
+                onClick={() => {
+                  setIsColorManageModalOpen(false);
+                  setColorStockOutAmount(Math.min(10, selectedColorForAction.available > 0 ? selectedColorForAction.available : 1));
+                  setIsStockOutModalForColorOpen(true);
+                }}
+                disabled={selectedColorForAction.available <= 0}
+                className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group disabled:opacity-40"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-amber-500 text-white group-hover:scale-105 transition-transform">
+                    <ArrowDownLeft className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-amber-900 group-hover:text-amber-800 transition-colors">
+                      Stock Out to Reception (Front Desk)
+                    </strong>
+                    <span className="text-[11px] text-amber-700">
+                      Record handover of {selectedColorForAction.color_name} bands to front desk staff for active distribution
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-amber-600 group-hover:translate-x-1 transition-all" />
+              </button>
+
+              {/* Option: Quick Add Warehouse Stock */}
+              <button
+                onClick={() => {
+                  setIsColorManageModalOpen(false);
+                  setQuickAddStockAmount(10);
+                  setIsQuickAddStockModalOpen(true);
+                }}
+                className="w-full text-left p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-100/50 hover:border-emerald-400 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-emerald-600 text-white group-hover:scale-105 transition-transform">
+                    <Plus className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-emerald-900 group-hover:text-emerald-800 transition-colors">
+                      + Add Stock to Inventory Pool
+                    </strong>
+                    <span className="text-[11px] text-emerald-700">
+                      Quickly increase in-stock quantity count for {selectedColorForAction.color_name} bands
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-1 transition-all" />
+              </button>
+
               {/* Option 1: Add New Band Series */}
               <button
                 onClick={() => {
@@ -2304,6 +2444,211 @@ export default function BandInventoryPage() {
                 <span>{isClearingAll ? "Clearing..." : clearResetStarterStock ? "Reset Starter Stock" : "Wipe Everything"}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {/* ========================================================================= */}
+      {/* MODAL 7: STOCK OUT TO RECEPTION (COLOR INVENTORY POOL)                    */}
+      {/* ========================================================================= */}
+      {isStockOutModalForColorOpen && selectedColorForAction && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-amber-200 relative my-auto">
+            <button
+              onClick={() => setIsStockOutModalForColorOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span 
+                className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
+                style={{ backgroundColor: selectedColorForAction.color_hex }}
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800">
+                    Front Desk Handover
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">
+                  Stock Out: {selectedColorForAction.color_name}
+                </h3>
+                <span className="text-[11px] font-mono text-gray-400 font-bold">
+                  {selectedColorForAction.color_hex}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleQuickStockOutSubmit} className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-2xl p-3.5 border border-gray-200/80">
+                  <span className="text-[11px] text-gray-500 font-bold block uppercase">Warehouse Stock:</span>
+                  <span className="text-lg font-black font-mono text-gray-900">
+                    {selectedColorForAction.available}
+                  </span>
+                </div>
+                <div className="bg-amber-50/60 rounded-2xl p-3.5 border border-amber-200/80">
+                  <span className="text-[11px] text-amber-800 font-bold block uppercase">At Reception:</span>
+                  <span className="text-lg font-black font-mono text-amber-900">
+                    {selectedColorForAction.in_reception || 0}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                  Quantity to Hand Over to Reception:
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    max={selectedColorForAction.available}
+                    required
+                    value={colorStockOutAmount}
+                    onChange={(e) => setColorStockOutAmount(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[5, 10, 25, 50].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        disabled={amt > selectedColorForAction.available}
+                        onClick={() => setColorStockOutAmount(amt)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all disabled:opacity-30 ${
+                          colorStockOutAmount === amt
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        {amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                  ℹ️ This moves <strong className="font-mono font-bold text-amber-800">{colorStockOutAmount}</strong> wristbands to the Reception counter. Remaining warehouse stock will be <strong className="font-mono font-bold">{Math.max(0, selectedColorForAction.available - colorStockOutAmount)}</strong>, and Reception total will be <strong className="font-mono font-bold text-amber-800">{(selectedColorForAction.in_reception || 0) + colorStockOutAmount}</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsStockOutModalForColorOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingColorStockOut || colorStockOutAmount <= 0 || colorStockOutAmount > selectedColorForAction.available}
+                  className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  {isSubmittingColorStockOut ? "Recording Handover..." : "Confirm Stock Out to Reception"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 8: QUICK ADD WAREHOUSE STOCK                                        */}
+      {/* ========================================================================= */}
+      {isQuickAddStockModalOpen && selectedColorForAction && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-emerald-200 relative my-auto">
+            <button
+              onClick={() => setIsQuickAddStockModalOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span 
+                className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
+                style={{ backgroundColor: selectedColorForAction.color_hex }}
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
+                    Add Warehouse Stock
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">
+                  Add Stock: {selectedColorForAction.color_name}
+                </h3>
+                <span className="text-[11px] font-mono text-gray-400 font-bold">
+                  {selectedColorForAction.color_hex}
+                </span>
+              </div>
+            </div>
+
+            <form onSubmit={handleQuickAddStockSubmit} className="space-y-5">
+              <div className="bg-emerald-50/60 rounded-2xl p-3.5 border border-emerald-200/80">
+                <span className="text-[11px] text-emerald-800 font-bold block uppercase">Current Warehouse Stock:</span>
+                <span className="text-xl font-black font-mono text-emerald-900">
+                  {selectedColorForAction.available}
+                </span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                  Quantity to Add:
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={quickAddStockAmount}
+                    onChange={(e) => setQuickAddStockAmount(parseInt(e.target.value, 10) || 0)}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[10, 25, 50, 100].map(amt => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setQuickAddStockAmount(amt)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                          quickAddStockAmount === amt
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                        }`}
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-500 mt-2">
+                  New available warehouse stock will be: <strong className="font-mono font-bold text-emerald-700">{selectedColorForAction.available + quickAddStockAmount}</strong>
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsQuickAddStockModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingQuickAddStock || quickAddStockAmount <= 0}
+                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  {isSubmittingQuickAddStock ? "Adding Stock..." : "Add to Stock"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -6,6 +6,8 @@ import {
   getColorInventory,
   syncColorInventoryFromSlots,
   updateColorStock,
+  stockOutColorToReception,
+  returnColorFromReception,
   deleteColorInventoryRecord,
   WristbandColorInventoryItem,
 } from "@/lib/color-inventory-db";
@@ -76,6 +78,51 @@ export async function updateColorStockAction(params: {
   } catch (err: any) {
     console.error("[updateColorStockAction Error]", err);
     return { success: false, error: err.message || "Failed to update stock" };
+  }
+}
+
+export async function stockOutColorToReceptionAction(params: {
+  id: number;
+  amount: number;
+  notes?: string;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await stockOutColorToReception(params);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[stockOutColorToReceptionAction Error]", err);
+    return { success: false, error: err.message || "Failed to stock out to reception" };
+  }
+}
+
+export async function returnColorFromReceptionAction(params: {
+  id: number;
+  amount: number;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await returnColorFromReception(params);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[returnColorFromReceptionAction Error]", err);
+    return { success: false, error: err.message || "Failed to return from reception" };
   }
 }
 

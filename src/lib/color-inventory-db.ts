@@ -7,6 +7,7 @@ export interface WristbandColorInventoryItem {
   color_hex: string;
   color_name: string;
   quantity: number;
+  in_reception?: number;
   slot_labels: string[]; // labels of currently assigned slots (e.g. ["11AM-12PM", "9"])
   is_active_in_slots: boolean;
   created_at?: string;
@@ -29,6 +30,7 @@ export async function ensureColorInventorySchema(): Promise<void> {
           color_hex VARCHAR(50) NOT NULL UNIQUE,
           color_name VARCHAR(100) NOT NULL,
           quantity INTEGER NOT NULL DEFAULT 0 CHECK (quantity >= 0),
+          in_reception INTEGER NOT NULL DEFAULT 0 CHECK (in_reception >= 0),
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
@@ -36,6 +38,14 @@ export async function ensureColorInventorySchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_wci_color_hex ON wristband_color_inventory(color_hex);
         CREATE INDEX IF NOT EXISTS idx_wci_color_name ON wristband_color_inventory(color_name);
       `);
+
+      // Add in_reception column if table already existed without it
+      try {
+        await simulatorPool.query(`
+          ALTER TABLE wristband_color_inventory ADD COLUMN IF NOT EXISTS in_reception INTEGER NOT NULL DEFAULT 0;
+        `);
+      } catch (colErr) {}
+
       colorInventorySchemaInitialized = true;
     } catch (pgErr) {
       console.warn("[Color Inventory] PostgreSQL schema init notice:", pgErr);
@@ -51,10 +61,16 @@ export async function ensureColorInventorySchema(): Promise<void> {
         color_hex TEXT NOT NULL UNIQUE,
         color_name TEXT NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 0,
+        in_reception INTEGER NOT NULL DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Add in_reception column if missing
+    try {
+      db.exec(`ALTER TABLE wristband_color_inventory ADD COLUMN in_reception INTEGER NOT NULL DEFAULT 0;`);
+    } catch (sqliteColErr) {}
   } catch (sqliteErr) {
     console.warn("[Color Inventory] SQLite schema init notice:", sqliteErr);
   }
@@ -111,7 +127,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
   if (hasPg) {
     try {
       const res = await simulatorPool.query(`
-        SELECT id, color_hex, color_name, quantity, created_at, updated_at
+        SELECT id, color_hex, color_name, quantity, in_reception, created_at, updated_at
         FROM wristband_color_inventory
         ORDER BY color_name ASC, color_hex ASC
       `);
@@ -124,6 +140,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
           color_hex: hex,
           color_name: r.color_name,
           quantity: Number(r.quantity || 0),
+          in_reception: Number(r.in_reception || 0),
           slot_labels: activeSlotInfo ? activeSlotInfo.slotLabels : [],
           is_active_in_slots: Boolean(activeSlotInfo),
           created_at: r.created_at ? new Date(r.created_at).toISOString() : undefined,
@@ -138,7 +155,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
   // SQLite fallback
   initDB();
   const sqliteRows = db.prepare(`
-    SELECT id, color_hex, color_name, quantity, created_at, updated_at
+    SELECT id, color_hex, color_name, quantity, in_reception, created_at, updated_at
     FROM wristband_color_inventory
     ORDER BY color_name ASC, color_hex ASC
   `).all() as any[];
@@ -151,6 +168,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
       color_hex: hex,
       color_name: r.color_name,
       quantity: Number(r.quantity || 0),
+      in_reception: Number(r.in_reception || 0),
       slot_labels: activeSlotInfo ? activeSlotInfo.slotLabels : [],
       is_active_in_slots: Boolean(activeSlotInfo),
       created_at: r.created_at,
@@ -377,6 +395,221 @@ export async function updateColorStock(params: {
     };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to update stock" };
+  }
+}
+
+/**
+ * Stock Out to Reception:
+ * Transfers wristbands from main warehouse stock (quantity) to Front Desk / Reception (in_reception).
+ * Both stock quantity and reception counters are tracked accurately.
+ */
+export async function stockOutColorToReception(params: {
+  id: number;
+  amount: number;
+  notes?: string;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  const { id, amount } = params;
+  if (!id || typeof amount !== 'number' || amount <= 0) {
+    return { success: false, error: "Please provide a valid stock out quantity." };
+  }
+
+  await ensureColorInventorySchema();
+  const cleanAmount = Math.floor(amount);
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      // Check current quantity first
+      const checkRes = await simulatorPool.query("SELECT quantity, in_reception, color_hex, color_name FROM wristband_color_inventory WHERE id = $1", [id]);
+      if (checkRes.rows.length === 0) {
+        return { success: false, error: "Inventory record not found." };
+      }
+      const cur = checkRes.rows[0];
+      if (cur.quantity < cleanAmount) {
+        return { success: false, error: `Cannot stock out ${cleanAmount} bands. Only ${cur.quantity} available in warehouse stock.` };
+      }
+
+      const res = await simulatorPool.query(`
+        UPDATE wristband_color_inventory
+        SET quantity = quantity - $1,
+            in_reception = in_reception + $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, color_hex, color_name, quantity, in_reception, created_at, updated_at
+      `, [cleanAmount, id]);
+
+      const row = res.rows[0];
+
+      // Mirror to SQLite
+      try {
+        initDB();
+        db.prepare(`
+          UPDATE wristband_color_inventory 
+          SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+          WHERE color_hex = ?
+        `).run(row.quantity, row.in_reception, row.color_hex);
+      } catch (e) {}
+
+      return {
+        success: true,
+        item: {
+          id: row.id,
+          color_hex: row.color_hex,
+          color_name: row.color_name,
+          quantity: Number(row.quantity),
+          in_reception: Number(row.in_reception),
+          slot_labels: [],
+          is_active_in_slots: true
+        }
+      };
+    } catch (pgErr: any) {
+      console.warn("[Color Inventory] PG stock out error, falling back to SQLite:", pgErr);
+    }
+  }
+
+  // SQLite fallback
+  try {
+    initDB();
+    const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+    if (!current) {
+      return { success: false, error: "Inventory record not found." };
+    }
+
+    if (current.quantity < cleanAmount) {
+      return { success: false, error: `Cannot stock out ${cleanAmount} bands. Only ${current.quantity} available in warehouse stock.` };
+    }
+
+    const newQty = current.quantity - cleanAmount;
+    const newReception = (current.in_reception || 0) + cleanAmount;
+
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(newQty, newReception, id);
+
+    return {
+      success: true,
+      item: {
+        id: current.id,
+        color_hex: current.color_hex,
+        color_name: current.color_name,
+        quantity: newQty,
+        in_reception: newReception,
+        slot_labels: [],
+        is_active_in_slots: true
+      }
+    };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to stock out to reception." };
+  }
+}
+
+/**
+ * Return from Reception back to Main Stock (if excess bands returned to storage)
+ */
+export async function returnColorFromReception(params: {
+  id: number;
+  amount: number;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  const { id, amount } = params;
+  if (!id || typeof amount !== 'number' || amount <= 0) {
+    return { success: false, error: "Please provide a valid return quantity." };
+  }
+
+  await ensureColorInventorySchema();
+  const cleanAmount = Math.floor(amount);
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      const checkRes = await simulatorPool.query("SELECT quantity, in_reception, color_hex, color_name FROM wristband_color_inventory WHERE id = $1", [id]);
+      if (checkRes.rows.length === 0) {
+        return { success: false, error: "Inventory record not found." };
+      }
+      const cur = checkRes.rows[0];
+      if ((cur.in_reception || 0) < cleanAmount) {
+        return { success: false, error: `Cannot return ${cleanAmount} bands. Reception only has ${cur.in_reception || 0} bands recorded.` };
+      }
+
+      const res = await simulatorPool.query(`
+        UPDATE wristband_color_inventory
+        SET quantity = quantity + $1,
+            in_reception = in_reception - $1,
+            updated_at = NOW()
+        WHERE id = $2
+        RETURNING id, color_hex, color_name, quantity, in_reception, created_at, updated_at
+      `, [cleanAmount, id]);
+
+      const row = res.rows[0];
+      try {
+        initDB();
+        db.prepare(`
+          UPDATE wristband_color_inventory 
+          SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+          WHERE color_hex = ?
+        `).run(row.quantity, row.in_reception, row.color_hex);
+      } catch (e) {}
+
+      return {
+        success: true,
+        item: {
+          id: row.id,
+          color_hex: row.color_hex,
+          color_name: row.color_name,
+          quantity: Number(row.quantity),
+          in_reception: Number(row.in_reception),
+          slot_labels: [],
+          is_active_in_slots: true
+        }
+      };
+    } catch (pgErr: any) {
+      console.warn("[Color Inventory] PG return from reception error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+    if (!current) {
+      return { success: false, error: "Inventory record not found." };
+    }
+
+    if ((current.in_reception || 0) < cleanAmount) {
+      return { success: false, error: `Cannot return ${cleanAmount} bands. Reception only has ${current.in_reception || 0} bands recorded.` };
+    }
+
+    const newQty = current.quantity + cleanAmount;
+    const newReception = (current.in_reception || 0) - cleanAmount;
+
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(newQty, newReception, id);
+
+    return {
+      success: true,
+      item: {
+        id: current.id,
+        color_hex: current.color_hex,
+        color_name: current.color_name,
+        quantity: newQty,
+        in_reception: newReception,
+        slot_labels: [],
+        is_active_in_slots: true
+      }
+    };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to return from reception." };
   }
 }
 

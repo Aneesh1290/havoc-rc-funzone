@@ -55,6 +55,8 @@ export interface BandColorBreakdown {
   damaged: number;
   lost: number;
   retired: number;
+  in_reception?: number;
+  color_inventory_id?: number;
 }
 
 export interface BandInventorySummary {
@@ -298,22 +300,37 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         }
       }
 
-      // 2. Also incorporate any configured slot colors from wristband_color_inventory so synced colors appear with 0 stock
+      // 2. Also incorporate any configured slot colors from wristband_color_inventory with their stock & reception values
       try {
-        const slotInvRes = await simulatorPool.query("SELECT color_hex, color_name FROM wristband_color_inventory");
+        const slotInvRes = await simulatorPool.query("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory");
         for (const sir of slotInvRes.rows) {
           const hex = (sir.color_hex || "").trim().toUpperCase();
           const name = (sir.color_name || "").trim();
-          if (hex && !colorBreakdownMap.has(hex) && !colorBreakdownMap.has(name.toLowerCase())) {
-            colorBreakdownMap.set(hex, {
+          const invId = sir.id;
+          const poolQty = Number(sir.quantity || 0);
+          const inRec = Number(sir.in_reception || 0);
+
+          const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+          if (existing) {
+            existing.color_inventory_id = invId;
+            existing.in_reception = inRec;
+            // If individual band items haven't been generated yet, reflect the color pool's available stock
+            if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
+              existing.total = poolQty + inRec;
+              existing.available = poolQty;
+            }
+          } else {
+            colorBreakdownMap.set(hex || name.toLowerCase(), {
+              color_inventory_id: invId,
               color_name: name || hex,
               color_hex: hex,
-              total: 0,
-              available: 0,
+              total: poolQty + inRec,
+              available: poolQty,
               issued: 0,
               damaged: 0,
               lost: 0,
               retired: 0,
+              in_reception: inRec,
             });
           }
         }
@@ -450,22 +467,37 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     }
   }
 
-  // 2. Also incorporate any configured slot colors from wristband_color_inventory so synced colors appear with 0 stock
+  // 2. Also incorporate any configured slot colors from wristband_color_inventory with their stock & reception values
   try {
-    const slotInvRows = db.prepare("SELECT color_hex, color_name FROM wristband_color_inventory").all() as any[];
+    const slotInvRows = db.prepare("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory").all() as any[];
     for (const sir of slotInvRows) {
       const hex = (sir.color_hex || "").trim().toUpperCase();
       const name = (sir.color_name || "").trim();
-      if (hex && !colorBreakdownMap.has(hex) && !colorBreakdownMap.has(name.toLowerCase())) {
-        colorBreakdownMap.set(hex, {
+      const invId = sir.id;
+      const poolQty = Number(sir.quantity || 0);
+      const inRec = Number(sir.in_reception || 0);
+
+      const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+      if (existing) {
+        existing.color_inventory_id = invId;
+        existing.in_reception = inRec;
+        // If individual band items haven't been generated yet, reflect the color pool's available stock
+        if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
+          existing.total = poolQty + inRec;
+          existing.available = poolQty;
+        }
+      } else {
+        colorBreakdownMap.set(hex || name.toLowerCase(), {
+          color_inventory_id: invId,
           color_name: name || hex,
           color_hex: hex,
-          total: 0,
-          available: 0,
+          total: poolQty + inRec,
+          available: poolQty,
           issued: 0,
           damaged: 0,
           lost: 0,
           retired: 0,
+          in_reception: inRec,
         });
       }
     }

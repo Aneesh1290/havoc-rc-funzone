@@ -80,6 +80,13 @@ export default function AdminCouponsPage() {
   const [addingSingle, setAddingSingle] = useState(false);
   const [generatingBulk, setGeneratingBulk] = useState(false);
 
+  // VIP Band Conversion Modal State
+  const [convertModalOpen, setConvertModalOpen] = useState(false);
+  const [convertModalTargetIds, setConvertModalTargetIds] = useState<number[]>([]);
+  const [convertModalBandName, setConvertModalBandName] = useState("VIP Gold Band");
+  const [convertModalBandColor, setConvertModalBandColor] = useState("#FFD700");
+  const [isConvertingBands, setIsConvertingBands] = useState(false);
+
   const loadCoupons = async () => {
     try {
       const data = await fetchCouponsAction();
@@ -284,27 +291,40 @@ export default function AdminCouponsPage() {
     }
   };
 
-  const handleBulkConvertToBand = async (isBand: boolean = true) => {
-    const targetIds = selectedIds.length > 0 
-      ? selectedIds 
-      : filteredAndSortedCoupons.map(c => c.id);
+  const handleOpenConvertModal = (ids?: number[]) => {
+    const targetIds = ids && ids.length > 0 
+      ? ids 
+      : (selectedIds.length > 0 ? selectedIds : filteredAndSortedCoupons.map(c => c.id));
 
     if (targetIds.length === 0) {
       showNotification("No coupons selected or displayed", "error");
       return;
     }
 
-    const actionName = isBand ? "convert to ⭐ VIP Offer Wristbands" : "revert to Standard Coupons";
-    if (!confirm(`Are you sure you want to ${actionName} for ${targetIds.length} coupons?`)) {
+    setConvertModalTargetIds(targetIds);
+    setConvertModalBandName("VIP Gold Band");
+    setConvertModalBandColor("#FFD700");
+    setConvertModalOpen(true);
+  };
+
+  const handleConfirmConvertModal = async () => {
+    if (!convertModalBandName.trim()) {
+      showNotification("Please enter a name for the VIP wristband", "error");
       return;
     }
 
-    setIsUpdatingExpiry(true);
-    const res = await bulkConvertToBandCouponsAction(targetIds, isBand, "VIP", "#FFD700");
-    setIsUpdatingExpiry(false);
+    setIsConvertingBands(true);
+    const res = await bulkConvertToBandCouponsAction(
+      convertModalTargetIds, 
+      true, 
+      convertModalBandName.trim(), 
+      convertModalBandColor || "#FFD700"
+    );
+    setIsConvertingBands(false);
 
     if (res.success) {
-      showNotification(`Successfully updated ${res.count} coupons to ${isBand ? "VIP Offer Wristbands" : "Standard"}!`);
+      showNotification(`Successfully converted ${res.count} coupons to "${convertModalBandName.trim()}"!`);
+      setConvertModalOpen(false);
       loadCoupons();
     } else {
       showNotification(res.error || "Failed to convert coupons", "error");
@@ -312,13 +332,21 @@ export default function AdminCouponsPage() {
   };
 
   const handleSingleToggleBandCoupon = async (coupon: CouponRow) => {
-    const newStatus = coupon.is_band_coupon !== 1;
-    const res = await convertCouponToBandCouponAction(coupon.id, newStatus, coupon.band_category || "VIP", coupon.band_color || "#FFD700");
-    if (res.success) {
-      showNotification(`Coupon ${coupon.code} updated to ${newStatus ? "⭐ VIP Offer Wristband" : "Standard"}!`);
-      loadCoupons();
+    if (coupon.is_band_coupon === 1) {
+      if (confirm(`Revert coupon ${coupon.code} back to standard coupon without VIP wristband?`)) {
+        const res = await convertCouponToBandCouponAction(coupon.id, false, "VIP", null);
+        if (res.success) {
+          showNotification(`Coupon ${coupon.code} reverted to Standard!`);
+          loadCoupons();
+        } else {
+          showNotification(res.error || "Failed to update coupon", "error");
+        }
+      }
     } else {
-      showNotification(res.error || "Failed to update coupon", "error");
+      setConvertModalTargetIds([coupon.id]);
+      setConvertModalBandName(coupon.band_category || "VIP Gold Band");
+      setConvertModalBandColor(coupon.band_color || "#FFD700");
+      setConvertModalOpen(true);
     }
   };
 
@@ -856,8 +884,8 @@ export default function AdminCouponsPage() {
               {/* 1-Click Convert to VIP Offer Band */}
               <button
                 type="button"
-                disabled={isUpdatingExpiry || (selectedIds.length === 0 && filteredAndSortedCoupons.length === 0)}
-                onClick={() => handleBulkConvertToBand(true)}
+                disabled={isConvertingBands || (selectedIds.length === 0 && filteredAndSortedCoupons.length === 0)}
+                onClick={() => handleOpenConvertModal()}
                 className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
                 title="Convert selected or filtered coupons to VIP Offer Wristbands"
               >
@@ -1550,6 +1578,123 @@ export default function AdminCouponsPage() {
           </div>
         )}
       </div>
+
+      {/* Convert to VIP Band Modal */}
+      {convertModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full p-6 space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">⭐</span>
+                  <h3 className="text-lg font-black text-gray-900 tracking-tight">Convert to VIP Wristband</h3>
+                </div>
+                <p className="text-xs text-gray-500 mt-1">
+                  Tag <strong className="text-amber-700">{convertModalTargetIds.length}</strong> coupon(s) to a specific VIP wristband tier &amp; color.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConvertModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                  VIP Band Name / Tier
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={convertModalBandName}
+                  onChange={(e) => setConvertModalBandName(e.target.value)}
+                  placeholder="e.g. VIP Gold Band, VIP Silver Pass, VIP Platinum"
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-4 py-2.5 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {["VIP Gold Band", "VIP Platinum Band", "VIP Black Band", "VIP Silver Band"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setConvertModalBandName(preset)}
+                      className="text-[10px] font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 px-2 py-0.5 rounded-md transition-colors"
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-600 mb-1.5">
+                  Wristband Color
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    value={convertModalBandColor}
+                    onChange={(e) => setConvertModalBandColor(e.target.value)}
+                    className="w-10 h-10 rounded-xl border border-gray-300 cursor-pointer p-0.5"
+                  />
+                  <input
+                    type="text"
+                    value={convertModalBandColor}
+                    onChange={(e) => setConvertModalBandColor(e.target.value)}
+                    placeholder="#FFD700"
+                    className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2 font-mono text-xs font-bold text-gray-900 uppercase"
+                  />
+                </div>
+                <div className="flex items-center gap-2 mt-2">
+                  {[
+                    { name: "Gold", hex: "#FFD700" },
+                    { name: "Purple", hex: "#8A2BE2" },
+                    { name: "Silver", hex: "#C0C0C0" },
+                    { name: "Black", hex: "#1F2937" },
+                    { name: "Red", hex: "#EF4444" },
+                  ].map((c) => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setConvertModalBandColor(c.hex)}
+                      className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border border-gray-200 hover:bg-gray-50"
+                    >
+                      <span className="w-2.5 h-2.5 rounded-full border border-black/20" style={{ backgroundColor: c.hex }} />
+                      <span>{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 leading-relaxed">
+                When customers use these coupons, their booking will clearly display <strong>&quot;⭐ {convertModalBandName}&quot;</strong> and desk check-in staff will know which VIP wristband to hand out.
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isConvertingBands}
+                onClick={() => setConvertModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-700 hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isConvertingBands || !convertModalBandName.trim()}
+                onClick={handleConfirmConvertModal}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-bold text-xs shadow-md shadow-amber-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+              >
+                {isConvertingBands ? "Converting..." : `Apply to ${convertModalTargetIds.length} Coupon(s)`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -995,6 +995,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   </span>
                 </div>
 
+                <div className="bg-amber-100/60 border border-amber-200/80 rounded-xl px-3 py-2 text-[11px] text-amber-900 font-medium flex items-center gap-2">
+                  <span className="text-xs shrink-0">ℹ️</span>
+                  <span><strong>Please note:</strong> This is an add-on activity. An entry pass of any type (Visitor, Participant, VIP Visitor, or VIP Participant) is mandatory for arena entry.</span>
+                </div>
+
                 <div className="space-y-3 pt-1">
                   {availableAddons.map((addon) => {
                     const isSelected = !!selectedAddons[addon.id]?.selected;

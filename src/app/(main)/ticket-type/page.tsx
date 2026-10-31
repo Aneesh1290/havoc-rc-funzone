@@ -12,6 +12,10 @@ export default async function TicketTypePage() {
     "addon_exclusion_notice", 
     "*Excavator Activity is not included in the package. It can be purchased separately as an add-on."
   );
+  const mandatoryPassNotice = getSiteSetting(
+    "addon_mandatory_pass_notice",
+    "*Note: This is an add-on package and requires a valid entry ticket. Any ticket type (Visitor, Participant, VIP Visitor, or VIP Participant) is valid."
+  );
 
   return (
     <div className="min-h-screen bg-white text-black py-10 sm:py-16">
@@ -244,6 +248,13 @@ export default async function TicketTypePage() {
                                   • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
                                 </p>
                               </div>
+                            )}
+
+                            {/* Note for Add-on package: Arena entry ticket is mandatory */}
+                            {Boolean(ticket.is_addon || ticket.name.toUpperCase().includes("EXCAVATOR")) && mandatoryPassNotice && (
+                              <p className="text-sm font-semibold text-[#d00000] ml-3 mt-1.5 leading-snug">
+                                {mandatoryPassNotice}
+                              </p>
                             )}
                           </div>
                         )}

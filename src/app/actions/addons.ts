@@ -112,3 +112,28 @@ export async function saveAddonExclusionNoticeAction(notice: string) {
     return { success: false, error: err.message || "Failed to save notice" };
   }
 }
+
+export async function fetchAddonMandatoryPassNoticeAction(): Promise<string> {
+  try {
+    const { getSiteSetting } = await import("@/lib/db");
+    return getSiteSetting(
+      "addon_mandatory_pass_notice", 
+      "*Note: This is an add-on package and requires a valid entry ticket. Any ticket type (Visitor, Participant, VIP Visitor, or VIP Participant) is valid."
+    );
+  } catch (err) {
+    return "*Note: This is an add-on package and requires a valid entry ticket. Any ticket type (Visitor, Participant, VIP Visitor, or VIP Participant) is valid.";
+  }
+}
+
+export async function saveAddonMandatoryPassNoticeAction(notice: string) {
+  try {
+    const { setSiteSetting } = await import("@/lib/db");
+    setSiteSetting("addon_mandatory_pass_notice", notice.trim(), "Mandatory entry pass notice displayed for add-on packages on pass comparison");
+    revalidatePath("/admin/addons");
+    revalidatePath("/ticket-type");
+    revalidatePath("/tickets");
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to save notice" };
+  }
+}

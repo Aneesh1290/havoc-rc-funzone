@@ -9,7 +9,9 @@ import {
   toggleAddonStatusAction, 
   deleteAddonAction,
   fetchAddonExclusionNoticeAction,
-  saveAddonExclusionNoticeAction
+  saveAddonExclusionNoticeAction,
+  fetchAddonMandatoryPassNoticeAction,
+  saveAddonMandatoryPassNoticeAction
 } from "@/app/actions/addons";
 import type { AddonRow } from "@/lib/db";
 
@@ -27,6 +29,11 @@ export default function AdminAddonsPage() {
   const [isSavingNotice, setIsSavingNotice] = useState(false);
   const [noticeSavedMsg, setNoticeSavedMsg] = useState(false);
 
+  // Add-on package mandatory pass requirement wording
+  const [mandatoryPassNotice, setMandatoryPassNotice] = useState("*Note: This is an add-on package and requires a valid entry ticket. Any ticket type (Visitor, Participant, VIP Visitor, or VIP Participant) is valid.");
+  const [isSavingPassNotice, setIsSavingPassNotice] = useState(false);
+  const [passNoticeSavedMsg, setPassNoticeSavedMsg] = useState(false);
+
   const [formData, setFormData] = useState({
     name: "",
     price: 300,
@@ -39,12 +46,14 @@ export default function AdminAddonsPage() {
   const loadAddons = async () => {
     setIsLoading(true);
     try {
-      const [addonsData, noticeData] = await Promise.all([
+      const [addonsData, noticeData, passNoticeData] = await Promise.all([
         fetchAddonsAction(false),
-        fetchAddonExclusionNoticeAction()
+        fetchAddonExclusionNoticeAction(),
+        fetchAddonMandatoryPassNoticeAction()
       ]);
       setAddons(addonsData);
       if (noticeData) setExclusionNotice(noticeData);
+      if (passNoticeData) setMandatoryPassNotice(passNoticeData);
     } catch (err) {
       console.error(err);
       setErrorMsg("Failed to load add-ons.");
@@ -71,6 +80,23 @@ export default function AdminAddonsPage() {
       setErrorMsg(err.message || "Failed to save notice wording");
     } finally {
       setIsSavingNotice(false);
+    }
+  };
+
+  const handleSavePassNotice = async () => {
+    setIsSavingPassNotice(true);
+    try {
+      const res = await saveAddonMandatoryPassNoticeAction(mandatoryPassNotice);
+      if (res.success) {
+        setPassNoticeSavedMsg(true);
+        setTimeout(() => setPassNoticeSavedMsg(false), 3000);
+      } else {
+        setErrorMsg(res.error || "Failed to save pass notice wording");
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to save pass notice wording");
+    } finally {
+      setIsSavingPassNotice(false);
     }
   };
 
@@ -237,41 +263,82 @@ export default function AdminAddonsPage() {
         </div>
       </div>
 
-      {/* Pass Comparison Notice / Exclusion Wording Card */}
-      <div className="p-5 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
-          <div>
-            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
-              <span className="text-[#ff5a1f]">📢</span> Pass Comparison Table Notice (Participant &amp; VIP passes)
-            </h3>
-            <p className="text-xs text-gray-500 mt-0.5">
-              Edit the red notification text displayed under Participant passes informing customers that this activity is an extra add-on.
+      {/* Notice & Wording Customization Cards */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Card 1: Exclusion Notice for Passes */}
+        <div className="p-5 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-3 flex flex-col justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                <span className="text-[#ff5a1f]">📢</span> Participant / VIP Passes Exclusion Note
+              </h3>
+              {noticeSavedMsg && (
+                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 flex items-center gap-1 animate-in fade-in">
+                  <Check className="w-3 h-3" /> Saved!
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              Note shown under Participant passes stating this activity is not included in standard pass.
             </p>
           </div>
-          {noticeSavedMsg && (
-            <span className="text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 flex items-center gap-1 animate-in fade-in">
-              <Check className="w-3.5 h-3.5" /> Saved Live!
-            </span>
-          )}
+
+          <div className="space-y-2 pt-2">
+            <input 
+              type="text"
+              value={exclusionNotice}
+              onChange={(e) => setExclusionNotice(e.target.value)}
+              placeholder="e.g. *Excavator Activity is not included in the package. It can be purchased separately as an add-on."
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+            />
+            <button
+              type="button"
+              onClick={handleSaveNotice}
+              disabled={isSavingNotice}
+              className="w-full py-2 bg-[#0d1b2a] hover:bg-[#ff5a1f] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+            >
+              {isSavingNotice ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              <span>Update Exclusion Note</span>
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3">
-          <input 
-            type="text"
-            value={exclusionNotice}
-            onChange={(e) => setExclusionNotice(e.target.value)}
-            placeholder="e.g. *Excavator Activity is not included in the package. It can be purchased separately as an add-on."
-            className="flex-1 px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
-          />
-          <button
-            type="button"
-            onClick={handleSaveNotice}
-            disabled={isSavingNotice}
-            className="px-5 py-2.5 bg-[#0d1b2a] hover:bg-[#ff5a1f] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0"
-          >
-            {isSavingNotice ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-            <span>Update Notice Wording</span>
-          </button>
+        {/* Card 2: Mandatory Pass Requirement for Add-on Packages */}
+        <div className="p-5 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-3 flex flex-col justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+                <span className="text-blue-600">🎟️</span> Add-on Package Ticket Mandatory Note
+              </h3>
+              {passNoticeSavedMsg && (
+                <span className="text-xs font-bold text-green-600 bg-green-50 px-2 py-0.5 rounded-full border border-green-200 flex items-center gap-1 animate-in fade-in">
+                  <Check className="w-3 h-3" /> Saved!
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              Note shown under Add-on Package rows informing that a ticket of any pass type is mandatory.
+            </p>
+          </div>
+
+          <div className="space-y-2 pt-2">
+            <input 
+              type="text"
+              value={mandatoryPassNotice}
+              onChange={(e) => setMandatoryPassNotice(e.target.value)}
+              placeholder="e.g. *Note: This is an add-on package and requires a valid entry ticket. Any ticket type (Visitor, Participant, VIP Visitor, or VIP Participant) is valid."
+              className="w-full px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+            />
+            <button
+              type="button"
+              onClick={handleSavePassNotice}
+              disabled={isSavingPassNotice}
+              className="w-full py-2 bg-[#0040c0] hover:bg-blue-700 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5"
+            >
+              {isSavingPassNotice ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+              <span>Update Mandatory Ticket Note</span>
+            </button>
+          </div>
         </div>
       </div>
 

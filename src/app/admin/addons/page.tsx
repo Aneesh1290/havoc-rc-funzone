@@ -7,7 +7,9 @@ import {
   createAddonAction, 
   updateAddonAction, 
   toggleAddonStatusAction, 
-  deleteAddonAction 
+  deleteAddonAction,
+  fetchAddonExclusionNoticeAction,
+  saveAddonExclusionNoticeAction
 } from "@/app/actions/addons";
 import type { AddonRow } from "@/lib/db";
 
@@ -20,10 +22,16 @@ export default function AdminAddonsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Pass comparison table notice wording
+  const [exclusionNotice, setExclusionNotice] = useState("*Excavator Activity is not included in the package. It can be purchased separately as an add-on.");
+  const [isSavingNotice, setIsSavingNotice] = useState(false);
+  const [noticeSavedMsg, setNoticeSavedMsg] = useState(false);
+
   const [formData, setFormData] = useState({
     name: "",
     price: 300,
     tagline: "",
+    benefits: "1-Hour arena session",
     description: "",
     sortOrder: 1
   });
@@ -31,8 +39,12 @@ export default function AdminAddonsPage() {
   const loadAddons = async () => {
     setIsLoading(true);
     try {
-      const data = await fetchAddonsAction(false);
-      setAddons(data);
+      const [addonsData, noticeData] = await Promise.all([
+        fetchAddonsAction(false),
+        fetchAddonExclusionNoticeAction()
+      ]);
+      setAddons(addonsData);
+      if (noticeData) setExclusionNotice(noticeData);
     } catch (err) {
       console.error(err);
       setErrorMsg("Failed to load add-ons.");
@@ -44,6 +56,23 @@ export default function AdminAddonsPage() {
   useEffect(() => {
     loadAddons();
   }, []);
+
+  const handleSaveNotice = async () => {
+    setIsSavingNotice(true);
+    try {
+      const res = await saveAddonExclusionNoticeAction(exclusionNotice);
+      if (res.success) {
+        setNoticeSavedMsg(true);
+        setTimeout(() => setNoticeSavedMsg(false), 3000);
+      } else {
+        setErrorMsg(res.error || "Failed to save notice wording");
+      }
+    } catch (err: any) {
+      setErrorMsg(err.message || "Failed to save notice wording");
+    } finally {
+      setIsSavingNotice(false);
+    }
+  };
 
   const handleToggle = async (id: number, currentActive: number) => {
     setAddons(addons.map(a => a.id === id ? { ...a, active: currentActive ? 0 : 1 } : a));
@@ -69,6 +98,7 @@ export default function AdminAddonsPage() {
         name: formData.name.trim(),
         price: Number(formData.price),
         tagline: formData.tagline.trim(),
+        benefits: formData.benefits.trim(),
         description: formData.description.trim(),
         sort_order: Number(formData.sortOrder) || 1
       });
@@ -77,7 +107,7 @@ export default function AdminAddonsPage() {
         setErrorMsg(res.error || "Failed to create add-on");
       } else {
         setIsAdding(false);
-        setFormData({ name: "", price: 300, tagline: "", description: "", sortOrder: 1 });
+        setFormData({ name: "", price: 300, tagline: "", benefits: "1-Hour arena session", description: "", sortOrder: 1 });
         await loadAddons();
       }
     } catch (err: any) {
@@ -102,6 +132,7 @@ export default function AdminAddonsPage() {
         name: editingAddon.name.trim(),
         price: Number(editingAddon.price),
         tagline: editingAddon.tagline || "",
+        benefits: editingAddon.benefits || "",
         description: editingAddon.description || "",
         sort_order: Number(editingAddon.sort_order) || 1
       });
@@ -206,6 +237,44 @@ export default function AdminAddonsPage() {
         </div>
       </div>
 
+      {/* Pass Comparison Notice / Exclusion Wording Card */}
+      <div className="p-5 rounded-2xl bg-white border border-gray-200 shadow-sm space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-gray-100 pb-3">
+          <div>
+            <h3 className="text-sm font-black text-gray-900 flex items-center gap-2">
+              <span className="text-[#ff5a1f]">📢</span> Pass Comparison Table Notice (Participant &amp; VIP passes)
+            </h3>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Edit the red notification text displayed under Participant passes informing customers that this activity is an extra add-on.
+            </p>
+          </div>
+          {noticeSavedMsg && (
+            <span className="text-xs font-bold text-green-600 bg-green-50 px-2.5 py-1 rounded-full border border-green-200 flex items-center gap-1 animate-in fade-in">
+              <Check className="w-3.5 h-3.5" /> Saved Live!
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-3">
+          <input 
+            type="text"
+            value={exclusionNotice}
+            onChange={(e) => setExclusionNotice(e.target.value)}
+            placeholder="e.g. *Excavator Activity is not included in the package. It can be purchased separately as an add-on."
+            className="flex-1 px-3.5 py-2.5 text-xs sm:text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+          />
+          <button
+            type="button"
+            onClick={handleSaveNotice}
+            disabled={isSavingNotice}
+            className="px-5 py-2.5 bg-[#0d1b2a] hover:bg-[#ff5a1f] text-white text-xs font-bold rounded-xl transition-all shadow-sm flex items-center justify-center gap-1.5 shrink-0"
+          >
+            {isSavingNotice ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+            <span>Update Notice Wording</span>
+          </button>
+        </div>
+      </div>
+
       {/* Add-ons List */}
       {isLoading ? (
         <div className="p-12 text-center text-gray-400 bg-white rounded-2xl border border-gray-200 flex flex-col items-center justify-center gap-3">
@@ -269,6 +338,21 @@ export default function AdminAddonsPage() {
                       <p className="text-[10px] font-bold text-gray-400 uppercase">per person</p>
                     </div>
                   </div>
+
+                  {/* Access & Benefits Wording (Comparison Table & Booking bullets) */}
+                  {addon.benefits && (
+                    <div className="my-2.5 p-2.5 rounded-xl bg-blue-50/60 border border-blue-100/80 space-y-1">
+                      <p className="text-[10px] font-bold text-[#0040c0] uppercase tracking-wider">
+                        Table Benefits Wording:
+                      </p>
+                      {addon.benefits.split("\n").map(s => s.trim()).filter(Boolean).map((bullet, idx) => (
+                        <div key={idx} className="flex items-center gap-2 text-xs font-semibold text-gray-900">
+                          <span className="w-3.5 h-3.5 rounded-full bg-[#0040c0] text-white flex items-center justify-center text-[9px] font-black shrink-0">✓</span>
+                          <span>• {bullet}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
 
                   {addon.description && (
                     <div className="p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs text-gray-600 leading-relaxed my-3">
@@ -387,15 +471,34 @@ export default function AdminAddonsPage() {
 
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Short Tagline
+                  Short Tagline / Heading
                 </label>
                 <input 
                   type="text"
-                  placeholder="e.g. Operate realistic hydraulic RC excavators in the quarry zone"
+                  placeholder="e.g. Operate realistic hydraulic RC excavators in the mining quarry zone"
                   value={formData.tagline}
                   onChange={(e) => setFormData({ ...formData, tagline: e.target.value })}
                   className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    Access &amp; Benefits Wording (Table Bullets)
+                  </label>
+                  <span className="text-[10px] text-gray-400">One bullet per line</span>
+                </div>
+                <textarea 
+                  rows={2}
+                  placeholder="e.g.&#10;1-Hour arena session"
+                  value={formData.benefits}
+                  onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
+                  className="w-full p-3 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Each line appears with a blue checkmark on the Pass Comparison Table.
+                </p>
               </div>
 
               <div>
@@ -499,7 +602,7 @@ export default function AdminAddonsPage() {
 
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1.5">
-                  Short Tagline
+                  Short Tagline / Heading
                 </label>
                 <input 
                   type="text"
@@ -507,6 +610,25 @@ export default function AdminAddonsPage() {
                   onChange={(e) => setEditingAddon({ ...editingAddon, tagline: e.target.value })}
                   className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
                 />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                    Access &amp; Benefits Wording (Table Bullets)
+                  </label>
+                  <span className="text-[10px] text-gray-400">One bullet per line</span>
+                </div>
+                <textarea 
+                  rows={2}
+                  placeholder="e.g.&#10;1-Hour arena session"
+                  value={editingAddon.benefits || ""}
+                  onChange={(e) => setEditingAddon({ ...editingAddon, benefits: e.target.value })}
+                  className="w-full p-3 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Each line appears with a blue checkmark on the Pass Comparison Table.
+                </p>
               </div>
 
               <div>

@@ -286,6 +286,11 @@ export function initDB() {
   try { db.exec('ALTER TABLE tickets ADD COLUMN description TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN benefits TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN is_addon INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE addons ADD COLUMN benefits TEXT'); } catch (e) {}
+  try {
+    db.prepare("UPDATE addons SET benefits = '1-Hour arena session' WHERE (benefits IS NULL OR benefits = '') AND UPPER(name) LIKE '%EXCAVATOR%'").run();
+    db.prepare("UPDATE tickets SET benefits = '1-Hour arena session' WHERE (benefits IS NULL OR benefits = '') AND is_addon = 1").run();
+  } catch (e) {}
 
   // Seed default Add-on (RC Excavator Activity) if addons table is empty
   try {
@@ -459,6 +464,7 @@ export interface AddonRow {
   price: number;
   tagline?: string | null;
   description?: string | null;
+  benefits?: string | null;
   image?: string | null;
   ticket_id?: number | null;
   active: number;
@@ -500,25 +506,27 @@ export function createAddon(data: {
   price: number;
   tagline?: string;
   description?: string;
+  benefits?: string;
   image?: string;
   sort_order?: number;
 }): AddonRow {
   // Create linked ticket record so cart and orders work seamlessly
   const ticketInfo = db.prepare(`
-    INSERT INTO tickets (name, price, capacity, active, is_addon, description)
-    VALUES (?, ?, 999, 1, 1, ?)
-  `).run(data.name.trim(), data.price, data.tagline || data.description || '');
+    INSERT INTO tickets (name, price, capacity, active, is_addon, description, benefits)
+    VALUES (?, ?, 999, 1, 1, ?, ?)
+  `).run(data.name.trim(), data.price, data.tagline || data.description || '', data.benefits || '');
 
   const ticketId = Number(ticketInfo.lastInsertRowid);
 
   const info = db.prepare(`
-    INSERT INTO addons (name, price, tagline, description, image, ticket_id, active, sort_order)
-    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+    INSERT INTO addons (name, price, tagline, description, benefits, image, ticket_id, active, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
   `).run(
     data.name.trim(),
     data.price,
     data.tagline || '',
     data.description || '',
+    data.benefits || '',
     data.image || '',
     ticketId,
     data.sort_order || 0
@@ -534,6 +542,7 @@ export function updateAddon(
     price?: number;
     tagline?: string;
     description?: string;
+    benefits?: string;
     image?: string;
     active?: number;
     sort_order?: number;
@@ -546,22 +555,23 @@ export function updateAddon(
   const newPrice = data.price !== undefined ? data.price : current.price;
   const newTagline = data.tagline !== undefined ? data.tagline : current.tagline;
   const newDesc = data.description !== undefined ? data.description : current.description;
+  const newBenefits = data.benefits !== undefined ? data.benefits : current.benefits;
   const newImage = data.image !== undefined ? data.image : current.image;
   const newActive = data.active !== undefined ? data.active : current.active;
   const newSort = data.sort_order !== undefined ? data.sort_order : current.sort_order;
 
   db.prepare(`
     UPDATE addons
-    SET name = ?, price = ?, tagline = ?, description = ?, image = ?, active = ?, sort_order = ?
+    SET name = ?, price = ?, tagline = ?, description = ?, benefits = ?, image = ?, active = ?, sort_order = ?
     WHERE id = ?
-  `).run(newName, newPrice, newTagline, newDesc, newImage, newActive, newSort, id);
+  `).run(newName, newPrice, newTagline, newDesc, newBenefits, newImage, newActive, newSort, id);
 
   if (current.ticket_id) {
     db.prepare(`
       UPDATE tickets
-      SET name = ?, price = ?, active = ?, description = ?
+      SET name = ?, price = ?, active = ?, description = ?, benefits = ?
       WHERE id = ?
-    `).run(newName, newPrice, newActive, newTagline || newDesc || '', current.ticket_id);
+    `).run(newName, newPrice, newActive, newTagline || newDesc || '', newBenefits || '', current.ticket_id);
   }
 }
 

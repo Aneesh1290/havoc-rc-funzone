@@ -43,6 +43,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [dbSimSlots, setDbSimSlots] = useState<SimPodiumSlot[]>([]);
   const [isMondayOpen, setIsMondayOpen] = useState(false);
   const [openedSpecificDates, setOpenedSpecificDates] = useState<string[]>([]);
+  const [exclusionNotice, setExclusionNotice] = useState("*Excavator Activity is not included in the package. It can be purchased separately as an add-on.");
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
 
@@ -139,6 +140,9 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     });
     fetchOpenedSpecificDatesAction().then(dates => {
       setOpenedSpecificDates(dates || []);
+    });
+    fetchSiteSettingAction('addon_exclusion_notice', '*Excavator Activity is not included in the package. It can be purchased separately as an add-on.').then(notice => {
+      if (notice) setExclusionNotice(notice);
     });
   }, []);
 
@@ -1206,7 +1210,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">4.</span>
               <div>
-                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).<br/>
+                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}).<br/>
                 <span className="text-[#ff5a1f] font-bold">₹1000 + GST per hour per person</span>
               </div>
             </li>
@@ -1220,7 +1224,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">6.</span>
               <div>
-                <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
+                <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
                 <span className="text-[#ff5a1f] font-bold">₹1500 + GST per hour per person</span>
               </div>
             </li>

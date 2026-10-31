@@ -1,5 +1,6 @@
 import React from "react";
 import { fetchTicketsAction } from "@/app/actions/tickets";
+import { getSiteSetting } from "@/lib/db";
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -7,6 +8,10 @@ export const revalidate = 0;
 export default async function TicketTypePage() {
   const allTickets = await fetchTicketsAction();
   const activeTickets = allTickets.filter(t => t.active === 1);
+  const exclusionNotice = getSiteSetting(
+    "addon_exclusion_notice", 
+    "*Excavator Activity is not included in the package. It can be purchased separately as an add-on."
+  );
 
   return (
     <div className="min-h-screen bg-white text-black py-10 sm:py-16">
@@ -150,9 +155,11 @@ export default async function TicketTypePage() {
                               <p className="text-base sm:text-lg font-bold text-black">
                                 • Full access to 15 RC Activities
                               </p>
-                              <p className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">
-                                *Excavator Activity is not included in the package. It can be purchased separately as an add-on.
-                              </p>
+                              {exclusionNotice && (
+                                <p className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">
+                                  {exclusionNotice}
+                                </p>
+                              )}
                             </div>
                           </div>
                         ) : ticket.name.toUpperCase() === "VIP_VISITOR" ? (
@@ -185,7 +192,9 @@ export default async function TicketTypePage() {
                               </div>
                               <ul className="text-base sm:text-lg font-bold text-black">
                                 <li>• Full access to 15 RC Activities</li>
-                                <li className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">*Excavator Activity is not included in the package. It can be purchased separately as an add-on.</li>
+                                {exclusionNotice && (
+                                  <li className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">{exclusionNotice}</li>
+                                )}
                                 <li className="mt-1.5">• Upgraded Hobby Grade RC Cars for Drift, Off-Road, Mini-Z tracks &amp; FPV RC cars.</li>
                               </ul>
                             </div>
@@ -203,22 +212,39 @@ export default async function TicketTypePage() {
                             </div>
                           </div>
                         ) : (
-                          <div className="space-y-2">
+                          <div className="space-y-3">
                             {ticket.description && (
                               <p className="text-base sm:text-lg font-bold text-black">
                                 {ticket.description}
                               </p>
                             )}
-                            <div className="flex items-center gap-3">
-                              <div className="shrink-0 w-7 h-7 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
-                                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                                  <polyline points="20 6 9 17 4 12" />
-                                </svg>
+                            {ticket.benefits ? (
+                              <ul className="space-y-2">
+                                {ticket.benefits.split("\n").map(s => s.trim()).filter(Boolean).map((benefitItem, bIdx) => (
+                                  <li key={bIdx} className="flex items-center gap-3">
+                                    <div className="shrink-0 w-7 h-7 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
+                                      <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                        <polyline points="20 6 9 17 4 12" />
+                                      </svg>
+                                    </div>
+                                    <p className="text-base sm:text-lg font-bold text-black">
+                                      • {benefitItem}
+                                    </p>
+                                  </li>
+                                ))}
+                              </ul>
+                            ) : (
+                              <div className="flex items-center gap-3">
+                                <div className="shrink-0 w-7 h-7 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
+                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                    <polyline points="20 6 9 17 4 12" />
+                                  </svg>
+                                </div>
+                                <p className="text-base sm:text-lg font-bold text-black">
+                                  • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
+                                </p>
                               </div>
-                              <p className="text-base sm:text-lg font-bold text-black">
-                                • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
-                              </p>
-                            </div>
+                            )}
                           </div>
                         )}
                       </td>

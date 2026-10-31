@@ -25,6 +25,7 @@ export async function createAddonAction(data: {
   price: number;
   tagline?: string;
   description?: string;
+  benefits?: string;
   image?: string;
   sort_order?: number;
 }) {
@@ -32,6 +33,7 @@ export async function createAddonAction(data: {
     const res = createAddon(data);
     revalidatePath("/admin/addons");
     revalidatePath("/tickets");
+    revalidatePath("/ticket-type");
     return { success: true, addon: res };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to create add-on" };
@@ -45,6 +47,7 @@ export async function updateAddonAction(
     price?: number;
     tagline?: string;
     description?: string;
+    benefits?: string;
     image?: string;
     active?: number;
     sort_order?: number;
@@ -54,6 +57,7 @@ export async function updateAddonAction(
     updateAddon(id, data);
     revalidatePath("/admin/addons");
     revalidatePath("/tickets");
+    revalidatePath("/ticket-type");
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update add-on" };
@@ -65,6 +69,7 @@ export async function toggleAddonStatusAction(id: number, active: boolean) {
     toggleAddonStatus(id, active);
     revalidatePath("/admin/addons");
     revalidatePath("/tickets");
+    revalidatePath("/ticket-type");
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to toggle add-on status" };
@@ -76,8 +81,34 @@ export async function deleteAddonAction(id: number) {
     deleteAddon(id);
     revalidatePath("/admin/addons");
     revalidatePath("/tickets");
+    revalidatePath("/ticket-type");
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to delete add-on" };
+  }
+}
+
+export async function fetchAddonExclusionNoticeAction(): Promise<string> {
+  try {
+    const { getSiteSetting } = await import("@/lib/db");
+    return getSiteSetting(
+      "addon_exclusion_notice", 
+      "*Excavator Activity is not included in the package. It can be purchased separately as an add-on."
+    );
+  } catch (err) {
+    return "*Excavator Activity is not included in the package. It can be purchased separately as an add-on.";
+  }
+}
+
+export async function saveAddonExclusionNoticeAction(notice: string) {
+  try {
+    const { setSiteSetting } = await import("@/lib/db");
+    setSiteSetting("addon_exclusion_notice", notice.trim(), "Exclusion notice displayed for add-on activities on pass comparison");
+    revalidatePath("/admin/addons");
+    revalidatePath("/ticket-type");
+    revalidatePath("/tickets");
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to save notice" };
   }
 }

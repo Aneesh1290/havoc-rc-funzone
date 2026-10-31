@@ -481,7 +481,7 @@ export function getAllBookings() {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b

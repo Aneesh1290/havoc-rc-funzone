@@ -21,6 +21,8 @@ export interface BookingExportItem {
   created_at?: string;
   payment_ref?: string;
   transaction_id?: string;
+  simulator_name?: string;
+  simulator_slot?: string;
 }
 
 // Convert "11AM-12PM" or "3PM-4PM" into start minutes from midnight for chronological sorting
@@ -175,6 +177,9 @@ interface OrderData {
   fulfillment_status: string;
   total_amount: number;
   payment_ref?: string;
+  transaction_id?: string;
+  simulator_name?: string;
+  simulator_slot?: string;
   items: BookingExportItem[];
 }
 
@@ -227,31 +232,31 @@ function renderDaySheet(
     showGridLines: true
   };
 
-  // Configure Column Widths (A to Q -> 17 columns)
+  // Configure Column Widths (A to O -> 15 columns matching client's screenshot)
   worksheet.columns = [
-    { key: "totalSl", width: 9 },        // A: TOTAL SL
-    { key: "sn", width: 6 },             // B: SN
-    { key: "orderNo", width: 17 },       // C: ORDER NO
-    { key: "name", width: 22 },          // D: NAME
-    { key: "phone", width: 15 },         // E: PHONE NO
-    { key: "email", width: 26 },         // F: E-MAIL ID
-    { key: "date", width: 12 },          // G: DATE
-    { key: "timeSlot", width: 14 },      // H: TIME SLOT
-    { key: "slotColour", width: 18 },    // I: SLOT NO / COLOUR
-    { key: "v", width: 5.5 },            // J: V
-    { key: "p", width: 5.5 },            // K: P
-    { key: "vv", width: 5.5 },           // L: VV
-    { key: "vp", width: 5.5 },           // M: VP
-    { key: "amtReceived", width: 16 },   // N: AMOUNT RECEIVED
-    { key: "amtDue", width: 15 },        // O: AMOUNT DUE
-    { key: "status", width: 13 },        // P: STATUS
-    { key: "transactionId", width: 18 }  // Q: TRANSACTION ID
+    { key: "totalSl", width: 9 },         // A: TOTAL SL
+    { key: "sn", width: 6 },              // B: SN
+    { key: "orderNo", width: 18 },        // C: ORDER NO (Pink header)
+    { key: "name", width: 22 },           // D: NAME (Pink header)
+    { key: "phone", width: 15 },          // E: PHONE NO
+    { key: "email", width: 26 },          // F: E-MAIL ID
+    { key: "date", width: 13 },           // G: DATE
+    { key: "timeSlot", width: 14 },       // H: TIME/SLOT
+    { key: "simPodium", width: 20 },      // I: TYPE OF SIM PODIUM
+    { key: "ppt", width: 8 },             // J: PPT (Total Participants / Passes)
+    { key: "amtReceived", width: 16 },    // K: AMOUNT RECEIVED
+    { key: "amtDue", width: 15 },         // L: AMOUNT DUE
+    { key: "status", width: 13 },         // M: STATUS
+    { key: "gatewayTxnId", width: 20 },   // N: GATEWAY TXN ID
+    { key: "deskRef", width: 18 }         // O: DESK REF / UTR
   ];
 
-  // Helper to render the 2-row table header with merged cells and styling
+  // Helper to render the single-row table header with exact client colors
+  // Cols A & B: Dark green (#1E5E3A), white bold text
+  // Cols C & D: Dusty rose / pink (#DDA7A5), black bold text
+  // Cols E to O: Dark green (#1E5E3A), white bold text
   const renderTableHeader = (ws: ExcelJS.Worksheet) => {
-    // Header Top Row
-    const headerRow1 = ws.addRow([
+    const headerRow = ws.addRow([
       "TOTAL SL",
       "SN",
       "ORDER NO",
@@ -259,53 +264,44 @@ function renderDaySheet(
       "PHONE NO",
       "E-MAIL ID",
       "DATE",
-      "TIME SLOT",
-      "SLOT NO / COLOUR",
-      "NUMBER OF TICKETS", "", "", "", // cols 10, 11, 12, 13
+      "TIME/SLOT",
+      "TYPE OF SIM PODIUM",
+      "PPT",
       "AMOUNT RECEIVED",
       "AMOUNT DUE",
       "STATUS",
-      "TRANSACTION ID"
+      "GATEWAY TXN ID",
+      "DESK REF / UTR"
     ]);
-    headerRow1.height = 24;
-    const r1 = headerRow1.number;
+    headerRow.height = 26;
+    const rNum = headerRow.number;
 
-    // Sub-Header Row (for V, P, VV, VP)
-    const headerRow2 = ws.addRow([
-      "", "", "", "", "", "", "", "", "",
-      "V", "P", "VV", "VP",
-      "", "", "", ""
-    ]);
-    headerRow2.height = 22;
-    const r2 = headerRow2.number;
+    for (let c = 1; c <= 15; c++) {
+      const cell = headerRow.getCell(c);
+      cell.border = thinBorder;
+      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
 
-    // Merges for Table Header:
-    ws.mergeCells(`J${r1}:M${r1}`);
-    const spanningCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P", "Q"];
-    spanningCols.forEach(col => {
-      ws.mergeCells(`${col}${r1}:${col}${r2}`);
-    });
-
-    // Style Header Rows (r1 & r2)
-    for (let r = r1; r <= r2; r++) {
-      const row = ws.getRow(r);
-      for (let c = 1; c <= 17; c++) {
-        const cell = row.getCell(c);
+      if (c === 3 || c === 4) {
+        // Columns C & D: ORDER NO and NAME (Pink background, black text)
         cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
-        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
         cell.fill = {
           type: "pattern",
           pattern: "solid",
-          fgColor: { argb: "FFF2F2F2" }
+          fgColor: { argb: "FFDDA7A5" } // Dusty rose pink
         };
-        cell.border = thinBorder;
+      } else {
+        // Columns A, B, and E through O: Dark Forest Green background, white text
+        cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FF1E5E3A" } // Dark green
+        };
       }
     }
   };
 
   // Group orders by Date first, then within each Date group by Time Slot
-  // This ensures that "All Bookings" groups and sorts all orders by Date first (e.g. Oct 20 orders together, then Oct 21 orders together),
-  // instead of mixing different dates into the same time slot!
   const dateToSlotsMap = new Map<string, Map<string, OrderData[]>>();
 
   for (const order of ordersForDay) {
@@ -328,27 +324,38 @@ function renderDaySheet(
     return timeA - timeB;
   });
 
-  // ROW 1: Main Title Banner (spanning A1 to Q1)
-  const titleRow = worksheet.addRow([bannerTitle]);
-  titleRow.height = 30;
-  worksheet.mergeCells("A1:Q1");
-  const titleCell = worksheet.getCell("A1");
-  titleCell.font = { name: "Calibri", size: 14, bold: true, color: { argb: "FF000000" } };
-  titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  for (let col = 1; col <= 17; col++) {
-    worksheet.getRow(1).getCell(col).border = mediumBorder;
+  // Format Top Banner (Row 1): Light sage green (#D5E8D4), spanning A1:O1, right-aligned date text (e.g. "Oct 31 (Sat)")
+  let row1BannerText = bannerTitle;
+  const parsedFirstDate = sortedDates.length === 1 ? parseBookingDate(sortedDates[0]) : null;
+  if (parsedFirstDate && !isNaN(parsedFirstDate.getTime())) {
+    const monthShort = parsedFirstDate.toLocaleDateString("en-US", { month: "short" });
+    const dayNum = parsedFirstDate.getDate();
+    const weekdayShort = parsedFirstDate.toLocaleDateString("en-US", { weekday: "short" });
+    row1BannerText = `${monthShort} ${dayNum} (${weekdayShort})`;
   }
 
-  // If there's only 1 date (e.g. single day tab like "OCTOBER 20 (TUESDAY)"), render the table header right below title
+  const titleRow = worksheet.addRow([row1BannerText]);
+  titleRow.height = 28;
+  worksheet.mergeCells("A1:O1");
+  const titleCell = worksheet.getCell("A1");
+  titleCell.font = { name: "Calibri", size: 12, bold: true, color: { argb: "FF000000" } };
+  titleCell.alignment = { horizontal: "right", vertical: "middle" };
+  for (let col = 1; col <= 15; col++) {
+    const cCell = worksheet.getRow(1).getCell(col);
+    cCell.border = thinBorder;
+    cCell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD5E8D4" } // Sage green banner
+    };
+  }
+
+  // If there's only 1 date (e.g. single day tab like "Oct 31 (Sat)"), render the table header right below title
   if (sortedDates.length === 1) {
     renderTableHeader(worksheet);
   }
 
   let totalSlCounter = 1;
-  let grandTotalV = 0;
-  let grandTotalP = 0;
-  let grandTotalVV = 0;
-  let grandTotalVP = 0;
   let grandTotalTickets = 0;
   let grandTotalAmountReceived = 0;
   let grandTotalAmountDue = 0;
@@ -360,10 +367,7 @@ function renderDaySheet(
     const slotGroups = dateToSlotsMap.get(dateKey)!;
 
     // Track per-day totals
-    let dayV = 0;
-    let dayP = 0;
-    let dayVV = 0;
-    let dayVP = 0;
+    let dayTickets = 0;
     let dayAmountReceived = 0;
     let dayAmountDue = 0;
 
@@ -373,19 +377,17 @@ function renderDaySheet(
     });
 
     // If multiple dates are present (like in "All Bookings"), add a clear Date Section Divider Header
-    // and repeat the Table Header for EACH date so users immediately know which column is what!
     if (sortedDates.length > 1) {
-      // Add gap row before next date section (unless very top)
       if (!isFirstSection) {
         const dateGapRow = worksheet.addRow([]);
-        dateGapRow.height = 18;
+        dateGapRow.height = 16;
       }
 
       const { bannerTitle: dateBanner } = formatFullDateBanner(dateKey);
       const sectionRow = worksheet.addRow([`DATE: ${dateBanner}`]);
       sectionRow.height = 24;
       const sectionRowNum = sectionRow.number;
-      worksheet.mergeCells(`A${sectionRowNum}:Q${sectionRowNum}`);
+      worksheet.mergeCells(`A${sectionRowNum}:O${sectionRowNum}`);
       
       const sCell = worksheet.getCell(`A${sectionRowNum}`);
       sCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF0D1B2A" } };
@@ -395,7 +397,7 @@ function renderDaySheet(
         pattern: "solid",
         fgColor: { argb: "FFE9ECEF" }
       };
-      for (let c = 1; c <= 17; c++) {
+      for (let c = 1; c <= 15; c++) {
         const cCell = worksheet.getRow(sectionRowNum).getCell(c);
         cCell.border = thinBorder;
         cCell.fill = {
@@ -405,7 +407,7 @@ function renderDaySheet(
         };
       }
 
-      // Render the Table Header for this specific date!
+      // Render the Table Header for this specific date
       renderTableHeader(worksheet);
     }
 
@@ -420,59 +422,23 @@ function renderDaySheet(
       const ordersInSlot = slotGroups.get(slotKey)!;
       ordersInSlot.sort((a, b) => a.orderNo - b.orderNo);
 
-      // Get slot meta, number, and color
-      const meta = slotMetaMap.get(slotKey.trim().toUpperCase());
-      const slotNum = meta ? meta.slotIndex : (slotIndex + 1);
-
-      const firstOrder = ordersInSlot[0];
-      const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
-      const slotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
-
-      // Color hex for this slot
-      const slotHex = meta?.colorHex || normalizeHex(firstOrder?.slotColor) || "06B6D4";
-      const contrastTextColor = getContrastTextColor(slotHex);
-
       ordersInSlot.forEach((order, snIdx) => {
         const sn = snIdx + 1;
         const currentSl = totalSlCounter++;
 
-        // Count quantities per pass type
-        let vCount = 0;
-        let pCount = 0;
-        let vvCount = 0;
-        let vpCount = 0;
+        // Count total tickets / participants
+        let orderTickets = 0;
         let calculatedBaseAmount = 0;
 
         for (const item of order.items) {
-          const tName = (item.ticket_name || "").toUpperCase();
           const qty = item.quantity || 1;
+          orderTickets += qty;
           calculatedBaseAmount += (item.ticket_price || 0) * qty;
-
-          if (tName.includes("VIP_PARTICIPANT") || tName.includes("VIP PARTICIPANT")) {
-            vpCount += qty;
-          } else if (tName.includes("VIP_VISITOR") || tName.includes("VIP VISITOR")) {
-            vvCount += qty;
-          } else if (tName.includes("PARTICIPANT")) {
-            pCount += qty;
-          } else if (tName.includes("VISITOR")) {
-            vCount += qty;
-          } else {
-            pCount += qty;
-          }
         }
 
-        // Accumulate Day Totals
-        dayV += vCount;
-        dayP += pCount;
-        dayVV += vvCount;
-        dayVP += vpCount;
-
-        // Accumulate Grand Totals
-        grandTotalV += vCount;
-        grandTotalP += pCount;
-        grandTotalVV += vvCount;
-        grandTotalVP += vpCount;
-        grandTotalTickets += (vCount + pCount + vvCount + vpCount);
+        // Accumulate Day & Grand Totals
+        dayTickets += orderTickets;
+        grandTotalTickets += orderTickets;
 
         const isPaid = order.payment_status.toLowerCase() === "paid";
         const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
@@ -485,6 +451,10 @@ function renderDaySheet(
         grandTotalAmountReceived += received;
         grandTotalAmountDue += due;
 
+        const simPodiumDisplay = order.simulator_name 
+          ? (order.simulator_slot ? `${order.simulator_name} (${order.simulator_slot})` : order.simulator_name)
+          : "-";
+
         const dataRow = worksheet.addRow([
           currentSl,
           sn,
@@ -494,75 +464,52 @@ function renderDaySheet(
           order.email,
           order.date,
           order.timeSlot,
-          slotDisplayText,
-          vCount > 0 ? vCount : "",
-          pCount > 0 ? pCount : "",
-          vvCount > 0 ? vvCount : "",
-          vpCount > 0 ? vpCount : "",
+          simPodiumDisplay,
+          orderTickets,
           received > 0 ? `₹ ${received.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           order.fulfillment_status,
-          order.payment_ref || ""
+          order.transaction_id || "-",
+          order.payment_ref || "-"
         ]);
         dataRow.height = 20;
 
         // Apply solid borders and alignment
-        for (let c = 1; c <= 17; c++) {
+        for (let c = 1; c <= 15; c++) {
           const cell = dataRow.getCell(c);
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10 };
 
-          if (c === 3 || c === 4 || c === 6 || c === 17) {
+          if (c === 3 || c === 4 || c === 6 || c === 9 || c === 14 || c === 15) {
             cell.alignment = { horizontal: "left", vertical: "middle" };
-          } else if (c === 14 || c === 15) {
+          } else if (c === 11 || c === 12) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
           } else {
             cell.alignment = { horizontal: "center", vertical: "middle" };
           }
         }
-
-        // Fill Column 9 (SLOT NO / COLOUR) with that specific slot's color
-        const slotCell = dataRow.getCell(9);
-        slotCell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: `FF${slotHex}` }
-        };
-        slotCell.font = {
-          name: "Calibri",
-          size: 10,
-          bold: true,
-          color: { argb: `FF${contrastTextColor}` }
-        };
       });
     });
 
     // If multiple dates are present (like in "All Bookings"), output the TOTAL for this specific day right here
     if (sortedDates.length > 1) {
-      const dayTickets = dayV + dayP + dayVV + dayVP;
-
-      // Small blank separator before Day Totals
+      // Blank separator before Day Totals
       const preDayTotalGap = worksheet.addRow([]);
       preDayTotalGap.height = 8;
 
-      // ROW: Day Category Totals (TOTAL row)
       const dayTotalRow = worksheet.addRow([
         "", "", "", "", "", "", "", "",
-        "TOTAL",
-        dayV > 0 ? dayV : "",
-        dayP > 0 ? dayP : "",
-        dayVV > 0 ? dayVV : "",
-        dayVP > 0 ? dayVP : "",
+        "DAY TOTAL",
+        dayTickets,
         dayAmountReceived > 0 ? `₹ ${dayAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
         dayAmountDue > 0 ? `₹ ${dayAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
-        "",
-        ""
+        "", "", ""
       ]);
       dayTotalRow.height = 24;
 
-      for (let c = 1; c <= 17; c++) {
+      for (let c = 1; c <= 15; c++) {
         const cell = dayTotalRow.getCell(c);
-        if (c >= 9 && c <= 15) {
+        if (c >= 9 && c <= 12) {
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10, bold: true };
           cell.fill = {
@@ -570,36 +517,12 @@ function renderDaySheet(
             pattern: "solid",
             fgColor: { argb: "FFF0F0F0" }
           };
-          if (c === 14 || c === 15) {
+          if (c === 11 || c === 12) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
           } else {
             cell.alignment = { horizontal: "center", vertical: "middle" };
           }
         }
-      }
-
-      // ROW: Total Tickets for this day
-      const dayOverallRow = worksheet.addRow([
-        "", "", "", "", "", "", "", "",
-        "TOTAL TICKETS",
-        dayTickets,
-        "", "", "", "", "", ""
-      ]);
-      dayOverallRow.height = 24;
-
-      const dayOverallRowNum = dayOverallRow.number;
-      worksheet.mergeCells(`J${dayOverallRowNum}:M${dayOverallRowNum}`);
-
-      for (let c = 9; c <= 13; c++) {
-        const cell = dayOverallRow.getCell(c);
-        cell.border = doubleBottomBorder;
-        cell.font = { name: "Calibri", size: 11, bold: true };
-        cell.alignment = { horizontal: "center", vertical: "middle" };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFEAEAEA" }
-        };
       }
     }
   });
@@ -610,62 +533,33 @@ function renderDaySheet(
 
   // ROW: Sheet Totals (TOTAL / GRAND TOTAL row)
   const totalRowLabel = sortedDates.length > 1 ? "GRAND TOTAL" : "TOTAL";
-  const overallTicketLabel = sortedDates.length > 1 ? "GRAND TOTAL TICKETS" : "TOTAL TICKETS";
 
   const totalRow = worksheet.addRow([
     "", "", "", "", "", "", "", "",
     totalRowLabel,
-    grandTotalV > 0 ? grandTotalV : "",
-    grandTotalP > 0 ? grandTotalP : "",
-    grandTotalVV > 0 ? grandTotalVV : "",
-    grandTotalVP > 0 ? grandTotalVP : "",
+    grandTotalTickets,
     grandTotalAmountReceived > 0 ? `₹ ${grandTotalAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
     grandTotalAmountDue > 0 ? `₹ ${grandTotalAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
-    "",
-    ""
+    "", "", ""
   ]);
   totalRow.height = 24;
 
-  for (let c = 1; c <= 17; c++) {
+  for (let c = 1; c <= 15; c++) {
     const cell = totalRow.getCell(c);
-    if (c >= 9 && c <= 15) {
-      cell.border = thinBorder;
-      cell.font = { name: "Calibri", size: 10, bold: true };
+    if (c >= 9 && c <= 12) {
+      cell.border = doubleBottomBorder;
+      cell.font = { name: "Calibri", size: 11, bold: true };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
         fgColor: { argb: "FFE0E0E0" }
       };
-      if (c === 14 || c === 15) {
+      if (c === 11 || c === 12) {
         cell.alignment = { horizontal: "right", vertical: "middle" };
       } else {
         cell.alignment = { horizontal: "center", vertical: "middle" };
       }
     }
-  }
-
-  // ROW: Overall Total Tickets
-  const overallRow = worksheet.addRow([
-    "", "", "", "", "", "", "", "",
-    overallTicketLabel,
-    grandTotalTickets,
-    "", "", "", "", "", ""
-  ]);
-  overallRow.height = 24;
-
-  const overallRowNum = overallRow.number;
-  worksheet.mergeCells(`J${overallRowNum}:M${overallRowNum}`);
-
-  for (let c = 9; c <= 13; c++) {
-    const cell = overallRow.getCell(c);
-    cell.border = doubleBottomBorder;
-    cell.font = { name: "Calibri", size: 11, bold: true };
-    cell.alignment = { horizontal: "center", vertical: "middle" };
-    cell.fill = {
-      type: "pattern",
-      pattern: "solid",
-      fgColor: { argb: "FFD6D6D6" }
-    };
   }
 }
 
@@ -716,13 +610,23 @@ export async function generateBookingsExcelReport(
         payment_status: b.payment_status || "Unpaid",
         fulfillment_status: b.fulfillment_status || "Unfulfilled",
         total_amount: Number(b.total_amount || 0),
-        payment_ref: b.payment_ref || b.transaction_id || "",
+        payment_ref: b.payment_ref || "",
+        transaction_id: b.transaction_id || "",
+        simulator_name: b.simulator_name || "",
+        simulator_slot: b.simulator_slot || "",
         items: []
       });
     } else {
       const existing = ordersMap.get(orderNum)!;
-      if ((b.payment_ref || b.transaction_id) && !existing.payment_ref) {
-        existing.payment_ref = b.payment_ref || b.transaction_id;
+      if (b.payment_ref && !existing.payment_ref) {
+        existing.payment_ref = b.payment_ref;
+      }
+      if (b.transaction_id && !existing.transaction_id) {
+        existing.transaction_id = b.transaction_id;
+      }
+      if (b.simulator_name && !existing.simulator_name) {
+        existing.simulator_name = b.simulator_name;
+        existing.simulator_slot = b.simulator_slot;
       }
     }
     ordersMap.get(orderNum)!.items.push(b);

@@ -358,7 +358,10 @@ export default function BookingsPage() {
             payment_status: order.payment_status,
             fulfillment_status: order.fulfillment_status,
             total_amount: order.total_amount,
-            payment_ref: item.payment_ref || order.payment_ref || ""
+            payment_ref: item.payment_ref || order.payment_ref || "",
+            transaction_id: item.icici_txn_id || item.transaction_id || "",
+            simulator_name: item.simulator_name || "",
+            simulator_slot: item.simulator_slot || ""
           });
         }
       }

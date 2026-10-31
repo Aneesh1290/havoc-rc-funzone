@@ -63,6 +63,7 @@ export default function AdminCouponsPage() {
   // Filter, Category, Sort & Pagination States
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("ALL"); // 'ALL', 'VIP_BANDS', 'PREFIX:XYZ', 'PERCENTAGE', 'FLAT', 'USED', 'UNUSED', 'EXPIRED', 'ACTIVE'
+  const [valueFilter, setValueFilter] = useState<string>("ALL"); // 'ALL', or exact value like '100', '50', '20'
   const [sortField, setSortField] = useState<"id" | "code" | "value" | "used_count" | "expiry_date">("id");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
@@ -345,6 +346,7 @@ export default function AdminCouponsPage() {
     };
 
     const prefixCounts: Record<string, number> = {};
+    const valueCounts: Record<number, number> = {};
 
     const now = new Date();
     const todayStr = now.toISOString().split("T")[0];
@@ -363,9 +365,11 @@ export default function AdminCouponsPage() {
 
       const catName = getCouponCategory(c.code);
       prefixCounts[catName] = (prefixCounts[catName] || 0) + 1;
+
+      valueCounts[c.value] = (valueCounts[c.value] || 0) + 1;
     }
 
-    return { counts, prefixCounts };
+    return { counts, prefixCounts, valueCounts };
   }, [coupons]);
 
   // Filter & Sort Pipeline
@@ -397,7 +401,13 @@ export default function AdminCouponsPage() {
       }
     }
 
-    // 2. Search Query Filter
+    // 2. Value Filter
+    if (valueFilter !== "ALL") {
+      const targetVal = Number(valueFilter);
+      result = result.filter(c => c.value === targetVal);
+    }
+
+    // 3. Search Query Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase().trim();
       result = result.filter(c => 
@@ -407,7 +417,7 @@ export default function AdminCouponsPage() {
       );
     }
 
-    // 3. Sorting
+    // 4. Sorting
     result.sort((a, b) => {
       let comparison = 0;
       if (sortField === "id") {
@@ -427,7 +437,7 @@ export default function AdminCouponsPage() {
     });
 
     return result;
-  }, [coupons, categoryFilter, searchQuery, sortField, sortOrder]);
+  }, [coupons, categoryFilter, valueFilter, searchQuery, sortField, sortOrder]);
 
   // Pagination Slice
   const totalItems = filteredAndSortedCoupons.length;
@@ -1027,6 +1037,51 @@ export default function AdminCouponsPage() {
             })}
           </div>
 
+          {/* Value Filter Pills Row */}
+          {Object.keys(categoriesList.valueCounts).length > 0 && (
+            <div className="pt-2 border-t border-gray-100 flex items-center gap-2 flex-wrap text-xs">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 mr-1 flex items-center gap-1 shrink-0">
+                <span>Value:</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => { setValueFilter("ALL"); setCurrentPage(1); }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                  valueFilter === "ALL"
+                    ? "bg-[#ff5a1f] text-white shadow-xs"
+                    : "bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200"
+                }`}
+              >
+                All Values
+              </button>
+
+              {Object.entries(categoriesList.valueCounts)
+                .sort(([valA], [valB]) => Number(valA) - Number(valB))
+                .map(([valStr, count]) => {
+                  const isSelected = valueFilter === valStr;
+                  return (
+                    <button
+                      key={valStr}
+                      type="button"
+                      onClick={() => { setValueFilter(isSelected ? "ALL" : valStr); setCurrentPage(1); }}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        isSelected
+                          ? "bg-purple-700 text-white shadow-xs"
+                          : "bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200/70"
+                      }`}
+                    >
+                      <span>{valStr}% / ₹{valStr}</span>
+                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-semibold ${
+                        isSelected ? "bg-white/20 text-white" : "bg-purple-200/80 text-purple-900"
+                      }`}>
+                        {count}
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+
           {/* Search Bar & Page Size Row */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
             <div className="relative flex-1 max-w-md">
@@ -1115,7 +1170,7 @@ export default function AdminCouponsPage() {
             <p className="text-xs text-gray-400 mt-1">Try clearing your search query or selecting a different category filter.</p>
             <button
               type="button"
-              onClick={() => { setCategoryFilter("ALL"); setSearchQuery(""); setCurrentPage(1); }}
+              onClick={() => { setCategoryFilter("ALL"); setValueFilter("ALL"); setSearchQuery(""); setCurrentPage(1); }}
               className="mt-3 px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded-lg text-xs font-bold text-gray-700 transition-colors"
             >
               Reset Filters

@@ -258,6 +258,32 @@ export default function AdminCouponsPage() {
     }
   };
 
+  const handleApplyExpiryToCurrentFiltered = async (dateVal: string | null) => {
+    const targetIds = filteredAndSortedCoupons.map(c => c.id);
+    if (targetIds.length === 0) {
+      showNotification("No coupons match the current filter", "error");
+      return;
+    }
+
+    const label = dateVal ? `set expiry to ${dateVal}` : `remove expiry date (Never)`;
+    if (!confirm(`Are you sure you want to ${label} for ALL ${targetIds.length} currently filtered/displayed coupons?`)) {
+      return;
+    }
+
+    setIsUpdatingExpiry(true);
+    const res = await bulkUpdateCouponsExpiryAction(targetIds, dateVal);
+    setIsUpdatingExpiry(false);
+
+    if (res.success) {
+      showNotification(`Successfully updated expiry date for ${res.count} coupons!`);
+      setShowBulkExpiryBar(false);
+      setBulkExpiryInput("");
+      loadCoupons();
+    } else {
+      showNotification(res.error || "Failed to update expiry date", "error");
+    }
+  };
+
   const handleBulkConvertToBand = async (isBand: boolean = true) => {
     const targetIds = selectedIds.length > 0 
       ? selectedIds 

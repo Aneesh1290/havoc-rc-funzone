@@ -773,6 +773,74 @@ export async function setColorReception(params: {
 
 
 /**
+ * Decrement reception counter for a given color hex/name (used when a band is issued to a customer).
+ */
+export async function decrementReceptionCountByHex(colorHexOrName: string, amount: number = 1): Promise<void> {
+  if (!colorHexOrName) return;
+  await ensureColorInventorySchema();
+  const clean = colorHexOrName.trim().toUpperCase();
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query(
+        `UPDATE wristband_color_inventory 
+         SET in_reception = GREATEST(0, in_reception - $1), updated_at = NOW() 
+         WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $2`,
+        [amount, clean]
+      );
+    } catch (e) {
+      console.warn("[Color Inventory] PG decrement reception error:", e);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET in_reception = MAX(0, in_reception - ?), updated_at = CURRENT_TIMESTAMP 
+      WHERE UPPER(color_hex) = ? OR UPPER(color_name) = ?
+    `).run(amount, clean, clean);
+  } catch (e) {
+    console.warn("[Color Inventory] SQLite decrement reception error:", e);
+  }
+}
+
+/**
+ * Increment reception counter for a given color hex/name (used when a band is unassigned/returned).
+ */
+export async function incrementReceptionCountByHex(colorHexOrName: string, amount: number = 1): Promise<void> {
+  if (!colorHexOrName) return;
+  await ensureColorInventorySchema();
+  const clean = colorHexOrName.trim().toUpperCase();
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query(
+        `UPDATE wristband_color_inventory 
+         SET in_reception = in_reception + $1, updated_at = NOW() 
+         WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $2`,
+        [amount, clean]
+      );
+    } catch (e) {
+      console.warn("[Color Inventory] PG increment reception error:", e);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET in_reception = in_reception + ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE UPPER(color_hex) = ? OR UPPER(color_name) = ?
+    `).run(amount, clean, clean);
+  } catch (e) {
+    console.warn("[Color Inventory] SQLite increment reception error:", e);
+  }
+}
+
+/**
  * Decrement stock quantity for a given color hex/name (used when a band coupon is redeemed).
  */
 export async function decrementColorStockByHex(colorHexOrName: string, amount: number = 1): Promise<void> {

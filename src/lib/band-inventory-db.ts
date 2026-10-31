@@ -705,19 +705,46 @@ export async function getBandItemById(id: number): Promise<BandItem | undefined>
   return db.prepare("SELECT * FROM band_items WHERE id = ?").get(id) as BandItem | undefined;
 }
 
-export async function getBandItemByCode(code: string): Promise<BandItem | undefined> {
+export async function getBandItemByCode(code: string, options?: { color_hex?: string; color_name?: string }): Promise<BandItem | undefined> {
   if (!code) return undefined;
   const clean = code.trim();
+  const hex = options?.color_hex ? options.color_hex.trim().toUpperCase() : undefined;
+  const name = options?.color_name ? options.color_name.trim().toLowerCase() : undefined;
+
   if (isPostgresActive()) {
     try {
-      const res = await simulatorPool.query("SELECT * FROM band_items WHERE UPPER(band_code) = UPPER($1)", [clean]);
+      let query = "SELECT * FROM band_items WHERE UPPER(band_code) = UPPER($1)";
+      const params: any[] = [clean];
+      if (hex) {
+        query += " AND UPPER(color_hex) = UPPER($2)";
+        params.push(hex);
+      } else if (name) {
+        query += " AND LOWER(color_name) = LOWER($2)";
+        params.push(name);
+      }
+      query += " ORDER BY id DESC LIMIT 1";
+
+      const res = await simulatorPool.query(query, params);
       if (res.rows.length > 0) return res.rows[0] as BandItem;
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for getByCode:", pgErr);
     }
   }
-  return db.prepare("SELECT * FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(clean) as BandItem | undefined;
+
+  let sqliteQuery = "SELECT * FROM band_items WHERE UPPER(band_code) = UPPER(?)";
+  const sqliteParams: any[] = [clean];
+  if (hex) {
+    sqliteQuery += " AND UPPER(color_hex) = UPPER(?)";
+    sqliteParams.push(hex);
+  } else if (name) {
+    sqliteQuery += " AND LOWER(color_name) = LOWER(?)";
+    sqliteParams.push(name);
+  }
+  sqliteQuery += " ORDER BY id DESC LIMIT 1";
+
+  return db.prepare(sqliteQuery).get(...sqliteParams) as BandItem | undefined;
 }
+
 
 export async function createBandItem(data: {
   band_code: string;
@@ -925,6 +952,8 @@ export async function bulkCreateBandItems(data: {
 export async function issueBandItem(data: {
   band_id?: number;
   band_code?: string;
+  color_hex?: string;
+  color_name?: string;
   customer_name?: string;
   booking_id?: number;
   order_number?: string;
@@ -934,7 +963,7 @@ export async function issueBandItem(data: {
   try {
     const band = data.band_id 
       ? await getBandItemById(data.band_id) 
-      : (data.band_code ? await getBandItemByCode(data.band_code) : undefined);
+      : (data.band_code ? await getBandItemByCode(data.band_code, { color_hex: data.color_hex, color_name: data.color_name }) : undefined);
 
     if (!band) {
       return { success: false, error: `Wristband '${data.band_code || data.band_id}' not found in inventory.` };
@@ -1043,6 +1072,8 @@ export async function issueBandItem(data: {
 export async function returnBandItem(data: {
   band_id?: number;
   band_code?: string;
+  color_hex?: string;
+  color_name?: string;
   condition: "good" | "damaged" | "lost";
   staff_name?: string;
   notes?: string;
@@ -1050,7 +1081,7 @@ export async function returnBandItem(data: {
   try {
     const band = data.band_id 
       ? await getBandItemById(data.band_id) 
-      : (data.band_code ? await getBandItemByCode(data.band_code) : undefined);
+      : (data.band_code ? await getBandItemByCode(data.band_code, { color_hex: data.color_hex, color_name: data.color_name }) : undefined);
 
     if (!band) {
       return { success: false, error: `Wristband '${data.band_code || data.band_id}' not found.` };

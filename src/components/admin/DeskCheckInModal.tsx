@@ -98,7 +98,7 @@ export default function DeskCheckInModal({
 
   // Inline Wristband Assignment State
   const [editingBandId, setEditingBandId] = useState<number | null>(null);
-  const [bandNumberInput, setBandNumberInput] = useState("");
+  const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
 
   // Selective Check-in & Walkout States
@@ -167,7 +167,7 @@ export default function DeskCheckInModal({
       setPaymentError(null);
       setPaymentSuccess(false);
       setEditingBandId(null);
-      setBandNumberInput("");
+      setBandInputs([]);
 
       setTimeout(() => {
         phoneInputRef.current?.focus();
@@ -280,20 +280,40 @@ export default function DeskCheckInModal({
   };
 
   // Inline wristband number assignment handler
-  const handleStartEditBand = (sessionId: number, currentVal?: string | null) => {
-    setEditingBandId(sessionId);
-    setBandNumberInput(currentVal || "");
+  const handleStartEditBand = (session: SessionBooking) => {
+    const qty = Math.max(1, session.quantity || 1);
+    const existing = (session.wristband_number || "")
+      .split(/[\s,]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    const initialInputs: string[] = [];
+    for (let i = 0; i < qty; i++) {
+      initialInputs.push(existing[i] || "");
+    }
+    setEditingBandId(session.id);
+    setBandInputs(initialInputs);
   };
 
-  const handleSaveWristband = async (sessionId: number) => {
+  const handleSaveWristband = async (session: SessionBooking) => {
     setIsSavingBand(true);
     try {
-      await updateBookingWristbandNumberAction(sessionId, bandNumberInput);
+      const combinedCodes = bandInputs
+        .map(b => b.trim())
+        .filter(Boolean)
+        .join(", ");
+
+      const bandColor = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
+
+      await updateBookingWristbandNumberAction(session.id, combinedCodes, {
+        color_hex: bandColor.hex,
+        color_name: bandColor.name
+      });
       setVerifiedSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, wristband_number: bandNumberInput.trim() || null } : s))
+        prev.map((s) => (s.id === session.id ? { ...s, wristband_number: combinedCodes || null } : s))
       );
       setFoundSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, wristband_number: bandNumberInput.trim() || null } : s))
+        prev.map((s) => (s.id === session.id ? { ...s, wristband_number: combinedCodes || null } : s))
       );
       setEditingBandId(null);
       onSuccess();
@@ -1450,58 +1470,83 @@ export default function DeskCheckInModal({
                                       {/* Wristband Number in Check-In session */}
                                       {!isCanceled && (
                                         editingBandId === session.id ? (
-                                          <div className="inline-flex items-center gap-1 bg-white border border-blue-400 rounded-md px-1.5 py-0.5 shadow-xs">
-                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Band #:</span>
-                                            <input
-                                              type="text"
-                                              value={bandNumberInput}
-                                              onChange={(e) => setBandNumberInput(e.target.value)}
-                                              placeholder="e.g. 104"
-                                              className="w-16 text-[11px] font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1 py-0.5 focus:outline-none"
-                                              autoFocus
-                                              onKeyDown={(e) => {
-                                                if (e.key === "Enter") handleSaveWristband(session.id);
-                                                if (e.key === "Escape") setEditingBandId(null);
-                                              }}
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() => handleSaveWristband(session.id)}
-                                              disabled={isSavingBand}
-                                              className="text-green-600 hover:text-green-700 p-0.5"
-                                              title="Save"
-                                            >
-                                              <CheckCircle2 className="w-3.5 h-3.5" />
-                                            </button>
-                                            <button
-                                              type="button"
-                                              onClick={() => setEditingBandId(null)}
-                                              className="text-gray-400 hover:text-gray-600 p-0.5"
-                                              title="Cancel"
-                                            >
-                                              <X className="w-3.5 h-3.5" />
-                                            </button>
+                                          <div className="inline-flex flex-col gap-1 bg-white border border-blue-400 rounded-lg p-1.5 shadow-xs">
+                                            <div className="flex items-center justify-between text-[9px] font-bold text-gray-500 uppercase tracking-wide border-b border-gray-100 pb-0.5">
+                                              <span>Assign Bands ({bandInputs.length}):</span>
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleSaveWristband(session)}
+                                                  disabled={isSavingBand}
+                                                  className="text-white bg-green-600 hover:bg-green-700 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5"
+                                                  title="Save"
+                                                >
+                                                  <CheckCircle2 className="w-3 h-3" />
+                                                  <span>Save</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setEditingBandId(null)}
+                                                  disabled={isSavingBand}
+                                                  className="text-gray-400 hover:text-gray-600 p-0.5"
+                                                  title="Cancel"
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                              {bandInputs.map((val, idx) => (
+                                                <div key={idx} className="flex items-center gap-1">
+                                                  {bandInputs.length > 1 && (
+                                                    <span className="text-[9px] font-black text-gray-400 font-mono">
+                                                      #{idx + 1}:
+                                                    </span>
+                                                  )}
+                                                  <input
+                                                    type="text"
+                                                    value={val}
+                                                    onChange={(e) => {
+                                                      const next = [...bandInputs];
+                                                      next[idx] = e.target.value;
+                                                      setBandInputs(next);
+                                                    }}
+                                                    placeholder={`Band ${idx + 1}`}
+                                                    className="w-16 text-[11px] font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1 py-0.5 focus:outline-none font-mono"
+                                                    autoFocus={idx === 0}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter") handleSaveWristband(session);
+                                                      if (e.key === "Escape") setEditingBandId(null);
+                                                    }}
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
                                           </div>
                                         ) : session.wristband_number ? (
-                                          <span className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full text-[10px] font-bold">
-                                            <span>🏷️ Band: <strong>{session.wristband_number}</strong></span>
+                                          <div className="inline-flex items-center gap-1 flex-wrap">
+                                            {session.wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
+                                              <span key={bIdx} className="inline-flex items-center gap-0.5 bg-amber-50 border border-amber-300 text-amber-900 px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+                                                <span>🏷️ <strong className="font-mono">{bCode}</strong></span>
+                                              </span>
+                                            ))}
                                             <button
                                               type="button"
-                                              onClick={() => handleStartEditBand(session.id, session.wristband_number)}
-                                              className="text-amber-700 hover:text-amber-950 ml-0.5"
+                                              onClick={() => handleStartEditBand(session)}
+                                              className="text-amber-700 hover:text-amber-950 p-0.5 hover:bg-amber-100 rounded-full"
                                               title="Change Band #"
                                             >
                                               <Edit3 className="w-2.5 h-2.5" />
                                             </button>
-                                          </span>
+                                          </div>
                                         ) : (
                                           <button
                                             type="button"
-                                            onClick={() => handleStartEditBand(session.id, "")}
+                                            onClick={() => handleStartEditBand(session)}
                                             className="inline-flex items-center gap-1 text-[10px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 border border-blue-200 border-dashed px-1.5 py-0.5 rounded-full"
-                                            title="Assign wristband number"
+                                            title="Assign wristband numbers"
                                           >
-                                            <span>+ Band #</span>
+                                            <span>+ Band # ({Math.max(1, session.quantity || 1)})</span>
                                           </button>
                                         )
                                       )}

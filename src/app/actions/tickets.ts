@@ -424,16 +424,91 @@ export async function updateBookingTagsAction(id: number, tags: string) {
   return { success: true };
 }
 
-export async function updateBookingWristbandNumberAction(id: number, wristbandNumber: string) {
+export async function updateBookingWristbandNumberAction(
+  id: number, 
+  wristbandNumber: string,
+  options?: {
+    color_hex?: string;
+    color_name?: string;
+    staff_name?: string;
+  }
+) {
   try {
-    updateBookingWristbandNumber(id, wristbandNumber);
+    const prevBooking = getBookingById(id) as any;
+    const oldBandNumber = prevBooking?.wristband_number || "";
+    const cleanBand = (wristbandNumber || "").trim();
+
+    // 1. Update the booking record in db
+    updateBookingWristbandNumber(id, cleanBand);
+
+    // 2. Sync with Band Items & Reception Inventory
+    const slotColorHex = options?.color_hex || prevBooking?.slot_color || "";
+    const slotColorName = options?.color_name || prevBooking?.slot_color_name || "";
+    const customerName = prevBooking?.customer_name || "Guest";
+    const orderNum = prevBooking?.order_number || id;
+    const staffName = options?.staff_name || "Reception Desk";
+
+    // Dynamic import to avoid circular dependencies
+    const { issueBandItem, returnBandItem } = await import("@/lib/band-inventory-db");
+    const { decrementReceptionCountByHex, incrementReceptionCountByHex } = await import("@/lib/color-inventory-db");
+
+    // Parse old band codes and new band codes (comma-separated or single)
+    const oldCodes = oldBandNumber.split(/[\s,]+/).map((s: string) => s.trim()).filter(Boolean);
+    const newCodes = cleanBand.split(/[\s,]+/).map((s: string) => s.trim()).filter(Boolean);
+
+    // For codes that were removed: return them and increment reception count
+    const removedCodes = oldCodes.filter((c: string) => !newCodes.includes(c));
+    for (const code of removedCodes) {
+      try {
+        await returnBandItem({
+          band_code: code,
+          color_hex: slotColorHex,
+          color_name: slotColorName,
+          condition: "good",
+          staff_name: staffName,
+          notes: `Unassigned from Order #${orderNum}`
+        });
+      } catch (e) {
+        console.warn(`[Band Sync] Return item error for ${code}:`, e);
+      }
+      if (slotColorHex || slotColorName) {
+        await incrementReceptionCountByHex(slotColorHex || slotColorName, 1);
+      }
+    }
+
+    // For codes that are newly added: issue them and decrement reception count
+    const addedCodes = newCodes.filter((c: string) => !oldCodes.includes(c));
+    for (const code of addedCodes) {
+      try {
+        await issueBandItem({
+          band_code: code,
+          color_hex: slotColorHex,
+          color_name: slotColorName,
+          customer_name: customerName,
+          booking_id: id,
+          order_number: `#${orderNum}`,
+          staff_name: staffName,
+          notes: `Issued to ${customerName} for ${prevBooking?.time_slot || 'Slot'}`
+        });
+      } catch (e) {
+        console.warn(`[Band Sync] Issue item error for ${code}:`, e);
+      }
+      if (slotColorHex || slotColorName) {
+        await decrementReceptionCountByHex(slotColorHex || slotColorName, 1);
+      }
+    }
+
     revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${id}`);
+    revalidatePath('/admin/bands');
+    revalidatePath('/admin/slots');
     return { success: true };
   } catch (err: any) {
     console.error("[updateBookingWristbandNumberAction Error]", err);
     return { success: false, error: err.message || "Failed to update wristband number" };
   }
 }
+
 
 export async function cancelBookingAction(id: number) {
   const session = await checkSessionAction();

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { checkSessionAction } from "@/app/login/actions";
+import { hasUserPermission } from "@/lib/permissions";
 import {
   getBandInventorySummary,
   getBandItems,
@@ -30,10 +31,13 @@ import {
 /**
  * Checks session and staff permissions
  */
-async function getStaffSession() {
+async function getStaffSession(requiredPerm?: string) {
   const session = await checkSessionAction();
   if (!session) {
     throw new Error("Unauthorized: Please log in to access band inventory.");
+  }
+  if (requiredPerm && !hasUserPermission(session, requiredPerm)) {
+    throw new Error(`Forbidden: You do not have permission (${requiredPerm}) to perform this inventory action.`);
   }
   return session;
 }
@@ -91,7 +95,7 @@ export async function createBandItemAction(data: {
   notes?: string;
 }): Promise<{ success: boolean; id?: number; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:manage_stock");
     const staffName = session.username || "Staff";
     const res = await createBandItem({ ...data, staff_name: staffName });
     if (res.success) {
@@ -115,7 +119,7 @@ export async function bulkCreateBandItemsAction(data: {
   padLength?: number;
 }): Promise<{ success: boolean; createdCount: number; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:manage_stock");
     const staffName = session.username || "Staff";
     const res = await bulkCreateBandItems({ ...data, staff_name: staffName });
     if (res.success) {
@@ -136,7 +140,7 @@ export async function issueBandAction(data: {
   notes?: string;
 }): Promise<{ success: boolean; item?: BandItem; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:assign");
     const staffName = session.username || "Staff";
     const res = await issueBandItem({ ...data, staff_name: staffName });
     if (res.success) {
@@ -156,7 +160,7 @@ export async function returnBandAction(data: {
   notes?: string;
 }): Promise<{ success: boolean; item?: BandItem; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:assign");
     const staffName = session.username || "Staff";
     const res = await returnBandItem({ ...data, staff_name: staffName });
     if (res.success) {
@@ -174,7 +178,7 @@ export async function stockOutBandAction(data: {
   reason?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:manage_stock");
     const staffName = session.username || "Staff";
     const res = await stockOutBandItem({ ...data, staff_name: staffName });
     if (res.success) {
@@ -191,7 +195,7 @@ export async function restoreBandAction(data: {
   notes?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
-    const session = await getStaffSession();
+    const session = await getStaffSession("bands:manage_stock");
     const staffName = session.username || "Staff";
     const res = await restoreBandItem({ ...data, staff_name: staffName });
     if (res.success) {
@@ -215,7 +219,7 @@ export async function updateBandItemAction(
   }
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    await getStaffSession();
+    await getStaffSession("bands:manage_stock");
     const res = await updateBandItem(id, data);
     if (res.success) {
       revalidatePath("/admin/bands");
@@ -228,7 +232,7 @@ export async function updateBandItemAction(
 
 export async function deleteBandItemAction(id: number): Promise<{ success: boolean; error?: string }> {
   try {
-    await getStaffSession();
+    await getStaffSession("bands:manage_stock");
     const res = await deleteBandItem(id);
     if (res.success) {
       revalidatePath("/admin/bands");
@@ -241,7 +245,7 @@ export async function deleteBandItemAction(id: number): Promise<{ success: boole
 
 export async function bulkDeleteBandItemsAction(ids: number[]): Promise<{ success: boolean; count: number; error?: string }> {
   try {
-    await getStaffSession();
+    await getStaffSession("bands:manage_stock");
     if (!ids || ids.length === 0) {
       return { success: true, count: 0 };
     }
@@ -257,7 +261,7 @@ export async function bulkDeleteBandItemsAction(ids: number[]): Promise<{ succes
 
 export async function deleteAllBandInventoryAction(options?: { resetStarterStock?: boolean }): Promise<{ success: boolean; error?: string }> {
   try {
-    await getStaffSession();
+    await getStaffSession("bands:manage_stock");
     const res = await deleteAllBandInventory(options);
     if (res.success) {
       revalidatePath("/admin/bands");

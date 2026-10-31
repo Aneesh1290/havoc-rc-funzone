@@ -65,8 +65,10 @@ import {
   returnColorFromReceptionAction,
   setColorReceptionAction
 } from "@/app/actions/color-inventory";
+import { hasUserPermission } from "@/lib/permissions";
 
 export default function BandInventoryPage() {
+  const [sessionUser, setSessionUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<"summary" | "master" | "movements" | "reports">("summary");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -170,6 +172,19 @@ export default function BandInventoryPage() {
       return () => clearTimeout(timer);
     }
   }, [feedback]);
+
+  // Load session user for permission checks
+  useEffect(() => {
+    fetch("/api/auth/session")
+      .then(res => res.ok ? res.json() : null)
+      .then(data => {
+        if (data?.user) setSessionUser(data.user);
+      })
+      .catch(() => {});
+  }, []);
+
+  const canManageStock = hasUserPermission(sessionUser, "bands:manage_stock");
+  const canAssignBands = hasUserPermission(sessionUser, "bands:assign");
 
   // Load all initial data
   const loadData = async (showRefreshSpinner = false) => {
@@ -818,38 +833,42 @@ export default function BandInventoryPage() {
             <span>Quick Return Band</span>
           </button>
 
-          <button
-            onClick={handleSyncSlots}
-            disabled={isSyncingSlots || isRefreshing}
-            className="bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
-            title="Read slot colours and sync inventory records with 0 initial quantity"
-          >
-            <Sparkles className={`w-4 h-4 text-emerald-400 ${isSyncingSlots ? "animate-spin" : ""}`} />
-            <span>{isSyncingSlots ? "Syncing..." : "Sync Slot Colours"}</span>
-          </button>
+          {canManageStock && (
+            <>
+              <button
+                onClick={handleSyncSlots}
+                disabled={isSyncingSlots || isRefreshing}
+                className="bg-emerald-600/30 hover:bg-emerald-600/40 text-emerald-200 border border-emerald-500/40 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all disabled:opacity-50"
+                title="Read slot colours and sync inventory records with 0 initial quantity"
+              >
+                <Sparkles className={`w-4 h-4 text-emerald-400 ${isSyncingSlots ? "animate-spin" : ""}`} />
+                <span>{isSyncingSlots ? "Syncing..." : "Sync Slot Colours"}</span>
+              </button>
 
-          <button
-            onClick={() => {
-              setIsBulkMode(false);
-              setIsStockInModalOpen(true);
-            }}
-            className="bg-white/10 hover:bg-white/15 text-white border border-white/20 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
-          >
-            <Plus className="w-4 h-4" />
-            <span>+ Stock In</span>
-          </button>
+              <button
+                onClick={() => {
+                  setIsBulkMode(false);
+                  setIsStockInModalOpen(true);
+                }}
+                className="bg-white/10 hover:bg-white/15 text-white border border-white/20 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Stock In</span>
+              </button>
 
-          <button
-            onClick={() => {
-              setClearResetStarterStock(false);
-              setIsClearAllModalOpen(true);
-            }}
-            className="bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
-            title="Wipe or reset entire inventory"
-          >
-            <Trash2 className="w-4 h-4 text-red-400" />
-            <span>Clear / Reset All</span>
-          </button>
+              <button
+                onClick={() => {
+                  setClearResetStarterStock(false);
+                  setIsClearAllModalOpen(true);
+                }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-200 border border-red-500/30 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
+                title="Wipe or reset entire inventory"
+              >
+                <Trash2 className="w-4 h-4 text-red-400" />
+                <span>Clear / Reset All</span>
+              </button>
+            </>
+          )}
 
           <button
             onClick={() => loadData(true)}
@@ -1059,27 +1078,31 @@ export default function BandInventoryPage() {
                 </p>
               </div>
               <div className="flex items-center gap-3 self-start sm:self-auto">
-                <button
-                  type="button"
-                  onClick={handleSyncSlots}
-                  disabled={isSyncingSlots || isRefreshing}
-                  className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
-                  title="Sync colours from configured slots (initial stock 0)"
-                >
-                  <Sparkles className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingSlots ? "animate-spin" : ""}`} />
-                  <span>{isSyncingSlots ? "Syncing..." : "Sync from Slots"}</span>
-                </button>
+                {canManageStock && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleSyncSlots}
+                      disabled={isSyncingSlots || isRefreshing}
+                      className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
+                      title="Sync colours from configured slots (initial stock 0)"
+                    >
+                      <Sparkles className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingSlots ? "animate-spin" : ""}`} />
+                      <span>{isSyncingSlots ? "Syncing..." : "Sync from Slots"}</span>
+                    </button>
 
-                <button
-                  onClick={() => {
-                    setIsBulkMode(true);
-                    setIsStockInModalOpen(true);
-                  }}
-                  className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1"
-                >
-                  <span>+ Batch Generate Bands</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
+                    <button
+                      onClick={() => {
+                        setIsBulkMode(true);
+                        setIsStockInModalOpen(true);
+                      }}
+                      className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1"
+                    >
+                      <span>+ Batch Generate Bands</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
 
@@ -1172,8 +1195,17 @@ export default function BandInventoryPage() {
 
                     <div className="mt-2.5 pt-2 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400 group-hover:text-[#ff5a1f] font-medium transition-colors">
                       <span className="flex items-center gap-1 font-semibold">
-                        <Plus className="w-3 h-3 text-[#ff5a1f]" />
-                        {color.total > 0 ? "Manage & Add Series" : "Add Inventory Now"}
+                        {canManageStock ? (
+                          <>
+                            <Plus className="w-3 h-3 text-[#ff5a1f]" />
+                            {color.total > 0 ? "Manage & Add Series" : "Add Inventory Now"}
+                          </>
+                        ) : (
+                          <>
+                            <Eye className="w-3 h-3 text-[#ff5a1f]" />
+                            <span>View Bands &amp; Details</span>
+                          </>
+                        )}
                       </span>
                       <span className="flex items-center gap-0.5 font-bold">
                         Options <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
@@ -1286,14 +1318,16 @@ export default function BandInventoryPage() {
                 >
                   Deselect All
                 </button>
-                <button
-                  onClick={handleBulkDelete}
-                  disabled={isDeletingBulk}
-                  className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>{isDeletingBulk ? "Deleting..." : `Delete Selected (${selectedItemIds.length})`}</span>
-                </button>
+                {canManageStock && (
+                  <button
+                    onClick={handleBulkDelete}
+                    disabled={isDeletingBulk}
+                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{isDeletingBulk ? "Deleting..." : `Delete Selected (${selectedItemIds.length})`}</span>
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -1415,7 +1449,7 @@ export default function BandInventoryPage() {
                         {/* Actions */}
                         <td className="py-3 px-4 text-right">
                           <div className="inline-flex items-center gap-1.5">
-                            {item.status === "available" && (
+                            {canAssignBands && item.status === "available" && (
                               <button
                                 onClick={() => handleOpenIssueModal(item)}
                                 className="px-2.5 py-1 rounded-lg bg-[#ff5a1f] hover:bg-[#e04812] text-white font-bold text-[11px] transition-colors"
@@ -1425,7 +1459,7 @@ export default function BandInventoryPage() {
                               </button>
                             )}
 
-                            {item.status === "issued" && (
+                            {canAssignBands && item.status === "issued" && (
                               <button
                                 onClick={() => handleOpenReturnModal(item)}
                                 className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors"
@@ -1435,7 +1469,7 @@ export default function BandInventoryPage() {
                               </button>
                             )}
 
-                            {(item.status === "damaged" || item.status === "lost" || item.status === "retired") && (
+                            {canManageStock && (item.status === "damaged" || item.status === "lost" || item.status === "retired") && (
                               <button
                                 onClick={() => handleRestoreBand(item)}
                                 className="px-2 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 font-bold text-[11px] transition-colors"
@@ -1445,23 +1479,27 @@ export default function BandInventoryPage() {
                               </button>
                             )}
 
-                            {/* Edit Band Details */}
-                            <button
-                              onClick={() => handleOpenEditBand(item)}
-                              className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
-                              title="Edit Band"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            {canManageStock && (
+                              <>
+                                {/* Edit Band Details */}
+                                <button
+                                  onClick={() => handleOpenEditBand(item)}
+                                  className="p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 transition-colors"
+                                  title="Edit Band"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5" />
+                                </button>
 
-                            {/* Delete Band Directly */}
-                            <button
-                              onClick={() => handleDeleteBand(item)}
-                              className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                              title="Permanently Delete Band"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                                {/* Delete Band Directly */}
+                                <button
+                                  onClick={() => handleDeleteBand(item)}
+                                  className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                  title="Permanently Delete Band"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -2326,124 +2364,132 @@ export default function BandInventoryPage() {
 
             {/* Action Cards Grid */}
             <div className="space-y-3">
-              {/* Option: Stock Out to Reception */}
-              <button
-                onClick={() => {
-                  setIsColorManageModalOpen(false);
-                  setColorStockOutAmount(Math.min(10, selectedColorForAction.available > 0 ? selectedColorForAction.available : 1));
-                  setIsStockOutModalForColorOpen(true);
-                }}
-                disabled={selectedColorForAction.available <= 0}
-                className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group disabled:opacity-40"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-amber-500 text-white group-hover:scale-105 transition-transform">
-                    <ArrowDownLeft className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-amber-900 group-hover:text-amber-800 transition-colors">
-                      Stock Out to Reception (Front Desk)
-                    </strong>
-                    <span className="text-[11px] text-amber-700">
-                      Record handover of {selectedColorForAction.color_name} bands to front desk staff for active distribution
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-amber-600 group-hover:translate-x-1 transition-all" />
-              </button>
+              {canManageStock ? (
+                <>
+                  {/* Option: Stock Out to Reception */}
+                  <button
+                    onClick={() => {
+                      setIsColorManageModalOpen(false);
+                      setColorStockOutAmount(Math.min(10, selectedColorForAction.available > 0 ? selectedColorForAction.available : 1));
+                      setIsStockOutModalForColorOpen(true);
+                    }}
+                    disabled={selectedColorForAction.available <= 0}
+                    className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group disabled:opacity-40"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-amber-500 text-white group-hover:scale-105 transition-transform">
+                        <ArrowDownLeft className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-amber-900 group-hover:text-amber-800 transition-colors">
+                          Stock Out to Reception (Front Desk)
+                        </strong>
+                        <span className="text-[11px] text-amber-700">
+                          Record handover of {selectedColorForAction.color_name} bands to front desk staff for active distribution
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-amber-600 group-hover:translate-x-1 transition-all" />
+                  </button>
 
-              {/* Option: Return from Reception back to Stock / Adjust Reception Count */}
-              <button
-                onClick={() => {
-                  setIsColorManageModalOpen(false);
-                  setColorReturnAmount(Math.min(10, (selectedColorForAction.in_reception || 0) > 0 ? (selectedColorForAction.in_reception || 0) : 1));
-                  setDirectReceptionTarget(0);
-                  setIsDirectSetMode(false);
-                  setIsReturnModalForColorOpen(true);
-                }}
-                className="w-full text-left p-4 rounded-xl border border-blue-200 bg-blue-50/40 hover:bg-blue-100/50 hover:border-blue-400 transition-all flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-blue-600 text-white group-hover:scale-105 transition-transform">
-                    <RotateCcw className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-blue-950 group-hover:text-blue-900 transition-colors">
-                      Return from Reception / Adjust Reception Stock
-                    </strong>
-                    <span className="text-[11px] text-blue-700">
-                      Currently at Reception: <strong className="font-mono font-bold">{selectedColorForAction.in_reception || 0}</strong>. Return to warehouse or reset count.
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-blue-600 group-hover:translate-x-1 transition-all" />
-              </button>
+                  {/* Option: Return from Reception back to Stock / Adjust Reception Count */}
+                  <button
+                    onClick={() => {
+                      setIsColorManageModalOpen(false);
+                      setColorReturnAmount(Math.min(10, (selectedColorForAction.in_reception || 0) > 0 ? (selectedColorForAction.in_reception || 0) : 1));
+                      setDirectReceptionTarget(0);
+                      setIsDirectSetMode(false);
+                      setIsReturnModalForColorOpen(true);
+                    }}
+                    className="w-full text-left p-4 rounded-xl border border-blue-200 bg-blue-50/40 hover:bg-blue-100/50 hover:border-blue-400 transition-all flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-blue-600 text-white group-hover:scale-105 transition-transform">
+                        <RotateCcw className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-blue-950 group-hover:text-blue-900 transition-colors">
+                          Return from Reception / Adjust Reception Stock
+                        </strong>
+                        <span className="text-[11px] text-blue-700">
+                          Currently at Reception: <strong className="font-mono font-bold">{selectedColorForAction.in_reception || 0}</strong>. Return to warehouse or reset count.
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-blue-600 group-hover:translate-x-1 transition-all" />
+                  </button>
 
-              {/* Option: Quick Add Warehouse Stock */}
-              <button
-                onClick={() => {
-                  setIsColorManageModalOpen(false);
-                  setQuickAddStockAmount(10);
-                  setIsQuickAddStockModalOpen(true);
-                }}
-                className="w-full text-left p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-100/50 hover:border-emerald-400 transition-all flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-emerald-600 text-white group-hover:scale-105 transition-transform">
-                    <Plus className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-emerald-900 group-hover:text-emerald-800 transition-colors">
-                      + Add Stock to Inventory Pool
-                    </strong>
-                    <span className="text-[11px] text-emerald-700">
-                      Quickly increase in-stock quantity count for {selectedColorForAction.color_name} bands
-                    </span>
-                  </div>
-                </div>
-                <ChevronRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-1 transition-all" />
-              </button>
+                  {/* Option: Quick Add Warehouse Stock */}
+                  <button
+                    onClick={() => {
+                      setIsColorManageModalOpen(false);
+                      setQuickAddStockAmount(10);
+                      setIsQuickAddStockModalOpen(true);
+                    }}
+                    className="w-full text-left p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-100/50 hover:border-emerald-400 transition-all flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-emerald-600 text-white group-hover:scale-105 transition-transform">
+                        <Plus className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-emerald-900 group-hover:text-emerald-800 transition-colors">
+                          + Add Stock to Inventory Pool
+                        </strong>
+                        <span className="text-[11px] text-emerald-700">
+                          Quickly increase in-stock quantity count for {selectedColorForAction.color_name} bands
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-1 transition-all" />
+                  </button>
 
-              {/* Option 1: Add New Band Series */}
-              <button
-                onClick={() => {
-                  const matchedPalette = WRISTBAND_PALETTE.find(
-                    (p) => p.name.toLowerCase() === selectedColorForAction.color_name.toLowerCase()
-                  ) || {
-                    hex: selectedColorForAction.color_hex,
-                    name: selectedColorForAction.color_name,
-                    bgClass: "bg-gray-100",
-                    textClass: "text-gray-800",
-                    borderClass: "border-gray-300",
-                    ringClass: "ring-gray-400",
-                  };
-                  setSelectedColor(matchedPalette);
-                  const short = selectedColorForAction.color_name.split("/")[0].trim().slice(0, 4).toUpperCase();
-                  setBulkPrefix(`BND-${short}`);
-                  setBulkStartNum(String(selectedColorForAction.total + 1).padStart(3, "0"));
-                  setBulkCount(10);
-                  setBulkSeparator("auto");
-                  setIsBulkMode(true);
-                  setIsColorManageModalOpen(false);
-                  setIsStockInModalOpen(true);
-                }}
-                className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-[#ff5a1f] hover:bg-orange-50/30 transition-all flex items-center justify-between group"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-lg bg-orange-100 text-[#ff5a1f] group-hover:scale-105 transition-transform">
-                    <Plus className="w-5 h-5" />
-                  </div>
-                  <div>
-                    <strong className="block text-xs font-bold text-gray-900 group-hover:text-[#ff5a1f] transition-colors">
-                      + Add New Band Series
-                    </strong>
-                    <span className="text-[11px] text-gray-500">
-                      Batch generate BND-{selectedColorForAction.color_name.slice(0, 3).toUpperCase()}-... bands into inventory
-                    </span>
-                  </div>
+                  {/* Option 1: Add New Band Series */}
+                  <button
+                    onClick={() => {
+                      const matchedPalette = WRISTBAND_PALETTE.find(
+                        (p) => p.name.toLowerCase() === selectedColorForAction.color_name.toLowerCase()
+                      ) || {
+                        hex: selectedColorForAction.color_hex,
+                        name: selectedColorForAction.color_name,
+                        bgClass: "bg-gray-100",
+                        textClass: "text-gray-800",
+                        borderClass: "border-gray-300",
+                        ringClass: "ring-gray-400",
+                      };
+                      setSelectedColor(matchedPalette);
+                      const short = selectedColorForAction.color_name.split("/")[0].trim().slice(0, 4).toUpperCase();
+                      setBulkPrefix(`BND-${short}`);
+                      setBulkStartNum(String(selectedColorForAction.total + 1).padStart(3, "0"));
+                      setBulkCount(10);
+                      setBulkSeparator("auto");
+                      setIsBulkMode(true);
+                      setIsColorManageModalOpen(false);
+                      setIsStockInModalOpen(true);
+                    }}
+                    className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-[#ff5a1f] hover:bg-orange-50/30 transition-all flex items-center justify-between group"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-lg bg-orange-100 text-[#ff5a1f] group-hover:scale-105 transition-transform">
+                        <Plus className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-gray-900 group-hover:text-[#ff5a1f] transition-colors">
+                          + Add New Band Series
+                        </strong>
+                        <span className="text-[11px] text-gray-500">
+                          Batch generate BND-{selectedColorForAction.color_name.slice(0, 3).toUpperCase()}-... bands into inventory
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-[#ff5a1f] group-hover:translate-x-1 transition-all" />
+                  </button>
+                </>
+              ) : (
+                <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 text-xs text-gray-500 text-center">
+                  🔒 Stock and series modifications are restricted to Admin. You can view bands and issue them to players below.
                 </div>
-                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-[#ff5a1f] group-hover:translate-x-1 transition-all" />
-              </button>
+              )}
 
               {/* Option 2: View and Edit in Master Catalog */}
               <button

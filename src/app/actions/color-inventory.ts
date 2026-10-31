@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { checkSessionAction } from "@/app/login/actions";
+import { hasUserPermission } from "@/lib/permissions";
 import {
   getColorInventory,
   syncColorInventoryFromSlots,
@@ -16,10 +17,13 @@ import {
 /**
  * Ensures authorized admin or staff access
  */
-async function requireAdminSession() {
+async function requireAdminSession(requiredPerm?: string) {
   const session = await checkSessionAction();
   if (!session) {
     throw new Error("Unauthorized: Please log in to manage wristband color inventory.");
+  }
+  if (requiredPerm && !hasUserPermission(session, requiredPerm)) {
+    throw new Error(`Forbidden: You do not have permission (${requiredPerm}) to manage wristband stock.`);
   }
   return session;
 }
@@ -69,7 +73,7 @@ export async function updateColorStockAction(params: {
   error?: string;
 }> {
   try {
-    await requireAdminSession();
+    await requireAdminSession("bands:manage_stock");
     const result = await updateColorStock(params);
     if (result.success) {
       revalidatePath("/admin/slots");
@@ -92,7 +96,7 @@ export async function stockOutColorToReceptionAction(params: {
   error?: string;
 }> {
   try {
-    await requireAdminSession();
+    await requireAdminSession("bands:manage_stock");
     const result = await stockOutColorToReception(params);
     if (result.success) {
       revalidatePath("/admin/slots");
@@ -114,7 +118,7 @@ export async function returnColorFromReceptionAction(params: {
   error?: string;
 }> {
   try {
-    await requireAdminSession();
+    await requireAdminSession("bands:manage_stock");
     const result = await returnColorFromReception(params);
     if (result.success) {
       revalidatePath("/admin/slots");
@@ -137,7 +141,7 @@ export async function setColorReceptionAction(params: {
   error?: string;
 }> {
   try {
-    await requireAdminSession();
+    await requireAdminSession("bands:manage_stock");
     const result = await setColorReception(params);
     if (result.success) {
       revalidatePath("/admin/slots");

@@ -22,6 +22,10 @@ export const PERMISSION_GROUPS = {
     { key: "bookings:checkin", label: "Customer Desk Check-In", description: "Can initiate customer OTP desk check-in" },
     { key: "bookings:export", label: "Export Excel Reports", description: "Can download Excel reports of orders" },
   ],
+  bandActions: [
+    { key: "bands:assign", label: "Assign & Issue Bands", description: "Can issue and assign wristbands to customers and record returns at desk" },
+    { key: "bands:manage_stock", label: "Manage Stock & Add Inventory", description: "Can create new band batches, add warehouse stock, perform stock-out, and edit or delete bands" },
+  ],
 };
 
 /**

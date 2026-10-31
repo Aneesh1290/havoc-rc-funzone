@@ -22,7 +22,9 @@ import {
   CheckCircle2,
   QrCode,
   FileSpreadsheet,
-  Layers
+  Layers,
+  UserCheck,
+  PackagePlus
 } from "lucide-react";
 import { 
   fetchStaffUsersAction, 
@@ -58,6 +60,11 @@ const BOOKING_ACTION_PERMISSIONS = [
   { key: "bookings:checkin", label: "Desk Check-In", icon: QrCode, desc: "Can run customer OTP desk check-in" },
   { key: "bookings:export", label: "Export Reports", icon: FileSpreadsheet, desc: "Can download Excel reports of orders" },
   { key: "bookings:delete", label: "Delete Orders", icon: Trash2, desc: "Can delete single or bulk orders from bookings list" },
+];
+
+const BAND_ACTION_PERMISSIONS = [
+  { key: "bands:assign", label: "Assign & Issue Bands", icon: UserCheck, desc: "Can view inventory, assign & issue wristbands to customers, and record returns at desk" },
+  { key: "bands:manage_stock", label: "Manage Stock & Add Inventory", icon: PackagePlus, desc: "Can add new stock, generate band batches, stock out to desk, and edit/delete bands" },
 ];
 
 export default function StaffManagementPage() {
@@ -410,6 +417,37 @@ export default function StaffManagementPage() {
                                   </div>
                                 </div>
                               )}
+
+                              {/* Band Inventory Actions & Restrictions */}
+                              {currentPerms.includes("bands") && (
+                                <div className="pt-1 border-t border-gray-100">
+                                  <div className="text-[10px] font-extrabold text-gray-400 uppercase tracking-wider mb-1">
+                                    Band Inventory Permissions
+                                  </div>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {BAND_ACTION_PERMISSIONS.map((perm) => {
+                                      const isChecked = currentPerms.includes(perm.key);
+                                      const IconComponent = perm.icon;
+                                      return (
+                                        <button
+                                          key={perm.key}
+                                          type="button"
+                                          onClick={() => handleTogglePerm(u, perm.key)}
+                                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold border transition-all ${
+                                            isChecked
+                                              ? "bg-emerald-50 border-emerald-200 text-emerald-800 shadow-xs"
+                                              : "bg-gray-50 border-gray-200 text-gray-400 hover:text-gray-600 line-through opacity-50"
+                                          }`}
+                                          title={isChecked ? `Allowed: Click to restrict ${perm.label}` : `Restricted: Click to allow ${perm.label}`}
+                                        >
+                                          <IconComponent className="w-2.5 h-2.5" />
+                                          <span>{perm.label}</span>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
                             </div>
                           )}
                         </td>
@@ -582,6 +620,49 @@ export default function StaffManagementPage() {
                               <div className="flex items-center gap-1.5 font-bold">
                                 <IconComponent className={`w-3.5 h-3.5 ${isDelete ? "text-red-500" : "text-gray-500"}`} />
                                 <span className={isDelete ? "text-red-700" : "text-gray-900"}>{perm.label}</span>
+                              </div>
+                              <p className="text-[11px] text-gray-400 font-normal leading-tight mt-0.5">
+                                {perm.desc}
+                              </p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* 3. Band Inventory Granular Actions */}
+                {selectedPerms.includes("bands") && (
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
+                      Band Inventory Actions Allowed
+                    </label>
+                    <div className="space-y-2 bg-gray-50/70 p-3 rounded-xl border border-gray-200/70">
+                      {BAND_ACTION_PERMISSIONS.map((perm) => {
+                        const isChecked = selectedPerms.includes(perm.key);
+                        const IconComponent = perm.icon;
+                        const isManageStock = perm.key === "bands:manage_stock";
+                        return (
+                          <label key={perm.key} className="flex items-start gap-2.5 cursor-pointer text-xs font-medium text-gray-700 select-none">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPerms(prev => [...prev, perm.key]);
+                                } else {
+                                  setSelectedPerms(prev => prev.filter(k => k !== perm.key));
+                                }
+                              }}
+                              className={`rounded border-gray-300 mt-0.5 w-3.5 h-3.5 ${
+                                isManageStock ? "text-amber-600 focus:ring-amber-500" : "text-[#ff5a1f] focus:ring-[#ff5a1f]"
+                              }`}
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5 font-bold">
+                                <IconComponent className={`w-3.5 h-3.5 ${isManageStock ? "text-amber-600" : "text-emerald-600"}`} />
+                                <span className={isManageStock ? "text-gray-900 font-bold" : "text-gray-900"}>{perm.label}</span>
                               </div>
                               <p className="text-[11px] text-gray-400 font-normal leading-tight mt-0.5">
                                 {perm.desc}

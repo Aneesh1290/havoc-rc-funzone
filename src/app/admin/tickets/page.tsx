@@ -354,7 +354,7 @@ export default function TicketsPage() {
                   type="text" 
                   value={editingTicket.description || ""}
                   onChange={(e) => setEditingTicket({...editingTicket, description: e.target.value})}
-                  placeholder="e.g. All 16 RC activities + 1-Hour Free Simulator session."
+                  placeholder="e.g. 15 RC activities + 1-Hour Free Simulator session (Excavator extra)."
                   className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] outline-none"
                 />
               </div>
@@ -367,7 +367,7 @@ export default function TicketsPage() {
                   rows={3}
                   value={editingTicket.benefits || ""}
                   onChange={(e) => setEditingTicket({...editingTicket, benefits: e.target.value})}
-                  placeholder="Full play access to all 16 RC activities&#10;Upgraded hobby grade RC cars&#10;Free 1-Hour simulator session"
+                  placeholder="Full play access to 15 RC activities&#10;Excavator activity is paid extra&#10;Upgraded hobby grade RC cars&#10;Free 1-Hour simulator session"
                   className="w-full border border-gray-200 rounded-xl p-3 text-xs leading-relaxed focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] outline-none"
                 />
               </div>
@@ -513,7 +513,7 @@ export default function TicketsPage() {
                   type="text" 
                   value={newTicket.description}
                   onChange={(e) => setNewTicket({...newTicket, description: e.target.value})}
-                  placeholder="e.g. All 16 RC activities + 1 hour session on any simulator."
+                  placeholder="e.g. 15 RC activities + 1 hour session on any simulator (Excavator extra)."
                   className="w-full border border-gray-200 rounded-xl px-3.5 py-2.5 text-sm focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] outline-none"
                 />
               </div>
@@ -526,7 +526,7 @@ export default function TicketsPage() {
                   rows={3}
                   value={newTicket.benefits}
                   onChange={(e) => setNewTicket({...newTicket, benefits: e.target.value})}
-                  placeholder="Full 1-Hour access to all 16 RC activities&#10;Upgraded hobby grade RC cars&#10;FREE 1-Hour session on any Havoc Sim Podium simulator"
+                  placeholder="Full 1-Hour access to 15 RC activities&#10;Excavator activity is paid extra&#10;Upgraded hobby grade RC cars&#10;FREE 1-Hour session on any Havoc Sim Podium simulator"
                   className="w-full border border-gray-200 rounded-xl p-3 text-xs leading-relaxed focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f] outline-none"
                 />
               </div>

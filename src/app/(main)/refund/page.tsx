@@ -156,7 +156,7 @@ export default function RefundPolicyPage() {
                       <td className="py-3 px-4">₹1,500.00</td>
                       <td className="py-3 px-4">₹270.00</td>
                       <td className="py-3 px-4 font-black text-[#ff5a1f]">₹1,770.00</td>
-                      <td className="py-3 px-4 text-xs text-gray-500">All 16 RC zones + Upgraded RC cars + 30-min Sim Podium session</td>
+                      <td className="py-3 px-4 text-xs text-gray-500">15 RC zones (Excavator extra) + Upgraded RC cars + 30-min Sim Podium session</td>
                     </tr>
                   </tbody>
                 </table>

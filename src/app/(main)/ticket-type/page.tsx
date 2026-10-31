@@ -179,7 +179,8 @@ export default async function TicketTypePage() {
                                 </svg>
                               </div>
                               <ul className="text-base sm:text-lg font-bold text-black">
-                                <li>• Full access to all 16 RC Activities</li>
+                                <li>• Full access to 15 RC Activities</li>
+                                <li className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">*(Excavator activity is to be paid extra)</li>
                                 <li className="mt-1.5">• Upgraded Hobby Grade RC Cars for Drift, Off-Road, Mini-Z tracks &amp; FPV RC cars.</li>
                               </ul>
                             </div>

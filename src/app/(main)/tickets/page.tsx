@@ -148,7 +148,7 @@ export default function TicketsPage() {
             <li className="flex gap-4">
               <span className="min-w-[24px] text-[#ff5a1f]">6.</span>
               <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">VIP Participant Ticket:</span> Grants 1 hour full access to all 16 RC Activities, with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
+                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">VIP Participant Ticket:</span> Grants 1 hour full access to 15 RC Activities (Excavator activity is to be paid extra), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
                 <span className="text-[#ff5a1f]">₹1500 + GST per hour per person</span>
               </div>
             </li>

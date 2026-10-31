@@ -43,7 +43,7 @@ export function initDB() {
   db.exec(`
     CREATE TABLE IF NOT EXISTS band_items (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      band_code TEXT NOT NULL UNIQUE,
+      band_code TEXT NOT NULL,
       color_name TEXT NOT NULL,
       color_hex TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'Standard',
@@ -55,7 +55,8 @@ export function initDB() {
       notes TEXT,
       location TEXT NOT NULL DEFAULT 'warehouse', -- 'warehouse', 'reception'
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name)
     );
 
     CREATE TABLE IF NOT EXISTS band_transactions (
@@ -208,6 +209,45 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
+  try {
+    // Migration: If SQLite band_items table still has the legacy single-column UNIQUE(band_code), recreate with UNIQUE(band_code, color_name)
+    const indexes = db.prepare('PRAGMA index_list(band_items)').all() as any[];
+    const legacyAutoIndex = indexes.find(i => i.origin === 'u' && i.unique === 1);
+    if (legacyAutoIndex) {
+      const cols = db.prepare(`PRAGMA index_info(${legacyAutoIndex.name})`).all() as any[];
+      if (cols.length === 1 && cols[0].name === 'band_code') {
+        db.transaction(() => {
+          db.exec(`
+            CREATE TABLE band_items_rebuild (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              band_code TEXT NOT NULL,
+              color_name TEXT NOT NULL,
+              color_hex TEXT NOT NULL,
+              category TEXT NOT NULL DEFAULT 'Standard',
+              status TEXT NOT NULL DEFAULT 'available',
+              current_holder_name TEXT,
+              current_booking_id INTEGER,
+              current_order_number TEXT,
+              total_uses INTEGER NOT NULL DEFAULT 0,
+              notes TEXT,
+              location TEXT NOT NULL DEFAULT 'warehouse',
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name)
+            );
+          `);
+          db.exec('INSERT INTO band_items_rebuild SELECT * FROM band_items;');
+          db.exec('DROP TABLE band_items;');
+          db.exec('ALTER TABLE band_items_rebuild RENAME TO band_items;');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);');
+          db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location);');
+        })();
+      }
+    }
+  } catch (migErr) {}
+  try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_band_items_code_color ON band_items(band_code, color_name)'); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT \'all\''); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
   try {

@@ -91,7 +91,7 @@ async function ensurePgSchema() {
     await simulatorPool.query(`
       CREATE TABLE IF NOT EXISTS band_items (
         id SERIAL PRIMARY KEY,
-        band_code VARCHAR(100) NOT NULL UNIQUE,
+        band_code VARCHAR(100) NOT NULL,
         color_name VARCHAR(100) NOT NULL,
         color_hex VARCHAR(50) NOT NULL,
         category VARCHAR(50) DEFAULT 'Standard',
@@ -103,8 +103,31 @@ async function ensurePgSchema() {
         notes TEXT,
         location VARCHAR(50) DEFAULT 'warehouse',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name)
       );
+
+      -- Migration: Drop old single-column unique constraint if present so different colors can share the same band numbers
+      DO $$
+      BEGIN
+        IF EXISTS (
+          SELECT 1 FROM pg_constraint 
+          WHERE conname = 'band_items_band_code_key'
+        ) THEN
+          ALTER TABLE band_items DROP CONSTRAINT band_items_band_code_key;
+        END IF;
+      END $$;
+
+      -- Ensure compound unique constraint exists on (band_code, color_name)
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint 
+          WHERE conname = 'unique_band_code_per_color'
+        ) THEN
+          ALTER TABLE band_items ADD CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name);
+        END IF;
+      END $$;
 
       ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
       CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
@@ -760,9 +783,9 @@ export async function createBandItem(data: {
     const cleanCode = data.band_code.trim().toUpperCase();
     if (!cleanCode) return { success: false, error: "Unique Band ID / Code is required." };
 
-    const existing = await getBandItemByCode(cleanCode);
+    const existing = await getBandItemByCode(cleanCode, { color_name: data.color_name, color_hex: data.color_hex });
     if (existing) {
-      return { success: false, error: `Band ID '${cleanCode}' already exists in master inventory.` };
+      return { success: false, error: `Band ID '${cleanCode}' already exists for color '${data.color_name}'.` };
     }
 
     const category = data.category || "Standard";
@@ -899,7 +922,7 @@ export async function bulkCreateBandItems(data: {
             const insertQuery = `
               INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes, location)
               VALUES ${valueRows.join(", ")}
-              ON CONFLICT (band_code) DO NOTHING
+              ON CONFLICT (band_code, color_name) DO NOTHING
               RETURNING id, band_code;
             `;
 
@@ -930,7 +953,7 @@ export async function bulkCreateBandItems(data: {
             return {
               success: false,
               createdCount: 0,
-              error: `No new bands created: all wristband codes in this range (${codes[0]} to ${codes[codes.length - 1]}) already exist in inventory.`
+              error: `No new bands created: all wristband codes in this range (${codes[0]} to ${codes[codes.length - 1]}) already exist for color '${data.color_name}'.`
             };
           }
 
@@ -962,7 +985,7 @@ export async function bulkCreateBandItems(data: {
     const insertItem = db.prepare(`
       INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes, location)
       VALUES (?, ?, ?, ?, 'available', 0, ?, 'warehouse')
-      ON CONFLICT(band_code) DO NOTHING
+      ON CONFLICT(band_code, color_name) DO NOTHING
     `);
 
     const insertTx = db.prepare(`
@@ -991,7 +1014,7 @@ export async function bulkCreateBandItems(data: {
       return { 
         success: false, 
         createdCount: 0, 
-        error: `No new bands created: all wristband codes in range (${firstCode} to ${lastCode}) already exist in inventory.` 
+        error: `No new bands created: all wristband codes in range (${firstCode} to ${lastCode}) already exist for color '${data.color_name}'.` 
       };
     }
 

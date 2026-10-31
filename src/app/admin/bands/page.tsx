@@ -22,6 +22,7 @@ import {
   Edit3, 
   Trash2, 
   ChevronRight, 
+  ChevronLeft,
   RefreshCw, 
   Check, 
   FileSpreadsheet, 
@@ -77,11 +78,13 @@ export default function BandInventoryPage() {
   const [transactions, setTransactions] = useState<BandTransaction[]>([]);
   const [totalTransactionsCount, setTotalTransactionsCount] = useState(0);
 
-  // Filters for Master List
+  // Filters & Pagination for Master List
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [colorFilter, setColorFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [pageSize, setPageSize] = useState<number>(50);
+  const [currentPage, setCurrentPage] = useState<number>(1);
 
   // Filters for Movement Log
   const [movementSearch, setMovementSearch] = useState("");
@@ -165,6 +168,9 @@ export default function BandInventoryPage() {
     else setIsLoading(true);
 
     try {
+      const itemsLimit = pageSize === -1 ? 50000 : pageSize;
+      const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
+
       const [summaryRes, itemsRes, txRes] = await Promise.all([
         getBandInventorySummaryAction(),
         getBandItemsAction({
@@ -172,7 +178,8 @@ export default function BandInventoryPage() {
           status: statusFilter,
           color_name: colorFilter,
           category: categoryFilter,
-          limit: 200,
+          limit: itemsLimit,
+          offset: itemsOffset,
         }),
         getBandTransactionsAction({
           search: movementSearch,
@@ -201,9 +208,14 @@ export default function BandInventoryPage() {
     }
   };
 
+  // Reset to page 1 when search or filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, statusFilter, colorFilter, categoryFilter]);
+
   useEffect(() => {
     loadData();
-  }, [searchQuery, statusFilter, colorFilter, categoryFilter, movementSearch, movementTypeFilter]);
+  }, [searchQuery, statusFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter]);
 
   const handleSyncSlots = async () => {
     setIsSyncingSlots(true);
@@ -1155,6 +1167,26 @@ export default function BandInventoryPage() {
                 <option value="Child">Child</option>
                 <option value="Staff / Marshal">Staff / Marshal</option>
               </select>
+
+              {/* Per Page Selector */}
+              <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white border border-gray-300 rounded-xl px-2.5 py-1">
+                <span className="text-gray-500 font-semibold text-xs whitespace-nowrap">Per Page:</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-gray-900 text-xs font-bold py-1 focus:outline-none cursor-pointer"
+                >
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                  <option value={250}>250</option>
+                  <option value={500}>500</option>
+                  <option value={-1}>All ({totalItemsCount})</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1360,10 +1392,50 @@ export default function BandInventoryPage() {
             </table>
           </div>
 
-          <div className="p-4 border-t border-gray-100 text-xs text-gray-500 flex items-center justify-between">
-            <span>Showing {items.length} of {totalItemsCount} wristbands in master catalog</span>
-            <span className="font-mono text-gray-400">Unique ID Master Database</span>
-          </div>
+          {/* Table Footer with Pagination Controls */}
+          {pageSize !== -1 && totalItemsCount > pageSize ? (
+            <div className="p-4 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-600">
+              <div>
+                Showing <strong className="text-gray-900 font-mono">{(currentPage - 1) * pageSize + 1}</strong> to{" "}
+                <strong className="text-gray-900 font-mono">{Math.min(currentPage * pageSize, totalItemsCount)}</strong> of{" "}
+                <strong className="text-gray-900 font-mono">{totalItemsCount}</strong> wristbands
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentPage <= 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Previous page"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+
+                <span className="px-3 py-1 font-bold text-gray-800">
+                  Page {currentPage} of {Math.ceil(totalItemsCount / pageSize)}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={currentPage >= Math.ceil(totalItemsCount / pageSize)}
+                  onClick={() => setCurrentPage((prev) => Math.min(Math.ceil(totalItemsCount / pageSize), prev + 1))}
+                  className="p-1.5 rounded-lg border border-gray-200 text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  title="Next page"
+                >
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 border-t border-gray-100 text-xs text-gray-500 flex items-center justify-between">
+              <span>
+                Showing <strong className="font-mono text-gray-900">{items.length}</strong> of{" "}
+                <strong className="font-mono text-gray-900">{totalItemsCount}</strong> wristbands in master catalog
+              </span>
+              <span className="font-mono text-gray-400">Unique ID Master Database</span>
+            </div>
+          )}
         </div>
       )}
 

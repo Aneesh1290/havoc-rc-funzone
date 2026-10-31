@@ -344,6 +344,24 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     }
   }, [selectedTicket, maxAvailableCap, quantity]);
 
+  // Ensure add-on quantity never exceeds the main ticket pass quantity
+  useEffect(() => {
+    setSelectedAddons(prev => {
+      let changed = false;
+      const next: Record<number, { selected: boolean; quantity: number }> = {};
+      for (const [idStr, val] of Object.entries(prev)) {
+        const id = Number(idStr);
+        if (val.quantity > quantity) {
+          next[id] = { ...val, quantity };
+          changed = true;
+        } else {
+          next[id] = val;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [quantity]);
+
   // Generate dynamic dates for the selected month and year
   const [monthStr, yearStr] = unwrappedParams.month.split('-');
   const monthNames = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
@@ -986,7 +1004,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                             ...prev,
                             [addon.id]: {
                               selected: !isSelected,
-                              quantity: prev[addon.id]?.quantity || quantity
+                              quantity: Math.min(prev[addon.id]?.quantity || quantity, quantity)
                             }
                           }));
                         }}
@@ -1032,7 +1050,12 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                             className="mt-3 pt-2.5 border-t border-orange-200/70 flex items-center justify-between animate-in fade-in duration-150"
                             onClick={(e) => e.stopPropagation()}
                           >
-                            <span className="text-xs font-bold text-gray-700">Add-on Quantity:</span>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-bold text-gray-700">Add-on Quantity:</span>
+                              <span className="text-[10px] font-semibold text-gray-400">
+                                (Max {quantity} {quantity === 1 ? 'pass' : 'passes'})
+                              </span>
+                            </div>
                             <div className="flex border border-orange-300 w-28 rounded-lg overflow-hidden bg-white shadow-sm">
                               <button
                                 type="button"
@@ -1052,15 +1075,22 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                               </div>
                               <button
                                 type="button"
-                                className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors"
+                                disabled={addonQty >= quantity}
+                                className={`w-8 h-8 flex items-center justify-center font-bold transition-colors ${
+                                  addonQty >= quantity
+                                    ? 'text-gray-300 cursor-not-allowed bg-gray-50'
+                                    : 'text-gray-600 hover:text-[#ff5a1f] hover:bg-orange-50'
+                                }`}
                                 onClick={() => {
-                                  setSelectedAddons(prev => ({
-                                    ...prev,
-                                    [addon.id]: {
-                                      selected: true,
-                                      quantity: addonQty + 1
-                                    }
-                                  }));
+                                  if (addonQty < quantity) {
+                                    setSelectedAddons(prev => ({
+                                      ...prev,
+                                      [addon.id]: {
+                                        selected: true,
+                                        quantity: Math.min(addonQty + 1, quantity)
+                                      }
+                                    }));
+                                  }
                                 }}
                               >+</button>
                             </div>
@@ -1107,16 +1137,17 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                       simulatorSlot: hasSimPerk ? combinedSimSlots : undefined
                     });
 
-                    // 2. Add selected add-on(s) to cart with matching date & slot
+                    // 2. Add selected add-on(s) to cart with matching date & slot, strictly capped to pass quantity
                     availableAddons.forEach(addon => {
                       const sel = selectedAddons[addon.id];
                       if (sel?.selected && addon.ticket_id) {
+                        const finalAddonQty = Math.min(sel.quantity || quantity, quantity);
                         addItem({
                           id: Math.random().toString(36).substring(7),
                           type: addon.name,
                           date,
                           timeSlot: time,
-                          quantity: sel.quantity || quantity,
+                          quantity: finalAddonQty,
                           price: addon.price,
                           ticketId: addon.ticket_id
                         });

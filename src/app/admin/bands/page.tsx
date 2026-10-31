@@ -30,7 +30,8 @@ import {
   Package, 
   Eye,
   SlidersHorizontal,
-  Hash
+  Hash,
+  Loader2
 } from "lucide-react";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { 
@@ -114,6 +115,7 @@ export default function BandInventoryPage() {
   const [bulkStartNum, setBulkStartNum] = useState("001");
   const [bulkCount, setBulkCount] = useState(10);
   const [bulkSeparator, setBulkSeparator] = useState<"-" | "" | "auto">("auto");
+  const [stockInError, setStockInError] = useState<string | null>(null);
 
   // Form States: Quick Issue
   const [issueBandCode, setIssueBandCode] = useState("");
@@ -353,6 +355,7 @@ export default function BandInventoryPage() {
   const handleSubmitStockIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmittingStockIn(true);
+    setStockInError(null);
     setFeedback(null);
 
     try {
@@ -381,10 +384,13 @@ export default function BandInventoryPage() {
             type: "success", 
             message: `Successfully generated and stocked in ${res.createdCount} wristbands!` 
           });
+          setStockInError(null);
           setIsStockInModalOpen(false);
           loadData();
         } else {
-          setFeedback({ type: "error", message: res.error || "Failed to generate bands." });
+          const errMsg = res.error || "Failed to generate bands.";
+          setStockInError(errMsg);
+          setFeedback({ type: "error", message: errMsg });
         }
       } else {
         const res = await createBandItemAction({
@@ -397,15 +403,20 @@ export default function BandInventoryPage() {
 
         if (res.success) {
           setFeedback({ type: "success", message: `Wristband ${newBandCode.toUpperCase()} stocked in successfully!` });
+          setStockInError(null);
           setIsStockInModalOpen(false);
           setNewBandCode("");
           loadData();
         } else {
-          setFeedback({ type: "error", message: res.error || "Failed to create band." });
+          const errMsg = res.error || "Failed to create band.";
+          setStockInError(errMsg);
+          setFeedback({ type: "error", message: errMsg });
         }
       }
     } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "An error occurred." });
+      const errMsg = err.message || "An error occurred.";
+      setStockInError(errMsg);
+      setFeedback({ type: "error", message: errMsg });
     } finally {
       setIsSubmittingStockIn(false);
     }
@@ -2106,10 +2117,21 @@ export default function BandInventoryPage() {
                 />
               </div>
 
+              {/* Inline Error Alert inside Modal */}
+              {stockInError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-red-800 text-xs flex items-start gap-2.5 animate-in fade-in">
+                  <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 font-semibold">{stockInError}</div>
+                </div>
+              )}
+
               <div className="pt-3 flex items-center justify-end gap-2.5">
                 <button
                   type="button"
-                  onClick={() => setIsStockInModalOpen(false)}
+                  onClick={() => {
+                    setIsStockInModalOpen(false);
+                    setStockInError(null);
+                  }}
                   className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100"
                 >
                   Cancel
@@ -2119,7 +2141,16 @@ export default function BandInventoryPage() {
                   disabled={isSubmittingStockIn}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-600/20 disabled:opacity-50"
                 >
-                  {isSubmittingStockIn ? "Adding Stock..." : isBulkMode ? `Generate ${bulkCount} Bands` : "Stock In Band"}
+                  {isSubmittingStockIn ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>{isBulkMode ? "Generating Bands..." : "Adding Stock..."}</span>
+                    </>
+                  ) : isBulkMode ? (
+                    `Generate ${bulkCount} Bands`
+                  ) : (
+                    "Stock In Band"
+                  )}
                 </button>
               </div>
             </form>

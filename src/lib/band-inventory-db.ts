@@ -871,34 +871,81 @@ export async function bulkCreateBandItems(data: {
       try {
         const client = await simulatorPool.connect();
         try {
+          await ensurePgSchema();
           await client.query("BEGIN");
-          let createdCount = 0;
+
+          // Pre-generate all candidate band codes
+          const codes: string[] = [];
           for (let i = 0; i < count; i++) {
-            const code = formatBandCode(i);
+            codes.push(formatBandCode(i));
+          }
 
-            const existCheck = await client.query("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER($1)", [code]);
-            if (existCheck.rows.length > 0) continue;
+          // Fast batch insert with ON CONFLICT DO NOTHING in chunks of 500
+          let createdCount = 0;
+          const chunkSize = 250;
+          for (let i = 0; i < codes.length; i += chunkSize) {
+            const chunk = codes.slice(i, i + chunkSize);
+            if (chunk.length === 0) continue;
 
-            const insRes = await client.query(
-              `INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-                 VALUES ($1, $2, $3, $4, 'available', 0, $5)
-                 RETURNING id`,
-              [code, data.color_name.trim(), data.color_hex.trim(), category, notes]
-            );
-            const newId = insRes.rows[0]?.id;
-            if (newId) {
+            const valueParams: any[] = [];
+            const valueRows: string[] = [];
+
+            chunk.forEach((code, idx) => {
+              const baseIdx = idx * 5;
+              valueRows.push(`($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, 'available', 0, $${baseIdx + 5}, 'warehouse')`);
+              valueParams.push(code, data.color_name.trim(), data.color_hex.trim(), category, notes);
+            });
+
+            const insertQuery = `
+              INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes, location)
+              VALUES ${valueRows.join(", ")}
+              ON CONFLICT (band_code) DO NOTHING
+              RETURNING id, band_code;
+            `;
+
+            const insRes = await client.query(insertQuery, valueParams);
+            const insertedRows = insRes.rows || [];
+            createdCount += insertedRows.length;
+
+            if (insertedRows.length > 0) {
+              const txParams: any[] = [];
+              const txRows: string[] = [];
+              insertedRows.forEach((row: any, tIdx: number) => {
+                const bIdx = tIdx * 6;
+                txRows.push(`($${bIdx + 1}, $${bIdx + 2}, $${bIdx + 3}, $${bIdx + 4}, 'STOCK_IN', 1, $${bIdx + 5}, $${bIdx + 6})`);
+                txParams.push(row.id, row.band_code, data.color_name.trim(), data.color_hex.trim(), staffName, notes);
+              });
+
               await client.query(
                 `INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, quantity, staff_name, notes)
-                   VALUES ($1, $2, $3, $4, 'STOCK_IN', 1, $5, $6)`,
-                [newId, code, data.color_name.trim(), data.color_hex.trim(), staffName, notes]
+                 VALUES ${txRows.join(", ")}`,
+                txParams
               );
-              createdCount++;
             }
           }
+
           await client.query("COMMIT");
+
           if (createdCount === 0) {
-            return { success: false, createdCount: 0, error: "No new bands created (all codes in range already exist)." };
+            return {
+              success: false,
+              createdCount: 0,
+              error: `No new bands created: all wristband codes in this range (${codes[0]} to ${codes[codes.length - 1]}) already exist in inventory.`
+            };
           }
+
+          // Sync with color inventory stock count
+          try {
+            await client.query(
+              `UPDATE wristband_color_inventory 
+               SET quantity = quantity + $1, updated_at = NOW() 
+               WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $3`,
+              [createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase()]
+            );
+          } catch (colSyncErr) {
+            console.warn("[Bulk Create Bands] Color inventory counter sync notice:", colSyncErr);
+          }
+
           return { success: true, createdCount };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -913,8 +960,9 @@ export async function bulkCreateBandItems(data: {
 
     // SQLite fallback
     const insertItem = db.prepare(`
-      INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-      VALUES (?, ?, ?, ?, 'available', 0, ?)
+      INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes, location)
+      VALUES (?, ?, ?, ?, 'available', 0, ?, 'warehouse')
+      ON CONFLICT(band_code) DO NOTHING
     `);
 
     const insertTx = db.prepare(`
@@ -927,20 +975,34 @@ export async function bulkCreateBandItems(data: {
       for (let i = 0; i < count; i++) {
         const code = formatBandCode(i);
 
-        const exists = db.prepare("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(code);
-        if (exists) continue;
-
         const info = insertItem.run(code, data.color_name.trim(), data.color_hex.trim(), category, notes);
-        insertTx.run(Number(info.lastInsertRowid), code, data.color_name.trim(), data.color_hex.trim(), staffName, notes);
-        createdCount++;
+        if (info.changes > 0) {
+          insertTx.run(Number(info.lastInsertRowid), code, data.color_name.trim(), data.color_hex.trim(), staffName, notes);
+          createdCount++;
+        }
       }
     });
 
     runBulk();
 
     if (createdCount === 0) {
-      return { success: false, createdCount: 0, error: "No new bands created (all codes in range already exist)." };
+      const firstCode = formatBandCode(0);
+      const lastCode = formatBandCode(count - 1);
+      return { 
+        success: false, 
+        createdCount: 0, 
+        error: `No new bands created: all wristband codes in range (${firstCode} to ${lastCode}) already exist in inventory.` 
+      };
     }
+
+    // SQLite sync color inventory stock
+    try {
+      db.prepare(`
+        UPDATE wristband_color_inventory 
+        SET quantity = quantity + ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE UPPER(color_hex) = ? OR UPPER(color_name) = ?
+      `).run(createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase());
+    } catch (e) {}
 
     return { success: true, createdCount };
   } catch (err: any) {

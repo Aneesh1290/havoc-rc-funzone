@@ -232,7 +232,7 @@ function renderDaySheet(
     showGridLines: true
   };
 
-  // Configure Column Widths (A to O -> 15 columns matching client's screenshot)
+  // Configure Column Widths (A to S -> 19 columns matching client's complete structure)
   worksheet.columns = [
     { key: "totalSl", width: 9 },         // A: TOTAL SL
     { key: "sn", width: 6 },              // B: SN
@@ -242,21 +242,25 @@ function renderDaySheet(
     { key: "email", width: 26 },          // F: E-MAIL ID
     { key: "date", width: 13 },           // G: DATE
     { key: "timeSlot", width: 14 },       // H: TIME/SLOT
-    { key: "simPodium", width: 20 },      // I: TYPE OF SIM PODIUM
-    { key: "ppt", width: 8 },             // J: PPT (Total Participants / Passes)
-    { key: "amtReceived", width: 16 },    // K: AMOUNT RECEIVED
-    { key: "amtDue", width: 15 },         // L: AMOUNT DUE
-    { key: "status", width: 13 },         // M: STATUS
-    { key: "gatewayTxnId", width: 20 },   // N: GATEWAY TXN ID
-    { key: "deskRef", width: 18 }         // O: DESK REF / UTR
+    { key: "slotColour", width: 18 },     // I: SLOT NO / COLOUR
+    { key: "v", width: 5.5 },             // J: V (Visitor)
+    { key: "p", width: 5.5 },             // K: P (Participant)
+    { key: "vv", width: 5.5 },            // L: VV (VIP Visitor)
+    { key: "vp", width: 5.5 },            // M: VP (VIP Participant)
+    { key: "simPodium", width: 18 },      // N: TYPE OF SIM PODIUM
+    { key: "amtReceived", width: 16 },    // O: AMOUNT RECEIVED
+    { key: "amtDue", width: 15 },         // P: AMOUNT DUE
+    { key: "status", width: 13 },         // Q: STATUS
+    { key: "gatewayTxnId", width: 20 },   // R: GATEWAY TXN ID
+    { key: "deskRef", width: 18 }         // S: DESK REF / UTR
   ];
 
-  // Helper to render the single-row table header with exact client colors
-  // Cols A & B: Dark green (#1E5E3A), white bold text
-  // Cols C & D: Dusty rose / pink (#DDA7A5), black bold text
-  // Cols E to O: Dark green (#1E5E3A), white bold text
+  // Helper to render the 2-row table header with:
+  // - NUMBER OF TICKETS spanning J:M with sub-headers V, P, VV, VP
+  // - Other columns spanning rows 1 and 2
+  // - Colors: A & B (Dark Green), C & D (Pink/Dusty Rose), E to S (Dark Green)
   const renderTableHeader = (ws: ExcelJS.Worksheet) => {
-    const headerRow = ws.addRow([
+    const r1 = ws.addRow([
       "TOTAL SL",
       "SN",
       "ORDER NO",
@@ -265,38 +269,59 @@ function renderDaySheet(
       "E-MAIL ID",
       "DATE",
       "TIME/SLOT",
+      "SLOT NO / COLOUR",
+      "NUMBER OF TICKETS", "", "", "", // cols 10, 11, 12, 13 (J, K, L, M)
       "TYPE OF SIM PODIUM",
-      "PPT",
       "AMOUNT RECEIVED",
       "AMOUNT DUE",
       "STATUS",
       "GATEWAY TXN ID",
       "DESK REF / UTR"
     ]);
-    headerRow.height = 26;
-    const rNum = headerRow.number;
+    r1.height = 24;
+    const r1Num = r1.number;
 
-    for (let c = 1; c <= 15; c++) {
-      const cell = headerRow.getCell(c);
-      cell.border = thinBorder;
-      cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    const r2 = ws.addRow([
+      "", "", "", "", "", "", "", "", "",
+      "V", "P", "VV", "VP",
+      "", "", "", "", "", ""
+    ]);
+    r2.height = 22;
+    const r2Num = r2.number;
 
-      if (c === 3 || c === 4) {
-        // Columns C & D: ORDER NO and NAME (Pink background, black text)
-        cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FFDDA7A5" } // Dusty rose pink
-        };
-      } else {
-        // Columns A, B, and E through O: Dark Forest Green background, white text
-        cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
-        cell.fill = {
-          type: "pattern",
-          pattern: "solid",
-          fgColor: { argb: "FF1E5E3A" } // Dark green
-        };
+    // Merge J:M on row 1 for "NUMBER OF TICKETS"
+    ws.mergeCells(`J${r1Num}:M${r1Num}`);
+
+    // Vertical merges for standalone header columns
+    const standaloneCols = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "N", "O", "P", "Q", "R", "S"];
+    standaloneCols.forEach(col => {
+      ws.mergeCells(`${col}${r1Num}:${col}${r2Num}`);
+    });
+
+    for (let r = r1Num; r <= r2Num; r++) {
+      const row = ws.getRow(r);
+      for (let c = 1; c <= 19; c++) {
+        const cell = row.getCell(c);
+        cell.border = thinBorder;
+        cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+
+        if (c === 3 || c === 4) {
+          // Columns C & D: ORDER NO and NAME (Pink background, black text)
+          cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FF000000" } };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FFDDA7A5" } // Dusty rose pink
+          };
+        } else {
+          // Dark forest green background, white text
+          cell.font = { name: "Calibri", size: 10, bold: true, color: { argb: "FFFFFFFF" } };
+          cell.fill = {
+            type: "pattern",
+            pattern: "solid",
+            fgColor: { argb: "FF1E5E3A" } // Dark green
+          };
+        }
       }
     }
   };
@@ -324,7 +349,7 @@ function renderDaySheet(
     return timeA - timeB;
   });
 
-  // Format Top Banner (Row 1): Light sage green (#D5E8D4), spanning A1:O1, right-aligned banner text
+  // Format Top Banner (Row 1): Light sage green (#D5E8D4), spanning A1:S1, center-aligned banner text
   // Must mention "Havoc Rc Fun Zone - All Booking" on every page
   let row1BannerText = "Havoc Rc Fun Zone - All Booking";
   const parsedFirstDate = sortedDates.length === 1 ? parseBookingDate(sortedDates[0]) : null;
@@ -337,11 +362,11 @@ function renderDaySheet(
 
   const titleRow = worksheet.addRow([row1BannerText]);
   titleRow.height = 28;
-  worksheet.mergeCells("A1:O1");
+  worksheet.mergeCells("A1:S1");
   const titleCell = worksheet.getCell("A1");
   titleCell.font = { name: "Calibri", size: 12, bold: true, color: { argb: "FF000000" } };
   titleCell.alignment = { horizontal: "center", vertical: "middle" };
-  for (let col = 1; col <= 15; col++) {
+  for (let col = 1; col <= 19; col++) {
     const cCell = worksheet.getRow(1).getCell(col);
     cCell.border = thinBorder;
     cCell.fill = {
@@ -357,6 +382,10 @@ function renderDaySheet(
   }
 
   let totalSlCounter = 1;
+  let grandTotalV = 0;
+  let grandTotalP = 0;
+  let grandTotalVV = 0;
+  let grandTotalVP = 0;
   let grandTotalTickets = 0;
   let grandTotalAmountReceived = 0;
   let grandTotalAmountDue = 0;
@@ -368,7 +397,10 @@ function renderDaySheet(
     const slotGroups = dateToSlotsMap.get(dateKey)!;
 
     // Track per-day totals
-    let dayTickets = 0;
+    let dayV = 0;
+    let dayP = 0;
+    let dayVV = 0;
+    let dayVP = 0;
     let dayAmountReceived = 0;
     let dayAmountDue = 0;
 
@@ -388,7 +420,7 @@ function renderDaySheet(
       const sectionRow = worksheet.addRow([`DATE: ${dateBanner}`]);
       sectionRow.height = 24;
       const sectionRowNum = sectionRow.number;
-      worksheet.mergeCells(`A${sectionRowNum}:O${sectionRowNum}`);
+      worksheet.mergeCells(`A${sectionRowNum}:S${sectionRowNum}`);
       
       const sCell = worksheet.getCell(`A${sectionRowNum}`);
       sCell.font = { name: "Calibri", size: 11, bold: true, color: { argb: "FF0D1B2A" } };
@@ -398,7 +430,7 @@ function renderDaySheet(
         pattern: "solid",
         fgColor: { argb: "FFE9ECEF" }
       };
-      for (let c = 1; c <= 15; c++) {
+      for (let c = 1; c <= 19; c++) {
         const cCell = worksheet.getRow(sectionRowNum).getCell(c);
         cCell.border = thinBorder;
         cCell.fill = {
@@ -423,23 +455,58 @@ function renderDaySheet(
       const ordersInSlot = slotGroups.get(slotKey)!;
       ordersInSlot.sort((a, b) => a.orderNo - b.orderNo);
 
+      // Get slot meta, number, and color
+      const meta = slotMetaMap.get(slotKey.trim().toUpperCase());
+      const slotNum = meta ? meta.slotIndex : (slotIndex + 1);
+
+      const firstOrder = ordersInSlot[0];
+      const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
+      const slotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
+
+      // Color hex for this slot
+      const slotHex = meta?.colorHex || normalizeHex(firstOrder?.slotColor) || "06B6D4";
+      const contrastTextColor = getContrastTextColor(slotHex);
+
       ordersInSlot.forEach((order, snIdx) => {
         const sn = snIdx + 1;
         const currentSl = totalSlCounter++;
 
-        // Count total tickets / participants
-        let orderTickets = 0;
+        // Count ticket types: V, P, VV, VP
+        let vCount = 0;
+        let pCount = 0;
+        let vvCount = 0;
+        let vpCount = 0;
         let calculatedBaseAmount = 0;
 
         for (const item of order.items) {
+          const tName = (item.ticket_name || "").toUpperCase();
           const qty = item.quantity || 1;
-          orderTickets += qty;
           calculatedBaseAmount += (item.ticket_price || 0) * qty;
+
+          if (tName.includes("VIP_PARTICIPANT") || tName.includes("VIP PARTICIPANT")) {
+            vpCount += qty;
+          } else if (tName.includes("VIP_VISITOR") || tName.includes("VIP VISITOR")) {
+            vvCount += qty;
+          } else if (tName.includes("PARTICIPANT")) {
+            pCount += qty;
+          } else if (tName.includes("VISITOR")) {
+            vCount += qty;
+          } else {
+            pCount += qty;
+          }
         }
 
         // Accumulate Day & Grand Totals
-        dayTickets += orderTickets;
-        grandTotalTickets += orderTickets;
+        dayV += vCount;
+        dayP += pCount;
+        dayVV += vvCount;
+        dayVP += vpCount;
+
+        grandTotalV += vCount;
+        grandTotalP += pCount;
+        grandTotalVV += vvCount;
+        grandTotalVP += vpCount;
+        grandTotalTickets += (vCount + pCount + vvCount + vpCount);
 
         const isPaid = order.payment_status.toLowerCase() === "paid";
         const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
@@ -465,8 +532,12 @@ function renderDaySheet(
           order.email,
           order.date,
           order.timeSlot,
+          slotDisplayText,
+          vCount > 0 ? vCount : "",
+          pCount > 0 ? pCount : "",
+          vvCount > 0 ? vvCount : "",
+          vpCount > 0 ? vpCount : "",
           simPodiumDisplay,
-          orderTickets,
           received > 0 ? `₹ ${received.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           order.fulfillment_status,
@@ -476,41 +547,61 @@ function renderDaySheet(
         dataRow.height = 20;
 
         // Apply solid borders and alignment
-        for (let c = 1; c <= 15; c++) {
+        for (let c = 1; c <= 19; c++) {
           const cell = dataRow.getCell(c);
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10 };
 
-          if (c === 3 || c === 4 || c === 6 || c === 9 || c === 14 || c === 15) {
+          if (c === 3 || c === 4 || c === 6 || c === 14 || c === 18 || c === 19) {
             cell.alignment = { horizontal: "left", vertical: "middle" };
-          } else if (c === 11 || c === 12) {
+          } else if (c === 15 || c === 16) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
           } else {
             cell.alignment = { horizontal: "center", vertical: "middle" };
           }
         }
+
+        // Fill Column 9 (SLOT NO / COLOUR) with that specific slot's color
+        const slotCell = dataRow.getCell(9);
+        slotCell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: `FF${slotHex}` }
+        };
+        slotCell.font = {
+          name: "Calibri",
+          size: 10,
+          bold: true,
+          color: { argb: `FF${contrastTextColor}` }
+        };
       });
     });
 
     // If multiple dates are present (like in "All Bookings"), output the TOTAL for this specific day right here
     if (sortedDates.length > 1) {
+      const dayTickets = dayV + dayP + dayVV + dayVP;
+
       // Blank separator before Day Totals
       const preDayTotalGap = worksheet.addRow([]);
       preDayTotalGap.height = 8;
 
       const dayTotalRow = worksheet.addRow([
         "", "", "", "", "", "", "", "",
-        "DAY TOTAL",
-        dayTickets,
+        "TOTAL",
+        dayV > 0 ? dayV : "",
+        dayP > 0 ? dayP : "",
+        dayVV > 0 ? dayVV : "",
+        dayVP > 0 ? dayVP : "",
+        "",
         dayAmountReceived > 0 ? `₹ ${dayAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
         dayAmountDue > 0 ? `₹ ${dayAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
         "", "", ""
       ]);
       dayTotalRow.height = 24;
 
-      for (let c = 1; c <= 15; c++) {
+      for (let c = 1; c <= 19; c++) {
         const cell = dayTotalRow.getCell(c);
-        if (c >= 9 && c <= 12) {
+        if ((c >= 9 && c <= 13) || c === 15 || c === 16) {
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10, bold: true };
           cell.fill = {
@@ -518,12 +609,36 @@ function renderDaySheet(
             pattern: "solid",
             fgColor: { argb: "FFF0F0F0" }
           };
-          if (c === 11 || c === 12) {
+          if (c === 15 || c === 16) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
           } else {
             cell.alignment = { horizontal: "center", vertical: "middle" };
           }
         }
+      }
+
+      // ROW: Total Tickets for this day
+      const dayOverallRow = worksheet.addRow([
+        "", "", "", "", "", "", "", "",
+        "TOTAL TICKETS",
+        dayTickets,
+        "", "", "", "", "", "", "", "", ""
+      ]);
+      dayOverallRow.height = 24;
+
+      const dayOverallRowNum = dayOverallRow.number;
+      worksheet.mergeCells(`J${dayOverallRowNum}:M${dayOverallRowNum}`);
+
+      for (let c = 9; c <= 13; c++) {
+        const cell = dayOverallRow.getCell(c);
+        cell.border = doubleBottomBorder;
+        cell.font = { name: "Calibri", size: 11, bold: true };
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+        cell.fill = {
+          type: "pattern",
+          pattern: "solid",
+          fgColor: { argb: "FFEAEAEA" }
+        };
       }
     }
   });
@@ -534,33 +649,62 @@ function renderDaySheet(
 
   // ROW: Sheet Totals (TOTAL / GRAND TOTAL row)
   const totalRowLabel = sortedDates.length > 1 ? "GRAND TOTAL" : "TOTAL";
+  const overallTicketLabel = sortedDates.length > 1 ? "GRAND TOTAL TICKETS" : "TOTAL TICKETS";
 
   const totalRow = worksheet.addRow([
     "", "", "", "", "", "", "", "",
     totalRowLabel,
-    grandTotalTickets,
+    grandTotalV > 0 ? grandTotalV : "",
+    grandTotalP > 0 ? grandTotalP : "",
+    grandTotalVV > 0 ? grandTotalVV : "",
+    grandTotalVP > 0 ? grandTotalVP : "",
+    "",
     grandTotalAmountReceived > 0 ? `₹ ${grandTotalAmountReceived.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
     grandTotalAmountDue > 0 ? `₹ ${grandTotalAmountDue.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
     "", "", ""
   ]);
   totalRow.height = 24;
 
-  for (let c = 1; c <= 15; c++) {
+  for (let c = 1; c <= 19; c++) {
     const cell = totalRow.getCell(c);
-    if (c >= 9 && c <= 12) {
-      cell.border = doubleBottomBorder;
-      cell.font = { name: "Calibri", size: 11, bold: true };
+    if ((c >= 9 && c <= 13) || c === 15 || c === 16) {
+      cell.border = thinBorder;
+      cell.font = { name: "Calibri", size: 10, bold: true };
       cell.fill = {
         type: "pattern",
         pattern: "solid",
         fgColor: { argb: "FFE0E0E0" }
       };
-      if (c === 11 || c === 12) {
+      if (c === 15 || c === 16) {
         cell.alignment = { horizontal: "right", vertical: "middle" };
       } else {
         cell.alignment = { horizontal: "center", vertical: "middle" };
       }
     }
+  }
+
+  // ROW: Overall Total Tickets
+  const overallRow = worksheet.addRow([
+    "", "", "", "", "", "", "", "",
+    overallTicketLabel,
+    grandTotalTickets,
+    "", "", "", "", "", "", "", "", ""
+  ]);
+  overallRow.height = 24;
+
+  const overallRowNum = overallRow.number;
+  worksheet.mergeCells(`J${overallRowNum}:M${overallRowNum}`);
+
+  for (let c = 9; c <= 13; c++) {
+    const cell = overallRow.getCell(c);
+    cell.border = doubleBottomBorder;
+    cell.font = { name: "Calibri", size: 11, bold: true };
+    cell.alignment = { horizontal: "center", vertical: "middle" };
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFD6D6D6" }
+    };
   }
 }
 

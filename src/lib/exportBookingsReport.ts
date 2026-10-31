@@ -340,7 +340,7 @@ function renderDaySheet(
   worksheet.mergeCells("A1:O1");
   const titleCell = worksheet.getCell("A1");
   titleCell.font = { name: "Calibri", size: 12, bold: true, color: { argb: "FF000000" } };
-  titleCell.alignment = { horizontal: "right", vertical: "middle" };
+  titleCell.alignment = { horizontal: "center", vertical: "middle" };
   for (let col = 1; col <= 15; col++) {
     const cCell = worksheet.getRow(1).getCell(col);
     cCell.border = thinBorder;

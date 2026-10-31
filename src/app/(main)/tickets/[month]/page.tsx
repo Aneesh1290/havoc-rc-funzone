@@ -16,10 +16,11 @@ import {
   fetchSiteSettingAction,
   fetchOpenedSpecificDatesAction
 } from '@/app/actions/tickets';
-import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow } from '@/lib/db';
+import { fetchAddonsAction } from '@/app/actions/addons';
+import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow, AddonRow } from '@/lib/db';
 import type { SimPodiumSlot } from '@/lib/simulator-db';
 import { useCart } from '@/context/CartContext';
-import { Info, Check, X, Sparkles, ChevronRight, Ban } from 'lucide-react';
+import { Info, Check, X, Sparkles, ChevronRight, Ban, Plus } from 'lucide-react';
 
 export default function BookingProductPage({ params }: { params: Promise<{ month: string }> }) {
   const unwrappedParams = use(params);
@@ -33,6 +34,8 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [type, setType] = useState("");
   const [quantity, setQuantity] = useState(1);
   const [dbTickets, setDbTickets] = useState<TicketRow[]>([]);
+  const [availableAddons, setAvailableAddons] = useState<AddonRow[]>([]);
+  const [selectedAddons, setSelectedAddons] = useState<Record<number, { selected: boolean; quantity: number }>>({});
   const [bookedQuantities, setBookedQuantities] = useState<{ticket_id: number, total_booked: number}[]>([]);
   const [simulators, setSimulators] = useState<VipPerkRow[]>([]);
   const [blockedSlots, setBlockedSlots] = useState<BlockedSlotRow[]>([]);
@@ -114,7 +117,10 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
 
   useEffect(() => {
     fetchTicketsAction().then(data => {
-      setDbTickets(data.filter(t => t.active === 1));
+      setDbTickets(data.filter(t => t.active === 1 && !t.is_addon));
+    });
+    fetchAddonsAction(true).then(data => {
+      setAvailableAddons(data || []);
     });
     fetchVipPerksAction(true).then(data => {
       setSimulators(data);
@@ -945,6 +951,128 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               </div>
             )}
 
+            {/* Dynamic Add-Ons Section (e.g. Excavator Activities) */}
+            {Boolean(type && date && time && availableAddons.length > 0) && (
+              <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-amber-50/70 via-orange-50/40 to-white border border-amber-200/90 shadow-sm space-y-3.5 animate-in fade-in slide-in-from-top-2 duration-300">
+                <div className="flex items-center justify-between border-b border-amber-100 pb-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className="w-7 h-7 rounded-lg bg-[#ff5a1f]/15 text-[#ff5a1f] flex items-center justify-center text-base">
+                      🚜
+                    </span>
+                    <div>
+                      <h3 className="text-xs sm:text-sm font-black text-gray-900 flex items-center gap-1.5">
+                        Interested in Excavator Activities?
+                      </h3>
+                      <p className="text-[11px] text-gray-500">
+                        Add extra activities and machinery experiences to your visit!
+                      </p>
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-[#ff5a1f] bg-orange-100/80 px-2.5 py-1 rounded-full border border-orange-200">
+                    Add-on Available
+                  </span>
+                </div>
+
+                <div className="space-y-3 pt-1">
+                  {availableAddons.map((addon) => {
+                    const isSelected = !!selectedAddons[addon.id]?.selected;
+                    const addonQty = selectedAddons[addon.id]?.quantity || quantity;
+
+                    return (
+                      <div
+                        key={addon.id}
+                        onClick={() => {
+                          setSelectedAddons(prev => ({
+                            ...prev,
+                            [addon.id]: {
+                              selected: !isSelected,
+                              quantity: prev[addon.id]?.quantity || quantity
+                            }
+                          }));
+                        }}
+                        className={`p-3.5 sm:p-4 rounded-xl border transition-all duration-200 cursor-pointer ${
+                          isSelected
+                            ? 'bg-orange-50/90 border-[#ff5a1f] shadow-md shadow-orange-500/10 ring-1 ring-[#ff5a1f]'
+                            : 'bg-white border-gray-200 hover:border-orange-300 shadow-sm'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => {}} // toggled by parent div
+                            className="mt-1 w-4 h-4 rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer accent-[#ff5a1f]"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <span className="font-bold text-sm text-gray-900">
+                                {addon.name}
+                              </span>
+                              <span className="text-xs font-black text-[#ff5a1f] bg-orange-100/90 px-2.5 py-0.5 rounded-full">
+                                +₹{addon.price} per person
+                              </span>
+                            </div>
+
+                            {addon.tagline && (
+                              <p className="text-xs text-gray-600 font-medium mt-0.5 leading-snug">
+                                {addon.tagline}
+                              </p>
+                            )}
+                            {addon.description && (
+                              <p className="text-[11px] text-gray-500 mt-1 leading-relaxed">
+                                {addon.description}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Quantity Counter for this Add-on */}
+                        {isSelected && (
+                          <div 
+                            className="mt-3 pt-2.5 border-t border-orange-200/70 flex items-center justify-between animate-in fade-in duration-150"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-xs font-bold text-gray-700">Add-on Quantity:</span>
+                            <div className="flex border border-orange-300 w-28 rounded-lg overflow-hidden bg-white shadow-sm">
+                              <button
+                                type="button"
+                                className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors"
+                                onClick={() => {
+                                  setSelectedAddons(prev => ({
+                                    ...prev,
+                                    [addon.id]: {
+                                      selected: true,
+                                      quantity: Math.max(1, addonQty - 1)
+                                    }
+                                  }));
+                                }}
+                              >-</button>
+                              <div className="flex-1 h-8 flex items-center justify-center text-xs font-black text-gray-900 border-l border-r border-orange-200">
+                                {addonQty}
+                              </div>
+                              <button
+                                type="button"
+                                className="w-8 h-8 flex items-center justify-center font-bold text-gray-600 hover:text-[#ff5a1f] hover:bg-orange-50 transition-colors"
+                                onClick={() => {
+                                  setSelectedAddons(prev => ({
+                                    ...prev,
+                                    [addon.id]: {
+                                      selected: true,
+                                      quantity: addonQty + 1
+                                    }
+                                  }));
+                                }}
+                              >+</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             <div className="pt-6">
               <button 
                 onClick={() => {
@@ -966,6 +1094,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                             : `#${i+1} (${s.simName}): ${s.slotLabel}`;
                         }).join(" • ");
 
+                    // 1. Add base pass to cart
                     addItem({
                       id: Math.random().toString(36).substring(7),
                       type,
@@ -977,6 +1106,25 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                       simulatorName: hasSimPerk ? combinedSimNames : undefined,
                       simulatorSlot: hasSimPerk ? combinedSimSlots : undefined
                     });
+
+                    // 2. Add selected add-on(s) to cart with matching date & slot
+                    availableAddons.forEach(addon => {
+                      const sel = selectedAddons[addon.id];
+                      if (sel?.selected && addon.ticket_id) {
+                        addItem({
+                          id: Math.random().toString(36).substring(7),
+                          type: addon.name,
+                          date,
+                          timeSlot: time,
+                          quantity: sel.quantity || quantity,
+                          price: addon.price,
+                          ticketId: addon.ticket_id
+                        });
+                      }
+                    });
+
+                    // Clear selected add-ons after adding
+                    setSelectedAddons({});
                   }
                 }}
                 disabled={!canSubmit}
@@ -986,7 +1134,12 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                     : 'bg-[#ff5a1f] hover:bg-[#e04812] text-white shadow-lg shadow-[#ff5a1f]/20 hover:-translate-y-0.5'
                 }`}
               >
-                {!allSimsSelected ? "Select All Participant Slots" : "Add to Cart"}
+                {!allSimsSelected 
+                  ? "Select All Participant Slots" 
+                  : Object.values(selectedAddons).some(a => a.selected)
+                    ? "Add Pass & Add-on to Cart"
+                    : "Add to Cart"
+                }
               </button>
             </div>
 

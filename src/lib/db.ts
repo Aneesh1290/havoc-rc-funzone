@@ -174,6 +174,19 @@ export function initDB() {
       whatsapp_consent INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS addons (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      price INTEGER NOT NULL,
+      tagline TEXT,
+      description TEXT,
+      image TEXT,
+      ticket_id INTEGER,
+      active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   // Seed default site settings
@@ -272,6 +285,38 @@ export function initDB() {
   try { db.exec('ALTER TABLE tickets ADD COLUMN perk_title TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN description TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN benefits TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE tickets ADD COLUMN is_addon INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
+
+  // Seed default Add-on (RC Excavator Activity) if addons table is empty
+  try {
+    const addonCount = db.prepare('SELECT COUNT(*) as count FROM addons').get() as { count: number };
+    if (addonCount.count === 0) {
+      let ticket = db.prepare("SELECT id FROM tickets WHERE UPPER(name) LIKE '%EXCAVATOR%' LIMIT 1").get() as { id: number } | undefined;
+      if (!ticket) {
+        const info = db.prepare(`
+          INSERT INTO tickets (name, price, capacity, active, is_addon, description)
+          VALUES (?, ?, ?, 1, 1, ?)
+        `).run('RC Excavator Activity', 300, 999, 'Hydraulic RC excavator & earthmover operations in the quarry zone');
+        ticket = { id: Number(info.lastInsertRowid) };
+      } else {
+        db.prepare('UPDATE tickets SET is_addon = 1 WHERE id = ?').run(ticket.id);
+      }
+
+      db.prepare(`
+        INSERT INTO addons (name, price, tagline, description, image, ticket_id, active, sort_order)
+        VALUES (?, ?, ?, ?, ?, ?, 1, 1)
+      `).run(
+        'RC Excavator Activity',
+        300,
+        'Operate realistic hydraulic RC excavators in the mining quarry zone',
+        'Hands-on experience operating scale hydraulic RC excavators, dump trucks, and quarry loading equipment.',
+        '/addons/excavator.png',
+        ticket.id
+      );
+    }
+  } catch (e) {
+    console.error("Failed to seed default addons:", e);
+  }
 
   // Ensure default VIP_PARTICIPANT has simulator perk enabled
   try {
@@ -405,6 +450,20 @@ export interface TicketRow {
   perk_title?: string | null;
   description?: string | null;
   benefits?: string | null;
+  is_addon?: number;
+}
+
+export interface AddonRow {
+  id: number;
+  name: string;
+  price: number;
+  tagline?: string | null;
+  description?: string | null;
+  image?: string | null;
+  ticket_id?: number | null;
+  active: number;
+  sort_order: number;
+  created_at: string;
 }
 
 export interface CouponRow {
@@ -423,6 +482,106 @@ export interface CouponRow {
 
 export function getTickets(): TicketRow[] {
   return db.prepare('SELECT * FROM tickets').all() as TicketRow[];
+}
+
+export function getAddons(activeOnly: boolean = false): AddonRow[] {
+  if (activeOnly) {
+    return db.prepare('SELECT * FROM addons WHERE active = 1 ORDER BY sort_order ASC, id ASC').all() as AddonRow[];
+  }
+  return db.prepare('SELECT * FROM addons ORDER BY sort_order ASC, id ASC').all() as AddonRow[];
+}
+
+export function getAddonById(id: number): AddonRow | undefined {
+  return db.prepare('SELECT * FROM addons WHERE id = ?').get(id) as AddonRow | undefined;
+}
+
+export function createAddon(data: {
+  name: string;
+  price: number;
+  tagline?: string;
+  description?: string;
+  image?: string;
+  sort_order?: number;
+}): AddonRow {
+  // Create linked ticket record so cart and orders work seamlessly
+  const ticketInfo = db.prepare(`
+    INSERT INTO tickets (name, price, capacity, active, is_addon, description)
+    VALUES (?, ?, 999, 1, 1, ?)
+  `).run(data.name.trim(), data.price, data.tagline || data.description || '');
+
+  const ticketId = Number(ticketInfo.lastInsertRowid);
+
+  const info = db.prepare(`
+    INSERT INTO addons (name, price, tagline, description, image, ticket_id, active, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+  `).run(
+    data.name.trim(),
+    data.price,
+    data.tagline || '',
+    data.description || '',
+    data.image || '',
+    ticketId,
+    data.sort_order || 0
+  );
+
+  return getAddonById(Number(info.lastInsertRowid))!;
+}
+
+export function updateAddon(
+  id: number,
+  data: {
+    name?: string;
+    price?: number;
+    tagline?: string;
+    description?: string;
+    image?: string;
+    active?: number;
+    sort_order?: number;
+  }
+): void {
+  const current = getAddonById(id);
+  if (!current) return;
+
+  const newName = data.name !== undefined ? data.name.trim() : current.name;
+  const newPrice = data.price !== undefined ? data.price : current.price;
+  const newTagline = data.tagline !== undefined ? data.tagline : current.tagline;
+  const newDesc = data.description !== undefined ? data.description : current.description;
+  const newImage = data.image !== undefined ? data.image : current.image;
+  const newActive = data.active !== undefined ? data.active : current.active;
+  const newSort = data.sort_order !== undefined ? data.sort_order : current.sort_order;
+
+  db.prepare(`
+    UPDATE addons
+    SET name = ?, price = ?, tagline = ?, description = ?, image = ?, active = ?, sort_order = ?
+    WHERE id = ?
+  `).run(newName, newPrice, newTagline, newDesc, newImage, newActive, newSort, id);
+
+  if (current.ticket_id) {
+    db.prepare(`
+      UPDATE tickets
+      SET name = ?, price = ?, active = ?, description = ?
+      WHERE id = ?
+    `).run(newName, newPrice, newActive, newTagline || newDesc || '', current.ticket_id);
+  }
+}
+
+export function toggleAddonStatus(id: number, active: boolean): void {
+  const current = getAddonById(id);
+  if (!current) return;
+  const activeVal = active ? 1 : 0;
+  db.prepare('UPDATE addons SET active = ? WHERE id = ?').run(activeVal, id);
+  if (current.ticket_id) {
+    db.prepare('UPDATE tickets SET active = ? WHERE id = ?').run(activeVal, current.ticket_id);
+  }
+}
+
+export function deleteAddon(id: number): void {
+  const current = getAddonById(id);
+  if (!current) return;
+  db.prepare('DELETE FROM addons WHERE id = ?').run(id);
+  if (current.ticket_id) {
+    db.prepare('UPDATE tickets SET active = 0 WHERE id = ?').run(current.ticket_id);
+  }
 }
 
 export function getBookedQuantities(date: string, timeSlot: string): { ticket_id: number, total_booked: number }[] {

@@ -61,7 +61,9 @@ import {
 import { 
   syncColorInventoryAction, 
   updateColorStockAction, 
-  stockOutColorToReceptionAction 
+  stockOutColorToReceptionAction,
+  returnColorFromReceptionAction,
+  setColorReceptionAction
 } from "@/app/actions/color-inventory";
 
 export default function BandInventoryPage() {
@@ -135,6 +137,13 @@ export default function BandInventoryPage() {
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
   const [colorStockOutAmount, setColorStockOutAmount] = useState(10);
   const [isSubmittingColorStockOut, setIsSubmittingColorStockOut] = useState(false);
+
+  // Return from Reception / Adjust Reception Modal from Color Cards
+  const [isReturnModalForColorOpen, setIsReturnModalForColorOpen] = useState(false);
+  const [colorReturnAmount, setColorReturnAmount] = useState(10);
+  const [isSubmittingColorReturn, setIsSubmittingColorReturn] = useState(false);
+  const [directReceptionTarget, setDirectReceptionTarget] = useState(0);
+  const [isDirectSetMode, setIsDirectSetMode] = useState(false);
 
   // Quick Add Main Stock Modal from Color Cards
   const [isQuickAddStockModalOpen, setIsQuickAddStockModalOpen] = useState(false);
@@ -606,6 +615,77 @@ export default function BandInventoryPage() {
       setFeedback({ type: "error", message: err.message || "An error occurred while stocking out." });
     } finally {
       setIsSubmittingColorStockOut(false);
+    }
+  };
+
+  const handleQuickReturnSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedColorForAction || !selectedColorForAction.color_inventory_id) {
+      setFeedback({ type: "error", message: "Color inventory record ID not found. Please sync from slots first." });
+      return;
+    }
+
+    if (isDirectSetMode) {
+      if (directReceptionTarget < 0) {
+        setFeedback({ type: "error", message: "Target reception quantity cannot be negative." });
+        return;
+      }
+      setIsSubmittingColorReturn(true);
+      try {
+        const res = await setColorReceptionAction({
+          id: selectedColorForAction.color_inventory_id,
+          receptionAmount: directReceptionTarget,
+          returnToWarehouse: true
+        });
+        if (res.success) {
+          setFeedback({
+            type: "success",
+            message: `Reception Count Corrected: '${selectedColorForAction.color_name}' reception is now set to ${directReceptionTarget}. Warehouse stock adjusted to ${res.item?.quantity ?? 0}.`
+          });
+          setIsReturnModalForColorOpen(false);
+          await loadData();
+        } else {
+          setFeedback({ type: "error", message: res.error || "Failed to set reception count." });
+        }
+      } catch (err: any) {
+        setFeedback({ type: "error", message: err.message || "An error occurred." });
+      } finally {
+        setIsSubmittingColorReturn(false);
+      }
+      return;
+    }
+
+    if (colorReturnAmount <= 0) {
+      setFeedback({ type: "error", message: "Please specify a positive quantity to return." });
+      return;
+    }
+    const currentAtReception = selectedColorForAction.in_reception || 0;
+    if (colorReturnAmount > currentAtReception) {
+      setFeedback({ type: "error", message: `Cannot return ${colorReturnAmount}. Only ${currentAtReception} recorded at reception.` });
+      return;
+    }
+
+    setIsSubmittingColorReturn(true);
+    try {
+      const res = await returnColorFromReceptionAction({
+        id: selectedColorForAction.color_inventory_id,
+        amount: colorReturnAmount
+      });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Returned to Storage: ${colorReturnAmount} '${selectedColorForAction.color_name}' bands returned to warehouse stock! (Reception now: ${res.item?.in_reception ?? (currentAtReception - colorReturnAmount)})`
+        });
+        setIsReturnModalForColorOpen(false);
+        setColorReturnAmount(10);
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to return bands from reception." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred while returning bands." });
+    } finally {
+      setIsSubmittingColorReturn(false);
     }
   };
 
@@ -2272,6 +2352,33 @@ export default function BandInventoryPage() {
                 <ChevronRight className="w-4 h-4 text-amber-600 group-hover:translate-x-1 transition-all" />
               </button>
 
+              {/* Option: Return from Reception back to Stock / Adjust Reception Count */}
+              <button
+                onClick={() => {
+                  setIsColorManageModalOpen(false);
+                  setColorReturnAmount(Math.min(10, (selectedColorForAction.in_reception || 0) > 0 ? (selectedColorForAction.in_reception || 0) : 1));
+                  setDirectReceptionTarget(0);
+                  setIsDirectSetMode(false);
+                  setIsReturnModalForColorOpen(true);
+                }}
+                className="w-full text-left p-4 rounded-xl border border-blue-200 bg-blue-50/40 hover:bg-blue-100/50 hover:border-blue-400 transition-all flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 rounded-lg bg-blue-600 text-white group-hover:scale-105 transition-transform">
+                    <RotateCcw className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <strong className="block text-xs font-bold text-blue-950 group-hover:text-blue-900 transition-colors">
+                      Return from Reception / Adjust Reception Stock
+                    </strong>
+                    <span className="text-[11px] text-blue-700">
+                      Currently at Reception: <strong className="font-mono font-bold">{selectedColorForAction.in_reception || 0}</strong>. Return to warehouse or reset count.
+                    </span>
+                  </div>
+                </div>
+                <ChevronRight className="w-4 h-4 text-blue-600 group-hover:translate-x-1 transition-all" />
+              </button>
+
               {/* Option: Quick Add Warehouse Stock */}
               <button
                 onClick={() => {
@@ -2725,6 +2832,172 @@ export default function BandInventoryPage() {
                 >
                   <Check className="w-3.5 h-3.5" />
                   {isSubmittingColorStockOut ? "Recording Handover..." : "Confirm Stock Out to Reception"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL 7B: RETURN FROM RECEPTION / ADJUST RECEPTION COUNT                  */}
+      {/* ========================================================================= */}
+      {isReturnModalForColorOpen && selectedColorForAction && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-blue-200 relative my-auto">
+            <button
+              onClick={() => setIsReturnModalForColorOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span 
+                className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
+                style={{ backgroundColor: selectedColorForAction.color_hex }}
+              />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-100 text-blue-800">
+                    Front Desk Return &amp; Adjustment
+                  </span>
+                </div>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">
+                  Reception Stock: {selectedColorForAction.color_name}
+                </h3>
+                <span className="text-[11px] font-mono text-gray-400 font-bold">
+                  {selectedColorForAction.color_hex}
+                </span>
+              </div>
+            </div>
+
+            {/* Mode Toggle: Return Specific Amount vs Set Direct Number */}
+            <div className="flex rounded-xl bg-gray-100 p-1 mb-4 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setIsDirectSetMode(false)}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  !isDirectSetMode ? 'bg-white text-blue-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Return to Storage
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsDirectSetMode(true)}
+                className={`flex-1 py-1.5 rounded-lg transition-all ${
+                  isDirectSetMode ? 'bg-white text-blue-900 shadow-xs' : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Set / Reset Count
+              </button>
+            </div>
+
+            <form onSubmit={handleQuickReturnSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-50 rounded-2xl p-3 border border-gray-200/80">
+                  <span className="text-[10px] text-gray-500 font-bold block uppercase">Warehouse Stock:</span>
+                  <span className="text-lg font-black font-mono text-gray-900">
+                    {selectedColorForAction.available}
+                  </span>
+                </div>
+                <div className="bg-blue-50/60 rounded-2xl p-3 border border-blue-200/80">
+                  <span className="text-[10px] text-blue-800 font-bold block uppercase">Currently At Reception:</span>
+                  <span className="text-lg font-black font-mono text-blue-900">
+                    {selectedColorForAction.in_reception || 0}
+                  </span>
+                </div>
+              </div>
+
+              {!isDirectSetMode ? (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Quantity to Return back to Warehouse:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max={selectedColorForAction.in_reception || 0}
+                      required
+                      value={colorReturnAmount}
+                      onChange={(e) => setColorReturnAmount(parseInt(e.target.value, 10) || 0)}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex gap-1 shrink-0">
+                      {[5, 10, 50, (selectedColorForAction.in_reception || 0)].filter((amt, idx, arr) => amt > 0 && arr.indexOf(amt) === idx).map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setColorReturnAmount(amt)}
+                          className={`px-2 py-2 rounded-xl text-xs font-bold border transition-all ${
+                            colorReturnAmount === amt
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {amt === (selectedColorForAction.in_reception || 0) ? 'All' : amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-2 bg-blue-50/60 p-2.5 rounded-xl border border-blue-200 leading-relaxed">
+                    ℹ️ Moves <strong className="font-mono font-bold text-blue-900">{colorReturnAmount}</strong> bands from Reception back into Warehouse Stock.
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Directly Set Reception Count To:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={directReceptionTarget}
+                      onChange={(e) => setDirectReceptionTarget(parseInt(e.target.value, 10) || 0)}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <div className="flex gap-1 shrink-0">
+                      {[0, 10, 50, 100].map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setDirectReceptionTarget(amt)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                            directReceptionTarget === amt
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {amt === 0 ? 'Reset (0)' : amt}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-gray-500 mt-2 bg-blue-50/60 p-2.5 rounded-xl border border-blue-200 leading-relaxed">
+                    💡 Perfect if a count was entered by mistake (like 999). Setting to <strong className="font-mono font-bold text-blue-900">{directReceptionTarget}</strong> will restore any surplus back to Warehouse Stock automatically.
+                  </p>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsReturnModalForColorOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingColorReturn}
+                  className="px-5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  {isSubmittingColorReturn ? "Saving..." : isDirectSetMode ? "Set Reception Count" : "Confirm Return to Stock"}
                 </button>
               </div>
             </form>

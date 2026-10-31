@@ -8,6 +8,7 @@ import {
   updateColorStock,
   stockOutColorToReception,
   returnColorFromReception,
+  setColorReception,
   deleteColorInventoryRecord,
   WristbandColorInventoryItem,
 } from "@/lib/color-inventory-db";
@@ -123,6 +124,29 @@ export async function returnColorFromReceptionAction(params: {
   } catch (err: any) {
     console.error("[returnColorFromReceptionAction Error]", err);
     return { success: false, error: err.message || "Failed to return from reception" };
+  }
+}
+
+export async function setColorReceptionAction(params: {
+  id: number;
+  receptionAmount: number;
+  returnToWarehouse?: boolean;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await setColorReception(params);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[setColorReceptionAction Error]", err);
+    return { success: false, error: err.message || "Failed to update reception count" };
   }
 }
 

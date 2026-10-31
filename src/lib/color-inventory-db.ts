@@ -614,6 +614,108 @@ export async function returnColorFromReception(params: {
 }
 
 /**
+ * Set or Reset Reception count directly (e.g. if reception was entered incorrectly,
+ * or user wants to move all bands back to storage or reset reception count to 0).
+ */
+export async function setColorReception(params: {
+  id: number;
+  receptionAmount: number;
+  returnToWarehouse?: boolean;
+}): Promise<{
+  success: boolean;
+  item?: WristbandColorInventoryItem;
+  error?: string;
+}> {
+  const { id, receptionAmount, returnToWarehouse = true } = params;
+  if (!id || typeof receptionAmount !== 'number' || receptionAmount < 0) {
+    return { success: false, error: "Please provide a valid reception quantity (>= 0)." };
+  }
+
+  await ensureColorInventorySchema();
+  const cleanReception = Math.max(0, Math.floor(receptionAmount));
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      const checkRes = await simulatorPool.query("SELECT quantity, in_reception, color_hex, color_name FROM wristband_color_inventory WHERE id = $1", [id]);
+      if (checkRes.rows.length === 0) {
+        return { success: false, error: "Inventory record not found." };
+      }
+      const cur = checkRes.rows[0];
+      const diff = (cur.in_reception || 0) - cleanReception;
+      const newQty = returnToWarehouse ? Math.max(0, (cur.quantity || 0) + diff) : cur.quantity;
+
+      const res = await simulatorPool.query(`
+        UPDATE wristband_color_inventory
+        SET quantity = $1,
+            in_reception = $2,
+            updated_at = NOW()
+        WHERE id = $3
+        RETURNING id, color_hex, color_name, quantity, in_reception, created_at, updated_at
+      `, [newQty, cleanReception, id]);
+
+      const row = res.rows[0];
+      try {
+        initDB();
+        db.prepare(`
+          UPDATE wristband_color_inventory 
+          SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+          WHERE color_hex = ?
+        `).run(row.quantity, row.in_reception, row.color_hex);
+      } catch (e) {}
+
+      return {
+        success: true,
+        item: {
+          id: row.id,
+          color_hex: row.color_hex,
+          color_name: row.color_name,
+          quantity: Number(row.quantity),
+          in_reception: Number(row.in_reception),
+          slot_labels: [],
+          is_active_in_slots: true
+        }
+      };
+    } catch (pgErr: any) {
+      console.warn("[Color Inventory] PG set reception error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+    if (!current) {
+      return { success: false, error: "Inventory record not found." };
+    }
+
+    const diff = (current.in_reception || 0) - cleanReception;
+    const newQty = returnToWarehouse ? Math.max(0, (current.quantity || 0) + diff) : current.quantity;
+
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+      WHERE id = ?
+    `).run(newQty, cleanReception, id);
+
+    return {
+      success: true,
+      item: {
+        id: current.id,
+        color_hex: current.color_hex,
+        color_name: current.color_name,
+        quantity: newQty,
+        in_reception: cleanReception,
+        slot_labels: [],
+        is_active_in_slots: true
+      }
+    };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to set reception count." };
+  }
+}
+
+
+/**
  * Decrement stock quantity for a given color hex/name (used when a band coupon is redeemed).
  */
 export async function decrementColorStockByHex(colorHexOrName: string, amount: number = 1): Promise<void> {

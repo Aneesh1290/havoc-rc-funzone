@@ -314,10 +314,13 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           if (existing) {
             existing.color_inventory_id = invId;
             existing.in_reception = inRec;
-            // If individual band items haven't been generated yet, reflect the color pool's available stock
+            // If individual band items haven't been generated yet, reflect the color pool's stock
             if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
               existing.total = poolQty + inRec;
               existing.available = poolQty;
+            } else if (existing.total > 0 && inRec > 0) {
+              // Individual items exist. If in_reception was recorded, warehouse available is remaining after reception
+              existing.available = Math.max(0, existing.available - inRec);
             }
           } else {
             colorBreakdownMap.set(hex || name.toLowerCase(), {
@@ -481,10 +484,13 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       if (existing) {
         existing.color_inventory_id = invId;
         existing.in_reception = inRec;
-        // If individual band items haven't been generated yet, reflect the color pool's available stock
+        // If individual band items haven't been generated yet, reflect the color pool's stock
         if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
           existing.total = poolQty + inRec;
           existing.available = poolQty;
+        } else if (existing.total > 0 && inRec > 0) {
+          // Individual items exist. If in_reception was recorded, warehouse available is remaining after reception
+          existing.available = Math.max(0, existing.available - inRec);
         }
       } else {
         colorBreakdownMap.set(hex || name.toLowerCase(), {

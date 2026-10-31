@@ -160,60 +160,13 @@ async function ensurePgSchema() {
       console.warn("[Band Inventory] Could not sync time_slots to Postgres:", slotSyncErr);
     }
 
-    // Safely sync initial wristband inventory if Postgres has 0 band_items
-    try {
-      const pgCountRes = await simulatorPool.query("SELECT COUNT(*)::int as count FROM band_items");
-      if (Number(pgCountRes.rows[0]?.count || 0) === 0) {
-        initDB();
-        const localBands = db.prepare("SELECT band_code, color_name, color_hex, category, status, total_uses, notes FROM band_items").all() as any[];
-        if (localBands.length > 0) {
-          const client = await simulatorPool.connect();
-          try {
-            await client.query("BEGIN");
-            for (const b of localBands) {
-              const insRes = await client.query(`
-                INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes)
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
-                ON CONFLICT (band_code) DO NOTHING
-                RETURNING id
-              `, [b.band_code, b.color_name, b.color_hex, b.category || 'Standard', b.status || 'available', b.total_uses || 0, b.notes]);
-              const newId = insRes.rows[0]?.id;
-              if (newId) {
-                await client.query(`
-                  INSERT INTO band_transactions (band_id, band_code, color_name, color_hex, transaction_type, staff_name, notes)
-                  VALUES ($1, $2, $3, $4, 'STOCK_IN', 'System Migration', 'Initial migration from SQLite')
-                `, [newId, b.band_code, b.color_name, b.color_hex]);
-              }
-            }
-            await client.query("COMMIT");
-          } catch (migErr) {
-            await client.query("ROLLBACK");
-            console.warn("[Band Inventory] Band items migration error:", migErr);
-          } finally {
-            client.release();
-          }
-        }
-      }
-    } catch (bandSyncErr) {
-      console.warn("[Band Inventory] Could not sync band_items to Postgres:", bandSyncErr);
-    }
+    // Note: Automatic sync of starter band_items is permanently disabled.
   } catch (err) {
     console.warn("[Band Inventory] Could not auto-initialize Postgres schema:", err);
   }
 }
 
-export const TARGET_SLOT_BAND_COLORS = [
-  { code: "YEL", name: "Yellow", hex: "#FFF0B3", count: 10 },
-  { code: "GRN", name: "Green",  hex: "#10B981", count: 10 },
-  { code: "RED", name: "Red",    hex: "#EF4444", count: 10 },
-  { code: "BLU", name: "Blue",   hex: "#3B82F6", count: 10 },
-  { code: "ORG", name: "Orange", hex: "#F97316", count: 10 },
-  { code: "PUR", name: "Purple", hex: "#8B5CF6", count: 10 },
-  { code: "BLK", name: "Black",  hex: "#18181B", count: 10 },
-  { code: "AQU", name: "Aqua",   hex: "#1AF9F9", count: 10 },
-  { code: "WHT", name: "White",  hex: "#F4F4F5", count: 10 },
-  { code: "GLD", name: "Gold",   hex: "#FFD700", count: 10 },
-];
+export const TARGET_SLOT_BAND_COLORS: { code: string; name: string; hex: string; count: number }[] = [];
 
 export async function ensureBandInventorySeeded(force: boolean = false) {
   initDB();
@@ -313,37 +266,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
       const colorBreakdownMap = new Map<string, BandColorBreakdown>();
 
-      // 1. First populate all configured slot colors from active time_slots (PostgreSQL if available, else SQLite)
-      try {
-        let slotRows: any[] = [];
-        try {
-          const pgSlotsRes = await simulatorPool.query("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC");
-          slotRows = pgSlotsRes.rows;
-        } catch (pgSlotsErr) {
-          slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
-        }
-
-        for (const slot of slotRows) {
-          const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
-          const hexKey = (resolved.hex || slot.color || "").trim().toUpperCase();
-          if (hexKey && !colorBreakdownMap.has(hexKey)) {
-            colorBreakdownMap.set(hexKey, {
-              color_name: resolved.name,
-              color_hex: hexKey,
-              total: 0,
-              available: 0,
-              issued: 0,
-              damaged: 0,
-              lost: 0,
-              retired: 0,
-            });
-          }
-        }
-      } catch (slotErr) {
-        console.warn("[Band Inventory] Could not read time_slots for palette:", slotErr);
-      }
-
-      // 2. Merge actual Postgres inventory counts (matching by HEX first, then by name)
+      // 1. Merge actual Postgres inventory counts (matching by HEX first, then by name)
       for (const r of colorRowsRes.rows) {
         const hex = (r.color_hex || "").trim().toUpperCase();
         const name = (r.color_name || "").trim();
@@ -474,30 +397,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
   const colorBreakdownMap = new Map<string, BandColorBreakdown>();
 
-  // 1. First populate all configured slot colors from active time_slots
-  try {
-    const slotRows = db.prepare("SELECT label, color, color_name FROM time_slots WHERE active = 1 ORDER BY sort_order ASC, start_hour ASC").all() as any[];
-    for (const slot of slotRows) {
-      const resolved = getSlotWristbandColor(slot.label, slot.color, slot.color_name);
-      const hexKey = (resolved.hex || slot.color || "").trim().toUpperCase();
-      if (hexKey && !colorBreakdownMap.has(hexKey)) {
-        colorBreakdownMap.set(hexKey, {
-          color_name: resolved.name,
-          color_hex: hexKey,
-          total: 0,
-          available: 0,
-          issued: 0,
-          damaged: 0,
-          lost: 0,
-          retired: 0,
-        });
-      }
-    }
-  } catch (slotErr) {
-    console.warn("[Band Inventory SQLite] Could not read time_slots for palette:", slotErr);
-  }
-
-  // 2. Merge actual SQLite inventory counts (matching by HEX first, then by name)
+  // 1. Merge actual SQLite inventory counts (matching by HEX first, then by name)
   for (const r of colorRows) {
     const hex = (r.color_hex || "").trim().toUpperCase();
     const name = (r.color_name || "").trim();

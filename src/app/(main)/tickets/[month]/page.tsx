@@ -74,14 +74,14 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     PARTICIPANT: {
       title: "Participant Pass",
-      tagline: "Full play access to 15 RC activities for 1 hour (Excavator activity is paid extra).",
+      tagline: "Full play access to 15 RC activities for 1 hour (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).",
       price: "₹1,000 + GST",
       badge: "Full RC Access",
       badgeColor: "bg-blue-50 text-blue-700 border-blue-200",
       accessType: "play",
       benefits: [
         "1 Hour unlimited play access across 15 RC activities",
-        "Excavator activity is to be paid extra",
+        "Excavator Activity is not included in the package. It can be purchased separately as an add-on.",
         "Includes RC Race & Drift tracks, Train World, and more"
       ]
     },
@@ -101,14 +101,14 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     VIP_PARTICIPANT: {
       title: "VIP Participant Pass",
-      tagline: "15 RC activities + Upgraded Hobby Grade Cars + 30-Min Havoc Sim Podium session (Excavator activity is paid extra).",
+      tagline: "15 RC activities + Upgraded Hobby Grade Cars + 30-Min Havoc Sim Podium session (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).",
       price: "₹1,500 + GST",
       badge: "All-Inclusive + Sim Podium",
       badgeColor: "bg-orange-50 text-[#ff5a1f] border-orange-200",
       accessType: "vip",
       benefits: [
         "Full access to 15 RC activities for 1 hour",
-        "Excavator activity is to be paid extra",
+        "Excavator Activity is not included in the package. It can be purchased separately as an add-on.",
         "Upgraded hobby-grade RC Cars for Drift, Off-Road, Mini-Z tracks & FPV RC cars",
         "BONUS: Free 30-min session on any 1 simulator in the Havoc Sim Podium (Airbus, Boeing, GT, F1, etc.)"
       ]
@@ -1206,7 +1206,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">4.</span>
               <div>
-                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator activity is to be paid extra).<br/>
+                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).<br/>
                 <span className="text-[#ff5a1f] font-bold">₹1000 + GST per hour per person</span>
               </div>
             </li>
@@ -1220,7 +1220,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">6.</span>
               <div>
-                <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator activity is to be paid extra), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
+                <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
                 <span className="text-[#ff5a1f] font-bold">₹1500 + GST per hour per person</span>
               </div>
             </li>

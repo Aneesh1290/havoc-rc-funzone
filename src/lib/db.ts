@@ -199,6 +199,10 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN payment_ref TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN icici_txn_id TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN wristband_number TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN applied_coupon TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN is_band_coupon INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN band_category TEXT DEFAULT \'VIP\''); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN band_color TEXT'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_created ON online_checkout_holds(created_at)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec("UPDATE bookings SET fulfillment_status = 'Fulfilled' WHERE LOWER(fulfillment_status) = 'attended'"); } catch (e) {}
@@ -370,6 +374,9 @@ export interface CouponRow {
   max_uses: number | null;
   used_count: number;
   expiry_date: string | null;
+  is_band_coupon?: number;
+  band_category?: string;
+  band_color?: string;
   created_at: string;
 }
 
@@ -926,18 +933,20 @@ export function addBatchBooking(
   items: BatchBookingItem[],
   customerName: string,
   customerEmail: string,
-  customerPhone: string
+  customerPhone: string,
+  appliedCoupon?: string | null
 ) {
   if (!items || items.length === 0) return null;
   const createdAt = new Date().toISOString();
   const orderNumber = getNextOrderNumber();
+  const cleanCoupon = appliedCoupon ? appliedCoupon.trim().toUpperCase() : null;
 
   const insertStmt = db.prepare(`
     INSERT INTO bookings (
       order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
-      payment_status, fulfillment_status, simulator_name, simulator_slot, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?)
+      payment_status, fulfillment_status, simulator_name, simulator_slot, applied_coupon, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?, ?)
   `);
 
   const insertedIds: number[] = [];
@@ -956,6 +965,7 @@ export function addBatchBooking(
         item.itemTotal,
         item.simulatorName || null,
         item.simulatorSlot || null,
+        cleanCoupon,
         createdAt
       );
       insertedIds.push(Number(info.lastInsertRowid));
@@ -1064,22 +1074,56 @@ export function getCoupons(): CouponRow[] {
   return db.prepare('SELECT * FROM coupons ORDER BY id DESC').all() as CouponRow[];
 }
 
-export function createCoupon(code: string, discountType: 'percentage' | 'flat', value: number, maxUses: number | null, expiryDate: string | null) {
+export function createCoupon(
+  code: string, 
+  discountType: 'percentage' | 'flat', 
+  value: number, 
+  maxUses: number | null, 
+  expiryDate: string | null,
+  isBandCoupon: boolean = false,
+  bandCategory: string = 'VIP',
+  bandColor: string | null = null
+) {
   return db.prepare(`
-    INSERT INTO coupons (code, discount_type, value, max_uses, expiry_date)
-    VALUES (?, ?, ?, ?, ?)
-  `).run(code.toUpperCase().trim(), discountType, value, maxUses, expiryDate || null);
+    INSERT INTO coupons (code, discount_type, value, max_uses, expiry_date, is_band_coupon, band_category, band_color)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    code.toUpperCase().trim(), 
+    discountType, 
+    value, 
+    maxUses, 
+    expiryDate || null, 
+    isBandCoupon ? 1 : 0, 
+    bandCategory || 'VIP', 
+    bandColor || null
+  );
 }
 
-export function bulkCreateCoupons(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null }[]) {
+export function bulkCreateCoupons(coupons: { 
+  code: string; 
+  discountType: 'percentage' | 'flat'; 
+  value: number; 
+  maxUses: number | null;
+  isBandCoupon?: boolean;
+  bandCategory?: string;
+  bandColor?: string;
+}[]) {
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses)
-    VALUES (?, ?, ?, ?)
+    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses, is_band_coupon, band_category, band_color)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
   const transaction = db.transaction((list: typeof coupons) => {
     let created = 0;
     for (const c of list) {
-      const result = insert.run(c.code.toUpperCase().trim(), c.discountType, c.value, c.maxUses);
+      const result = insert.run(
+        c.code.toUpperCase().trim(), 
+        c.discountType, 
+        c.value, 
+        c.maxUses,
+        c.isBandCoupon ? 1 : 0,
+        c.bandCategory || 'VIP',
+        c.bandColor || null
+      );
       if (result.changes > 0) created++;
     }
     return created;

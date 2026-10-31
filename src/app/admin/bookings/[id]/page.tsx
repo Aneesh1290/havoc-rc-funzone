@@ -325,6 +325,36 @@ export default function OrderDetailPage() {
         {/* Left Column (Items + Payment Info) */}
         <div className="lg:col-span-8 space-y-6">
           
+          {/* VIP Band Offer Banner if Coupon Used */}
+          {(booking.applied_coupon || orderItems.some(i => i.applied_coupon)) && (() => {
+            const couponCode = booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon;
+            return (
+              <div className="rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-500/10 via-amber-100/60 to-yellow-50 p-5 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-base">⭐</span>
+                      <span className="text-xs font-black uppercase tracking-wider text-amber-950">
+                        VIP Offer Wristband Activated
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-900 font-medium">
+                      Customer applied promotional band coupon code: <strong className="font-mono font-black text-amber-950 text-sm px-2 py-0.5 rounded bg-amber-200/80 border border-amber-300">{couponCode}</strong>
+                    </p>
+                    <p className="text-[11px] text-amber-800">
+                      VIP band inventory was automatically deducted. Please hand over the designated VIP wristband upon desk check-in.
+                    </p>
+                  </div>
+                  <div className="shrink-0">
+                    <span className="inline-flex items-center px-3 py-1.5 rounded-xl font-mono font-bold text-xs bg-amber-950 text-amber-300 shadow-sm border border-amber-800">
+                      VIP WRISTBAND
+                    </span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Items Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm">
             <h2 className="text-lg font-bold text-gray-900 mb-6 border-b border-gray-100 pb-3">

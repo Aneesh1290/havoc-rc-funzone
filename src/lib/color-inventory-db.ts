@@ -381,6 +381,40 @@ export async function updateColorStock(params: {
 }
 
 /**
+ * Decrement stock quantity for a given color hex/name (used when a band coupon is redeemed).
+ */
+export async function decrementColorStockByHex(colorHexOrName: string, amount: number = 1): Promise<void> {
+  if (!colorHexOrName) return;
+  await ensureColorInventorySchema();
+  const clean = colorHexOrName.trim().toUpperCase();
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query(
+        `UPDATE wristband_color_inventory 
+         SET quantity = GREATEST(0, quantity - $1), updated_at = NOW() 
+         WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $2`,
+        [amount, clean]
+      );
+    } catch (e) {
+      console.warn("[Color Inventory] PG decrement error:", e);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET quantity = MAX(0, quantity - ?), updated_at = CURRENT_TIMESTAMP 
+      WHERE UPPER(color_hex) = ? OR UPPER(color_name) = ?
+    `).run(amount, clean, clean);
+  } catch (e) {
+    console.warn("[Color Inventory] SQLite decrement error:", e);
+  }
+}
+
+/**
  * Explicit manual deletion of an inventory record by an authorized administrator.
  * Only deletes when explicitly invoked. Never called automatically on slot deletion.
  */

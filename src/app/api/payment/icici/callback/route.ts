@@ -106,15 +106,17 @@ export async function POST(req: NextRequest) {
 
         const db = getDbInstance();
         try {
+          const couponCode = (items.length > 0 && items[0]?.appliedCoupon) ? String(items[0].appliedCoupon) : null;
           const insertStmt = db.prepare(`
             INSERT INTO bookings (
               order_number, ticket_id, booking_date, time_slot, quantity, 
               customer_name, customer_email, customer_phone, total_amount, 
               payment_status, fulfillment_status, simulator_name, simulator_slot, 
-              created_at, payment_ref, icici_txn_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Paid', 'Unfulfilled', ?, ?, ?, ?, ?)
+              created_at, payment_ref, icici_txn_id, applied_coupon
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Paid', 'Unfulfilled', ?, ?, ?, ?, ?, ?)
           `);
 
+          let firstBookingId: number | null = null;
           const runInsertTxn = db.transaction(() => {
             for (const item of items) {
               let itemPrice = Number(holdRow.amount) / items.length;
@@ -123,7 +125,7 @@ export async function POST(req: NextRequest) {
                 itemPrice = Number(holdRow.amount) * ratio;
               }
 
-              insertStmt.run(
+              const info = insertStmt.run(
                 orderNo,
                 item.ticketId || item.ticket_id,
                 item.date || item.booking_date,
@@ -137,12 +139,49 @@ export async function POST(req: NextRequest) {
                 item.simulatorSlot || null,
                 createdAt,
                 txnID,
-                txnID
+                txnID,
+                couponCode
               );
+              if (firstBookingId === null && info?.lastInsertRowid) {
+                firstBookingId = Number(info.lastInsertRowid);
+              }
             }
           });
 
           runInsertTxn();
+
+          // Auto-issue offer wristband if the used coupon is a VIP band offer
+          if (couponCode) {
+            try {
+              const couponRow = db.prepare('SELECT * FROM coupons WHERE code = ?').get(couponCode.toUpperCase().trim()) as any;
+              if (couponRow) {
+                db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE id = ?').run(couponRow.id);
+                if (couponRow.is_band_coupon === 1) {
+                  // Attempt issue in band inventory
+                  try {
+                    const { issueBandItem } = await import('@/lib/band-inventory-db');
+                    const bandItem = db.prepare('SELECT * FROM band_items WHERE (barcode = ? OR serial_number = ?) AND status != "issued" LIMIT 1').get(couponCode, couponCode) as any;
+                    if (bandItem) {
+                      await issueBandItem({
+                        band_id: bandItem.id,
+                        customer_name: holdRow.customer_name || 'Customer',
+                        order_number: formattedOrderCode,
+                        booking_id: firstBookingId || undefined,
+                        notes: `Auto-issued upon online payment redemption of VIP coupon: ${couponCode}`
+                      });
+                    } else if (couponRow.band_color) {
+                      const { decrementColorStockByHex } = await import('@/lib/color-inventory-db');
+                      await decrementColorStockByHex(couponRow.band_color, 1);
+                    }
+                  } catch (invErr) {
+                    console.error('[ICICI Callback] Error updating VIP band inventory for coupon:', invErr);
+                  }
+                }
+              }
+            } catch (couponErr) {
+              console.error('[ICICI Callback] Error processing coupon update:', couponErr);
+            }
+          }
         } finally {
           db.close();
         }

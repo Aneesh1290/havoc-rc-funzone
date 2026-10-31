@@ -181,7 +181,9 @@ export default function CheckoutPage() {
               phone: fullPhoneNumber,
               whatsapp_consent: true,
             },
-            booking_data: batchItems,
+            booking_data: appliedCoupon 
+              ? batchItems.map(item => ({ ...item, appliedCoupon: appliedCoupon.code }))
+              : batchItems,
           }),
         });
 
@@ -210,7 +212,8 @@ export default function CheckoutPage() {
         formData.fullName,
         formData.email,
         fullPhoneNumber,
-        grandTotal
+        grandTotal,
+        appliedCoupon ? appliedCoupon.code : null
       );
 
       const generatedOrderCodes: string[] = [];
@@ -218,9 +221,13 @@ export default function CheckoutPage() {
         generatedOrderCodes.push(batchRes.orderCode);
       }
       
-      // If coupon used, record usage in DB
+      // If coupon used, record usage in DB and auto-issue band if VIP band offer
       if (appliedCoupon) {
-        await useCouponAction(appliedCoupon.code);
+        await useCouponAction(appliedCoupon.code, {
+          customerName: formData.fullName,
+          orderCode: batchRes?.orderCode,
+          bookingId: batchRes?.primaryId
+        });
       }
 
       // Success! Show branded confirmation screen and clear cart

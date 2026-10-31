@@ -56,6 +56,7 @@ interface SessionBooking {
   slot_color?: string | null;
   slot_color_name?: string | null;
   wristband_number?: string | null;
+  applied_coupon?: string | null;
 }
 
 import { 
@@ -974,6 +975,12 @@ export default function DeskCheckInModal({
                                 <span className="font-mono font-black text-sm text-gray-900 bg-amber-100/90 text-amber-950 px-2.5 py-0.5 rounded-lg border border-amber-300">
                                   Order #FZ_{orderNum}
                                 </span>
+
+                                {orderSessions.some(s => s.applied_coupon) && (
+                                  <span className="font-mono font-extrabold text-xs text-amber-950 bg-amber-200/90 border border-amber-400 px-2.5 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                                    ⭐ VIP BAND COUPON: {orderSessions.find(s => s.applied_coupon)?.applied_coupon}
+                                  </span>
+                                )}
 
                                 {/* Slots in this order */}
                                 {timeSlotsInOrder.map((slotTime) => {

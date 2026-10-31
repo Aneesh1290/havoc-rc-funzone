@@ -44,6 +44,9 @@ export default function AdminCouponsPage() {
   const [singleValue, setSingleValue] = useState<number>(10);
   const [singleMaxUses, setSingleMaxUses] = useState<string>("");
   const [singleExpiry, setSingleExpiry] = useState<string>("");
+  const [singleIsBandCoupon, setSingleIsBandCoupon] = useState<boolean>(false);
+  const [singleBandCategory, setSingleBandCategory] = useState<string>("VIP");
+  const [singleBandColor, setSingleBandColor] = useState<string>("#FFD700");
 
   // Bulk coupon form state
   const [bulkPrefix, setBulkPrefix] = useState("BAND-");
@@ -53,10 +56,13 @@ export default function AdminCouponsPage() {
   const [bulkType, setBulkType] = useState<"percentage" | "flat">("percentage");
   const [bulkValue, setBulkValue] = useState<number>(10);
   const [bulkMaxUses, setBulkMaxUses] = useState<number>(1);
+  const [bulkIsBandCoupon, setBulkIsBandCoupon] = useState<boolean>(false);
+  const [bulkBandCategory, setBulkBandCategory] = useState<string>("VIP");
+  const [bulkBandColor, setBulkBandColor] = useState<string>("#FFD700");
 
   // Filter, Category, Sort & Pagination States
   const [searchQuery, setSearchQuery] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<string>("ALL"); // 'ALL', 'PREFIX:XYZ', 'PERCENTAGE', 'FLAT', 'USED', 'UNUSED', 'EXPIRED', 'ACTIVE'
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL"); // 'ALL', 'VIP_BANDS', 'PREFIX:XYZ', 'PERCENTAGE', 'FLAT', 'USED', 'UNUSED', 'EXPIRED', 'ACTIVE'
   const [sortField, setSortField] = useState<"id" | "code" | "value" | "used_count" | "expiry_date">("id");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [currentPage, setCurrentPage] = useState(1);
@@ -105,7 +111,16 @@ export default function AdminCouponsPage() {
 
     setAddingSingle(true);
     const maxUses = singleMaxUses ? parseInt(singleMaxUses, 10) : null;
-    const res = await createCouponAction(singleCode, singleType, Number(singleValue), maxUses, singleExpiry || null);
+    const res = await createCouponAction(
+      singleCode, 
+      singleType, 
+      Number(singleValue), 
+      maxUses, 
+      singleExpiry || null,
+      singleIsBandCoupon,
+      singleIsBandCoupon ? singleBandCategory : undefined,
+      singleIsBandCoupon ? singleBandColor : undefined
+    );
     setAddingSingle(false);
 
     if (res.success) {
@@ -113,6 +128,7 @@ export default function AdminCouponsPage() {
       setSingleCode("");
       setSingleMaxUses("");
       setSingleExpiry("");
+      setSingleIsBandCoupon(false);
       loadCoupons();
     } else {
       showNotification(res.error || "Failed to create coupon", "error");
@@ -126,7 +142,15 @@ export default function AdminCouponsPage() {
 
     setGeneratingBulk(true);
 
-    const generatedList: { code: string; discountType: "percentage" | "flat"; value: number; maxUses: number | null }[] = [];
+    const generatedList: { 
+      code: string; 
+      discountType: "percentage" | "flat"; 
+      value: number; 
+      maxUses: number | null;
+      isBandCoupon?: boolean;
+      bandCategory?: string;
+      bandColor?: string;
+    }[] = [];
     
     for (let i = 0; i < count; i++) {
       let code = "";
@@ -142,6 +166,9 @@ export default function AdminCouponsPage() {
         discountType: bulkType,
         value: Number(bulkValue),
         maxUses: bulkMaxUses ? Number(bulkMaxUses) : null,
+        isBandCoupon: bulkIsBandCoupon,
+        bandCategory: bulkIsBandCoupon ? bulkBandCategory : undefined,
+        bandColor: bulkIsBandCoupon ? bulkBandColor : undefined,
       });
     }
 
@@ -309,6 +336,7 @@ export default function AdminCouponsPage() {
   const categoriesList = useMemo(() => {
     const counts: Record<string, number> = {
       ALL: coupons.length,
+      VIP_BANDS: 0,
       PERCENTAGE: 0,
       FLAT: 0,
       ACTIVE: 0,
@@ -322,6 +350,7 @@ export default function AdminCouponsPage() {
     const todayStr = now.toISOString().split("T")[0];
 
     for (const c of coupons) {
+      if (c.is_band_coupon === 1) counts.VIP_BANDS++;
       if (c.discount_type === "percentage") counts.PERCENTAGE++;
       if (c.discount_type === "flat") counts.FLAT++;
 
@@ -346,7 +375,9 @@ export default function AdminCouponsPage() {
 
     // 1. Category Filter
     if (categoryFilter !== "ALL") {
-      if (categoryFilter === "PERCENTAGE") {
+      if (categoryFilter === "VIP_BANDS") {
+        result = result.filter(c => c.is_band_coupon === 1);
+      } else if (categoryFilter === "PERCENTAGE") {
         result = result.filter(c => c.discount_type === "percentage");
       } else if (categoryFilter === "FLAT") {
         result = result.filter(c => c.discount_type === "flat");
@@ -505,6 +536,61 @@ export default function AdminCouponsPage() {
             </div>
           </div>
 
+          <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+            <div className="flex items-center gap-3">
+              <input
+                id="single-is-band"
+                type="checkbox"
+                checked={singleIsBandCoupon}
+                onChange={(e) => setSingleIsBandCoupon(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 cursor-pointer"
+              />
+              <label htmlFor="single-is-band" className="text-xs font-bold text-gray-900 cursor-pointer flex items-center gap-1.5">
+                <span>⭐ VIP Offer Wristband Coupon</span>
+                <span className="text-[10px] font-normal text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full">
+                  Auto-issues VIP wristband & updates stock on checkout
+                </span>
+              </label>
+            </div>
+
+            {singleIsBandCoupon && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                    Band Category / Tier
+                  </label>
+                  <input
+                    type="text"
+                    value={singleBandCategory}
+                    onChange={(e) => setSingleBandCategory(e.target.value)}
+                    placeholder="e.g. VIP, GOLD, PREMIUM"
+                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-900 uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                    Wristband Color (for stock pool)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={singleBandColor}
+                      onChange={(e) => setSingleBandColor(e.target.value)}
+                      className="w-8 h-8 rounded border border-gray-200 cursor-pointer p-0.5"
+                    />
+                    <input
+                      type="text"
+                      value={singleBandColor}
+                      onChange={(e) => setSingleBandColor(e.target.value)}
+                      placeholder="#FFD700"
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono font-semibold text-gray-900 uppercase"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Max Uses (Optional)</label>
@@ -591,7 +677,7 @@ export default function AdminCouponsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Discount Type</label>
               <select
@@ -627,16 +713,71 @@ export default function AdminCouponsPage() {
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
               />
             </div>
+          </div>
 
-            <div>
-              <button
-                type="submit"
-                disabled={generatingBulk}
-                className="w-full sm:w-auto px-8 py-3 bg-[#e0a93b] hover:bg-[#c9942d] text-gray-900 font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
-              >
-                {generatingBulk ? "Generating..." : "Generate"}
-              </button>
+          <div className="p-4 rounded-xl bg-amber-50/70 border border-amber-200/80 space-y-3">
+            <div className="flex items-center gap-3">
+              <input
+                id="bulk-is-band"
+                type="checkbox"
+                checked={bulkIsBandCoupon}
+                onChange={(e) => setBulkIsBandCoupon(e.target.checked)}
+                className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500 border-gray-300 cursor-pointer"
+              />
+              <label htmlFor="bulk-is-band" className="text-xs font-bold text-gray-900 cursor-pointer flex items-center gap-1.5">
+                <span>⭐ Bulk VIP Offer Wristband Series</span>
+                <span className="text-[10px] font-normal text-amber-800 bg-amber-100/90 px-2 py-0.5 rounded-full">
+                  Link series to VIP Wristband stock tracking
+                </span>
+              </label>
             </div>
+
+            {bulkIsBandCoupon && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                    Band Category / Tier
+                  </label>
+                  <input
+                    type="text"
+                    value={bulkBandCategory}
+                    onChange={(e) => setBulkBandCategory(e.target.value)}
+                    placeholder="e.g. VIP, GOLD, PREMIUM"
+                    className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-semibold text-gray-900 uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-gray-600 mb-1">
+                    Wristband Color (for stock pool)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={bulkBandColor}
+                      onChange={(e) => setBulkBandColor(e.target.value)}
+                      className="w-8 h-8 rounded border border-gray-200 cursor-pointer p-0.5"
+                    />
+                    <input
+                      type="text"
+                      value={bulkBandColor}
+                      onChange={(e) => setBulkBandColor(e.target.value)}
+                      placeholder="#FFD700"
+                      className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono font-semibold text-gray-900 uppercase"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <button
+              type="submit"
+              disabled={generatingBulk}
+              className="w-full sm:w-auto px-8 py-3 bg-[#e0a93b] hover:bg-[#c9942d] text-gray-900 font-bold rounded-xl transition-colors shadow-sm disabled:opacity-50"
+            >
+              {generatingBulk ? "Generating..." : "Generate"}
+            </button>
           </div>
         </form>
       </div>
@@ -800,6 +941,20 @@ export default function AdminCouponsPage() {
             >
               Active / Ready ({categoriesList.counts.ACTIVE})
             </button>
+
+            {categoriesList.counts.VIP_BANDS > 0 && (
+              <button
+                type="button"
+                onClick={() => { setCategoryFilter("VIP_BANDS"); setCurrentPage(1); }}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  categoryFilter === "VIP_BANDS"
+                    ? "bg-amber-600 text-white shadow-xs"
+                    : "bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-300"
+                }`}
+              >
+                ⭐ VIP Offer Bands ({categoriesList.counts.VIP_BANDS})
+              </button>
+            )}
 
             <button
               type="button"
@@ -1067,8 +1222,22 @@ export default function AdminCouponsPage() {
                         />
                       </td>
                       <td className="py-3.5 px-6 font-mono font-bold text-gray-900">
-                        <span className="bg-gray-100 text-gray-800 px-2.5 py-1 rounded-md text-xs inline-flex items-center gap-1.5">
+                        <span className="bg-gray-100 text-gray-800 px-2.5 py-1 rounded-md text-xs inline-flex items-center gap-1.5 flex-wrap">
                           {coupon.code}
+                          {coupon.is_band_coupon === 1 && (
+                            <span 
+                              className="text-[9px] font-sans font-black px-2 py-0.5 rounded-full text-amber-950 bg-amber-100 border border-amber-300 inline-flex items-center gap-1 shadow-2xs"
+                              title={coupon.band_color ? `Wristband Color: ${coupon.band_color}` : "VIP Offer Band"}
+                            >
+                              {coupon.band_color && (
+                                <span 
+                                  className="w-2 h-2 rounded-full border border-black/20" 
+                                  style={{ backgroundColor: coupon.band_color }}
+                                />
+                              )}
+                              <span>⭐ {coupon.band_category || "VIP"} BAND</span>
+                            </span>
+                          )}
                           {isUsedUp && (
                             <span className="text-[9px] font-sans font-bold px-1.5 py-0.2 rounded bg-gray-200 text-gray-600 uppercase tracking-tight">Used</span>
                           )}
@@ -1079,7 +1248,7 @@ export default function AdminCouponsPage() {
                       </td>
                       <td className="py-3.5 px-6">
                         <span className="text-xs font-semibold text-gray-500 bg-gray-50 border border-gray-200 px-2 py-0.5 rounded-md">
-                          {cat}
+                          {coupon.is_band_coupon === 1 ? `⭐ ${coupon.band_category || "VIP"} Band Offer` : cat}
                         </span>
                       </td>
                       <td className="py-3.5 px-6 capitalize text-xs text-gray-600">
@@ -1159,6 +1328,20 @@ export default function AdminCouponsPage() {
 
                       {/* Status Badges */}
                       <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                        {coupon.is_band_coupon === 1 && (
+                          <span 
+                            className="text-[10px] font-black px-2 py-0.5 rounded-md text-amber-950 bg-amber-100 border border-amber-300 inline-flex items-center gap-1"
+                            title={coupon.band_color ? `Wristband Color: ${coupon.band_color}` : "VIP Offer Band"}
+                          >
+                            {coupon.band_color && (
+                              <span 
+                                className="w-2 h-2 rounded-full border border-black/20" 
+                                style={{ backgroundColor: coupon.band_color }}
+                              />
+                            )}
+                            <span>⭐ {coupon.band_category || "VIP"} BAND</span>
+                          </span>
+                        )}
                         <span className="text-[10px] font-semibold text-gray-600 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200/60">
                           {cat}
                         </span>

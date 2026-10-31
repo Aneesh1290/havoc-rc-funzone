@@ -80,6 +80,8 @@ import { sendBookingConfirmationWhatsApp } from "@/lib/whatsapp";
 import { checkSessionAction } from "@/app/login/actions";
 import { hasUserPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
+import { issueBandItem, getBandItemByCode } from "@/lib/band-inventory-db";
+import { decrementColorStockByHex } from "@/lib/color-inventory-db";
 
 // Ensure DB is initialized
 initDB();
@@ -221,7 +223,8 @@ export async function createBatchOrderAction(
   customerName: string,
   customerEmail: string,
   customerPhone: string,
-  totalAmount: number
+  totalAmount: number,
+  appliedCoupon?: string | null
 ) {
   // 1. Clean up expired holds older than 2 minutes
   await cleanupExpiredHolds(2);
@@ -254,7 +257,7 @@ export async function createBatchOrderAction(
     }
   }
 
-  const result = addBatchBooking(items, customerName, customerEmail, customerPhone);
+  const result = addBatchBooking(items, customerName, customerEmail, customerPhone, appliedCoupon);
   if (!result) return null;
 
   const orderId = formatOrderNumber(result.orderNumber, result.createdAt, 'Unpaid');
@@ -551,9 +554,18 @@ export async function fetchCouponsAction(): Promise<CouponRow[]> {
   return getCoupons();
 }
 
-export async function createCouponAction(code: string, discountType: 'percentage' | 'flat', value: number, maxUses: number | null, expiryDate: string | null) {
+export async function createCouponAction(
+  code: string, 
+  discountType: 'percentage' | 'flat', 
+  value: number, 
+  maxUses: number | null, 
+  expiryDate: string | null,
+  isBandCoupon: boolean = false,
+  bandCategory: string = 'VIP',
+  bandColor: string | null = null
+) {
   try {
-    createCoupon(code, discountType, value, maxUses, expiryDate);
+    createCoupon(code, discountType, value, maxUses, expiryDate, isBandCoupon, bandCategory, bandColor);
     revalidatePath('/admin/coupons');
     return { success: true };
   } catch (error: any) {
@@ -561,7 +573,15 @@ export async function createCouponAction(code: string, discountType: 'percentage
   }
 }
 
-export async function bulkCreateCouponsAction(coupons: { code: string; discountType: 'percentage' | 'flat'; value: number; maxUses: number | null }[]) {
+export async function bulkCreateCouponsAction(coupons: { 
+  code: string; 
+  discountType: 'percentage' | 'flat'; 
+  value: number; 
+  maxUses: number | null;
+  isBandCoupon?: boolean;
+  bandCategory?: string;
+  bandColor?: string;
+}[]) {
   try {
     const count = bulkCreateCoupons(coupons);
     revalidatePath('/admin/coupons');
@@ -657,9 +677,36 @@ export async function validateCouponAction(code: string, subtotal: number) {
   };
 }
 
-export async function useCouponAction(code: string) {
-  incrementCouponUsage(code);
+export async function useCouponAction(code: string, context?: { customerName?: string; orderCode?: string; bookingId?: number }) {
+  if (!code) return;
+  const cleanCode = code.trim().toUpperCase();
+  incrementCouponUsage(cleanCode);
+
+  try {
+    const coupon = getCouponByCode(cleanCode);
+    if (coupon && coupon.is_band_coupon) {
+      // 1. If an explicit band exists with this code, issue it directly in master catalog
+      const bandItem = await getBandItemByCode(cleanCode);
+      if (bandItem && bandItem.status === "available") {
+        await issueBandItem({
+          band_id: bandItem.id,
+          customer_name: context?.customerName || "VIP Offer Guest",
+          order_number: context?.orderCode || (context?.bookingId ? `#${context.bookingId}` : undefined),
+          booking_id: context?.bookingId,
+          notes: `Auto-issued upon booking redemption of VIP Coupon: ${cleanCode}`,
+        });
+      } else if (coupon.band_color) {
+        // 2. Decrement from color pool
+        await decrementColorStockByHex(coupon.band_color, 1);
+      }
+    }
+  } catch (err) {
+    console.warn("[useCouponAction] Error updating band inventory for coupon:", err);
+  }
+
   revalidatePath('/admin/coupons');
+  revalidatePath('/admin/bands');
+  revalidatePath('/admin/slots');
 }
 
 // VIP Perks Actions

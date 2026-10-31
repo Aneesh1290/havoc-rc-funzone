@@ -25,6 +25,7 @@ export interface GroupedOrder {
   total_amount: number;
   total_quantity: number;
   payment_ref?: string;
+  applied_coupon?: string;
   bookingIds: number[];
   primaryId: number;
   items: any[];
@@ -100,6 +101,7 @@ export default function BookingsPage() {
           total_amount: effectiveAmount,
           total_quantity: b.quantity || 1,
           payment_ref: b.payment_ref || "",
+          applied_coupon: b.applied_coupon || "",
           bookingIds: [b.id],
           primaryId: b.id,
           items: [b],
@@ -117,6 +119,9 @@ export default function BookingsPage() {
         existing.items.push(b);
         if (b.payment_ref && !existing.payment_ref) {
           existing.payment_ref = b.payment_ref;
+        }
+        if (b.applied_coupon && !existing.applied_coupon) {
+          existing.applied_coupon = b.applied_coupon;
         }
         const isItemFulfilled = 
           (b.fulfillment_status || "").toLowerCase() === "fulfilled" || 
@@ -908,7 +913,17 @@ export default function BookingsPage() {
 
                       {/* Order Code */}
                       <td className="py-4 px-4 font-mono font-bold text-gray-900 whitespace-nowrap tracking-tight group-hover:text-[#ff5a1f] transition-colors">
-                        {order.orderCode}
+                        <div>{order.orderCode}</div>
+                        {order.applied_coupon && (
+                          <div className="mt-1">
+                            <span 
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-950 border border-amber-300 shadow-2xs"
+                              title={`VIP Band Offer Coupon: ${order.applied_coupon}`}
+                            >
+                              ⭐ VIP BAND: {order.applied_coupon}
+                            </span>
+                          </div>
+                        )}
                       </td>
 
                       {/* Date Created */}
@@ -918,8 +933,13 @@ export default function BookingsPage() {
 
                       {/* Customer & Slot Wristbands */}
                       <td className="py-4 px-4 whitespace-nowrap">
-                        <div className="font-bold text-gray-900">
-                          {order.customer_name}
+                        <div className="font-bold text-gray-900 flex items-center gap-2">
+                          <span>{order.customer_name}</span>
+                          {order.applied_coupon && (
+                            <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-800 border border-amber-300">
+                              VIP Band Guest
+                            </span>
+                          )}
                         </div>
                         {order.slots.length > 0 && (
                           <div className="mt-1 flex flex-wrap items-center gap-1.5 max-w-xs">

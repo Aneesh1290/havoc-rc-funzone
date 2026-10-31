@@ -1400,6 +1400,119 @@ export async function handoverWristbandsToReception(data: {
 }
 
 /**
+ * Preview Wristbands that will be handed over to Reception without modifying DB.
+ */
+export async function previewHandoverRange(data: {
+  color_name?: string;
+  color_hex?: string;
+  amount: number;
+}): Promise<{
+  success: boolean;
+  totalAvailable: number;
+  count: number;
+  startCode?: string;
+  endCode?: string;
+  bandCodes: string[];
+  error?: string;
+}> {
+  try {
+    const { color_name, color_hex, amount } = data;
+    const cleanAmount = Math.max(0, Math.floor(amount));
+    await ensureBandInventorySeeded();
+
+    if (isPostgresActive()) {
+      try {
+        const whereParts = ["status = 'available'", "COALESCE(location, 'warehouse') != 'reception'"];
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (color_hex) {
+          whereParts.push(`UPPER(color_hex) = UPPER($${pIdx++})`);
+          params.push(color_hex.trim());
+        } else if (color_name) {
+          whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
+          params.push(color_name.trim());
+        }
+
+        const countRes = await simulatorPool.query(
+          `SELECT COUNT(*) as cnt FROM band_items WHERE ${whereParts.join(" AND ")}`,
+          params
+        );
+        const totalAvailable = parseInt(countRes.rows[0]?.cnt || "0", 10);
+
+        if (cleanAmount <= 0) {
+          return { success: true, totalAvailable, count: 0, bandCodes: [] };
+        }
+
+        const querySql = `
+          SELECT band_code
+          FROM band_items
+          WHERE ${whereParts.join(" AND ")}
+          ORDER BY band_code ASC, id ASC
+          LIMIT $${pIdx}
+        `;
+        const res = await simulatorPool.query(querySql, [...params, cleanAmount]);
+        const codes = res.rows.map((r: any) => r.band_code);
+
+        return {
+          success: true,
+          totalAvailable,
+          count: codes.length,
+          startCode: codes[0],
+          endCode: codes[codes.length - 1],
+          bandCodes: codes
+        };
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for previewHandoverRange:", pgErr);
+      }
+    }
+
+    // SQLite fallback
+    initDB();
+    const whereParts = ["status = 'available'", "COALESCE(location, 'warehouse') != 'reception'"];
+    const params: any[] = [];
+
+    if (color_hex) {
+      whereParts.push("UPPER(color_hex) = ?");
+      params.push(color_hex.trim().toUpperCase());
+    } else if (color_name) {
+      whereParts.push("LOWER(color_name) = ?");
+      params.push(color_name.trim().toLowerCase());
+    }
+
+    const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM band_items WHERE ${whereParts.join(" AND ")}`).get(...params) as { cnt: number };
+    const totalAvailable = countRow ? countRow.cnt : 0;
+
+    if (cleanAmount <= 0) {
+      return { success: true, totalAvailable, count: 0, bandCodes: [] };
+    }
+
+    const selectSql = `
+      SELECT band_code
+      FROM band_items
+      WHERE ${whereParts.join(" AND ")}
+      ORDER BY band_code ASC, id ASC
+      LIMIT ?
+    `;
+    const rows = db.prepare(selectSql).all(...params, cleanAmount) as { band_code: string }[];
+    const codes = rows.map(r => r.band_code);
+
+    return {
+      success: true,
+      totalAvailable,
+      count: codes.length,
+      startCode: codes[0],
+      endCode: codes[codes.length - 1],
+      bandCodes: codes
+    };
+  } catch (err: any) {
+    console.error("[previewHandoverRange Error]", err);
+    return { success: false, totalAvailable: 0, count: 0, bandCodes: [], error: err.message };
+  }
+}
+
+
+/**
  * Return Wristbands from Reception back to Warehouse:
  * Returns wristbands located at 'reception' back to 'warehouse'.
  */

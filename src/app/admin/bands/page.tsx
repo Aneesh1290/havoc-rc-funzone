@@ -56,7 +56,8 @@ import {
   deleteBandItemAction,
   bulkDeleteBandItemsAction,
   deleteAllBandInventoryAction,
-  quickLookupBandAction
+  quickLookupBandAction,
+  previewHandoverRangeAction
 } from "@/app/actions/band-inventory";
 import { 
   syncColorInventoryAction, 
@@ -139,6 +140,65 @@ export default function BandInventoryPage() {
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
   const [colorStockOutAmount, setColorStockOutAmount] = useState(10);
   const [isSubmittingColorStockOut, setIsSubmittingColorStockOut] = useState(false);
+  const [stockOutPreview, setStockOutPreview] = useState<{
+    isLoading: boolean;
+    startCode?: string;
+    endCode?: string;
+    count: number;
+    totalAvailable: number;
+  }>({ isLoading: false, count: 0, totalAvailable: 0 });
+
+  // Live query preview of wristbands to be stocked out
+  useEffect(() => {
+    if (!isStockOutModalForColorOpen || !selectedColorForAction) {
+      setStockOutPreview({ isLoading: false, count: 0, totalAvailable: 0 });
+      return;
+    }
+
+    let isMounted = true;
+    setStockOutPreview(prev => ({ ...prev, isLoading: true }));
+
+    const timer = setTimeout(async () => {
+      try {
+        const res = await previewHandoverRangeAction({
+          color_name: selectedColorForAction.color_name,
+          color_hex: selectedColorForAction.color_hex,
+          amount: colorStockOutAmount
+        });
+
+        if (isMounted) {
+          if (res.success) {
+            setStockOutPreview({
+              isLoading: false,
+              startCode: res.startCode,
+              endCode: res.endCode,
+              count: res.count,
+              totalAvailable: res.totalAvailable
+            });
+          } else {
+            setStockOutPreview({
+              isLoading: false,
+              count: 0,
+              totalAvailable: 0
+            });
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setStockOutPreview({
+            isLoading: false,
+            count: 0,
+            totalAvailable: 0
+          });
+        }
+      }
+    }, 150);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+    };
+  }, [isStockOutModalForColorOpen, selectedColorForAction, colorStockOutAmount]);
 
   // Return from Reception / Adjust Reception Modal from Color Cards
   const [isReturnModalForColorOpen, setIsReturnModalForColorOpen] = useState(false);
@@ -2826,6 +2886,57 @@ export default function BandInventoryPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Live Preview of Specific Wristband Range */}
+                <div className="mt-3 rounded-2xl border p-3.5 transition-all bg-emerald-50/70 border-emerald-200">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                      <Package className="w-3.5 h-3.5 text-emerald-600" />
+                      Wristbands To Be Stocked Out:
+                    </span>
+                    {stockOutPreview.isLoading ? (
+                      <span className="text-[10px] font-bold text-emerald-600 animate-pulse">Calculating range...</span>
+                    ) : stockOutPreview.startCode ? (
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-800">
+                        {stockOutPreview.count} {stockOutPreview.count === 1 ? 'Band' : 'Bands'} Ready
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {stockOutPreview.isLoading ? (
+                    <div className="h-9 flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                      Loading sequential band IDs...
+                    </div>
+                  ) : stockOutPreview.startCode ? (
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-mono font-black text-emerald-950 bg-white/80 px-3 py-2 rounded-xl border border-emerald-300 shadow-xs">
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                          {stockOutPreview.startCode}
+                        </span>
+                        {stockOutPreview.startCode !== stockOutPreview.endCode && (
+                          <>
+                            <span className="text-emerald-500 font-bold">→</span>
+                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                              {stockOutPreview.endCode}
+                            </span>
+                          </>
+                        )}
+                        <span className="text-[11px] font-sans font-semibold text-emerald-700 ml-auto">
+                          ({stockOutPreview.count} {stockOutPreview.count === 1 ? "item" : "items"})
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-emerald-700 font-medium">
+                        ✓ These sequential warehouse bands will immediately transition to <strong>Reception</strong> status upon confirmation.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200">
+                      ⚠️ No individual wristband records found in warehouse storage for this color. Handover will update the reception counter balance.
+                    </div>
+                  )}
+                </div>
+
                 <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
                   ℹ️ This directly adds <strong className="font-mono font-bold text-amber-800">{colorStockOutAmount}</strong> wristbands to the Reception counter for staff to hand out. Reception total will be <strong className="font-mono font-bold text-amber-800">{(selectedColorForAction.in_reception || 0) + colorStockOutAmount}</strong>.
                 </p>

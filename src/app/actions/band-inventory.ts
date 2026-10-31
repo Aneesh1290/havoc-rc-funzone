@@ -19,6 +19,7 @@ import {
   bulkDeleteBandItems,
   deleteAllBandInventory,
   getBandTransactions,
+  previewHandoverRange,
   BandItem,
   BandTransaction,
   BandInventorySummary,
@@ -289,5 +290,27 @@ export async function quickLookupBandAction(code: string): Promise<{
     return { success: true, item };
   } catch (err: any) {
     return { success: false, error: err.message || "Lookup failed" };
+  }
+}
+
+export async function previewHandoverRangeAction(params: {
+  color_name?: string;
+  color_hex?: string;
+  amount: number;
+}): Promise<{
+  success: boolean;
+  totalAvailable: number;
+  count: number;
+  startCode?: string;
+  endCode?: string;
+  bandCodes: string[];
+  error?: string;
+}> {
+  try {
+    await getStaffSession();
+    return await previewHandoverRange(params);
+  } catch (err: any) {
+    console.error("[previewHandoverRangeAction Error]", err);
+    return { success: false, totalAvailable: 0, count: 0, bandCodes: [], error: err.message || "Preview failed" };
   }
 }

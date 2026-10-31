@@ -47,6 +47,7 @@ interface StaffUser {
 const MODULE_PERMISSIONS = [
   { key: "bookings", label: "Bookings", icon: Calendar },
   { key: "tickets", label: "Ticket Types", icon: Ticket },
+  { key: "addons", label: "Add-ons", icon: PackagePlus },
   { key: "vip-perks", label: "VIP Perks", icon: Sparkles },
   { key: "slots", label: "Slots & Dates", icon: Clock },
   { key: "bands", label: "Band Inventory", icon: Layers },

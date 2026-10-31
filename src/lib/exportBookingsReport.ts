@@ -324,14 +324,15 @@ function renderDaySheet(
     return timeA - timeB;
   });
 
-  // Format Top Banner (Row 1): Light sage green (#D5E8D4), spanning A1:O1, right-aligned date text (e.g. "Oct 31 (Sat)")
-  let row1BannerText = bannerTitle;
+  // Format Top Banner (Row 1): Light sage green (#D5E8D4), spanning A1:O1, right-aligned banner text
+  // Must mention "Havoc Rc Fun Zone - All Booking" on every page
+  let row1BannerText = "Havoc Rc Fun Zone - All Booking";
   const parsedFirstDate = sortedDates.length === 1 ? parseBookingDate(sortedDates[0]) : null;
   if (parsedFirstDate && !isNaN(parsedFirstDate.getTime())) {
     const monthShort = parsedFirstDate.toLocaleDateString("en-US", { month: "short" });
     const dayNum = parsedFirstDate.getDate();
     const weekdayShort = parsedFirstDate.toLocaleDateString("en-US", { weekday: "short" });
-    row1BannerText = `${monthShort} ${dayNum} (${weekdayShort})`;
+    row1BannerText = `Havoc Rc Fun Zone - All Booking (${monthShort} ${dayNum}, ${weekdayShort})`;
   }
 
   const titleRow = worksheet.addRow([row1BannerText]);

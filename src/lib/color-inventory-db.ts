@@ -428,14 +428,9 @@ export async function stockOutColorToReception(params: {
       if (checkRes.rows.length === 0) {
         return { success: false, error: "Inventory record not found." };
       }
-      const cur = checkRes.rows[0];
-      if (cur.quantity < cleanAmount) {
-        return { success: false, error: `Cannot stock out ${cleanAmount} bands. Only ${cur.quantity} available in warehouse stock.` };
-      }
-
       const res = await simulatorPool.query(`
         UPDATE wristband_color_inventory
-        SET quantity = quantity - $1,
+        SET quantity = GREATEST(0, quantity - $1),
             in_reception = in_reception + $1,
             updated_at = NOW()
         WHERE id = $2
@@ -479,11 +474,7 @@ export async function stockOutColorToReception(params: {
       return { success: false, error: "Inventory record not found." };
     }
 
-    if (current.quantity < cleanAmount) {
-      return { success: false, error: `Cannot stock out ${cleanAmount} bands. Only ${current.quantity} available in warehouse stock.` };
-    }
-
-    const newQty = current.quantity - cleanAmount;
+    const newQty = Math.max(0, (current.quantity || 0) - cleanAmount);
     const newReception = (current.in_reception || 0) + cleanAmount;
 
     db.prepare(`

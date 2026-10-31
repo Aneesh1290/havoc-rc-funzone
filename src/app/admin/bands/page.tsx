@@ -60,7 +60,6 @@ import {
 } from "@/app/actions/band-inventory";
 import { 
   syncColorInventoryAction, 
-  updateColorStockAction, 
   stockOutColorToReceptionAction,
   returnColorFromReceptionAction,
   setColorReceptionAction
@@ -146,11 +145,6 @@ export default function BandInventoryPage() {
   const [isSubmittingColorReturn, setIsSubmittingColorReturn] = useState(false);
   const [directReceptionTarget, setDirectReceptionTarget] = useState(0);
   const [isDirectSetMode, setIsDirectSetMode] = useState(false);
-
-  // Quick Add Main Stock Modal from Color Cards
-  const [isQuickAddStockModalOpen, setIsQuickAddStockModalOpen] = useState(false);
-  const [quickAddStockAmount, setQuickAddStockAmount] = useState(10);
-  const [isSubmittingQuickAddStock, setIsSubmittingQuickAddStock] = useState(false);
 
   // Clear / Reset All Inventory Modal
   const [isClearAllModalOpen, setIsClearAllModalOpen] = useState(false);
@@ -559,41 +553,6 @@ export default function BandInventoryPage() {
     setIsColorManageModalOpen(true);
   };
 
-  const handleQuickAddStockSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedColorForAction || !selectedColorForAction.color_inventory_id) {
-      setFeedback({ type: "error", message: "Color inventory record ID not found. Please sync from slots first." });
-      return;
-    }
-    if (quickAddStockAmount <= 0) {
-      setFeedback({ type: "error", message: "Please specify a positive quantity to add." });
-      return;
-    }
-
-    setIsSubmittingQuickAddStock(true);
-    try {
-      const res = await updateColorStockAction({
-        id: selectedColorForAction.color_inventory_id,
-        addAmount: quickAddStockAmount
-      });
-      if (res.success) {
-        setFeedback({
-          type: "success",
-          message: `Added +${quickAddStockAmount} stock to '${selectedColorForAction.color_name}'. Available stock is now ${res.item?.quantity ?? (selectedColorForAction.available + quickAddStockAmount)}.`
-        });
-        setIsQuickAddStockModalOpen(false);
-        setQuickAddStockAmount(10);
-        await loadData();
-      } else {
-        setFeedback({ type: "error", message: res.error || "Failed to add stock." });
-      }
-    } catch (err: any) {
-      setFeedback({ type: "error", message: err.message || "An error occurred while adding stock." });
-    } finally {
-      setIsSubmittingQuickAddStock(false);
-    }
-  };
-
   const handleQuickStockOutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedColorForAction || !selectedColorForAction.color_inventory_id) {
@@ -602,10 +561,6 @@ export default function BandInventoryPage() {
     }
     if (colorStockOutAmount <= 0) {
       setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
-      return;
-    }
-    if (colorStockOutAmount > selectedColorForAction.available) {
-      setFeedback({ type: "error", message: `Cannot stock out ${colorStockOutAmount}. Only ${selectedColorForAction.available} bands available in warehouse.` });
       return;
     }
 
@@ -2370,11 +2325,10 @@ export default function BandInventoryPage() {
                   <button
                     onClick={() => {
                       setIsColorManageModalOpen(false);
-                      setColorStockOutAmount(Math.min(10, selectedColorForAction.available > 0 ? selectedColorForAction.available : 1));
+                      setColorStockOutAmount(10);
                       setIsStockOutModalForColorOpen(true);
                     }}
-                    disabled={selectedColorForAction.available <= 0}
-                    className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group disabled:opacity-40"
+                    className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group"
                   >
                     <div className="flex items-center gap-3">
                       <div className="p-2.5 rounded-lg bg-amber-500 text-white group-hover:scale-105 transition-transform">
@@ -2417,31 +2371,6 @@ export default function BandInventoryPage() {
                       </div>
                     </div>
                     <ChevronRight className="w-4 h-4 text-blue-600 group-hover:translate-x-1 transition-all" />
-                  </button>
-
-                  {/* Option: Quick Add Warehouse Stock */}
-                  <button
-                    onClick={() => {
-                      setIsColorManageModalOpen(false);
-                      setQuickAddStockAmount(10);
-                      setIsQuickAddStockModalOpen(true);
-                    }}
-                    className="w-full text-left p-4 rounded-xl border border-emerald-200 bg-emerald-50/40 hover:bg-emerald-100/50 hover:border-emerald-400 transition-all flex items-center justify-between group"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-lg bg-emerald-600 text-white group-hover:scale-105 transition-transform">
-                        <Plus className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <strong className="block text-xs font-bold text-emerald-900 group-hover:text-emerald-800 transition-colors">
-                          + Add Stock to Inventory Pool
-                        </strong>
-                        <span className="text-[11px] text-emerald-700">
-                          Quickly increase in-stock quantity count for {selectedColorForAction.color_name} bands
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-emerald-600 group-hover:translate-x-1 transition-all" />
                   </button>
 
                   {/* Option 1: Add New Band Series */}
@@ -2834,7 +2763,6 @@ export default function BandInventoryPage() {
                   <input
                     type="number"
                     min="1"
-                    max={selectedColorForAction.available}
                     required
                     value={colorStockOutAmount}
                     onChange={(e) => setColorStockOutAmount(parseInt(e.target.value, 10) || 0)}
@@ -2845,9 +2773,8 @@ export default function BandInventoryPage() {
                       <button
                         key={amt}
                         type="button"
-                        disabled={amt > selectedColorForAction.available}
                         onClick={() => setColorStockOutAmount(amt)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all disabled:opacity-30 ${
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
                           colorStockOutAmount === amt
                             ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
                             : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
@@ -2859,7 +2786,7 @@ export default function BandInventoryPage() {
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
-                  ℹ️ This moves <strong className="font-mono font-bold text-amber-800">{colorStockOutAmount}</strong> wristbands to the Reception counter. Remaining warehouse stock will be <strong className="font-mono font-bold">{Math.max(0, selectedColorForAction.available - colorStockOutAmount)}</strong>, and Reception total will be <strong className="font-mono font-bold text-amber-800">{(selectedColorForAction.in_reception || 0) + colorStockOutAmount}</strong>.
+                  ℹ️ This directly adds <strong className="font-mono font-bold text-amber-800">{colorStockOutAmount}</strong> wristbands to the Reception counter for staff to hand out. Reception total will be <strong className="font-mono font-bold text-amber-800">{(selectedColorForAction.in_reception || 0) + colorStockOutAmount}</strong>.
                 </p>
               </div>
 
@@ -2873,7 +2800,7 @@ export default function BandInventoryPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingColorStockOut || colorStockOutAmount <= 0 || colorStockOutAmount > selectedColorForAction.available}
+                  disabled={isSubmittingColorStockOut || colorStockOutAmount <= 0}
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5" />
@@ -3044,104 +2971,6 @@ export default function BandInventoryPage() {
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   {isSubmittingColorReturn ? "Saving..." : isDirectSetMode ? "Set Reception Count" : "Confirm Return to Stock"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* MODAL 8: QUICK ADD WAREHOUSE STOCK                                        */}
-      {/* ========================================================================= */}
-      {isQuickAddStockModalOpen && selectedColorForAction && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-emerald-200 relative my-auto">
-            <button
-              onClick={() => setIsQuickAddStockModalOpen(false)}
-              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-4">
-              <span 
-                className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
-                style={{ backgroundColor: selectedColorForAction.color_hex }}
-              />
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800">
-                    Add Warehouse Stock
-                  </span>
-                </div>
-                <h3 className="text-base font-black text-gray-900 mt-0.5">
-                  Add Stock: {selectedColorForAction.color_name}
-                </h3>
-                <span className="text-[11px] font-mono text-gray-400 font-bold">
-                  {selectedColorForAction.color_hex}
-                </span>
-              </div>
-            </div>
-
-            <form onSubmit={handleQuickAddStockSubmit} className="space-y-5">
-              <div className="bg-emerald-50/60 rounded-2xl p-3.5 border border-emerald-200/80">
-                <span className="text-[11px] text-emerald-800 font-bold block uppercase">Current Warehouse Stock:</span>
-                <span className="text-xl font-black font-mono text-emerald-900">
-                  {selectedColorForAction.available}
-                </span>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
-                  Quantity to Add:
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={quickAddStockAmount}
-                    onChange={(e) => setQuickAddStockAmount(parseInt(e.target.value, 10) || 0)}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <div className="flex gap-1 shrink-0">
-                    {[10, 25, 50, 100].map(amt => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setQuickAddStockAmount(amt)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
-                          quickAddStockAmount === amt
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
-                        }`}
-                      >
-                        +{amt}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <p className="text-[11px] text-gray-500 mt-2">
-                  New available warehouse stock will be: <strong className="font-mono font-bold text-emerald-700">{selectedColorForAction.available + quickAddStockAmount}</strong>
-                </p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={() => setIsQuickAddStockModalOpen(false)}
-                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmittingQuickAddStock || quickAddStockAmount <= 0}
-                  className="px-5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  {isSubmittingQuickAddStock ? "Adding Stock..." : "Add to Stock"}
                 </button>
               </div>
             </form>

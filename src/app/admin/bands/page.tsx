@@ -1660,13 +1660,31 @@ export default function BandInventoryPage() {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                      Quantity to Generate (1 to 200)
-                    </label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Quantity to Generate (1 to 50,000)
+                      </label>
+                      <div className="flex gap-1">
+                        {[50, 100, 500, 1000].map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setBulkCount(preset)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border transition-all ${
+                              bulkCount === preset
+                                ? "bg-[#ff5a1f] text-white border-[#ff5a1f]"
+                                : "bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200"
+                            }`}
+                          >
+                            +{preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <input
                       type="number"
                       min={1}
-                      max={200}
+                      max={50000}
                       required
                       value={bulkCount}
                       onChange={(e) => setBulkCount(Number(e.target.value))}

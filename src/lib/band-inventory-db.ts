@@ -786,7 +786,7 @@ export async function bulkCreateBandItems(data: {
     await ensureBandInventorySeeded();
 
     const prefix = data.prefix.trim().toUpperCase();
-    const count = Math.min(Math.max(1, data.count), 200);
+    const count = Math.min(Math.max(1, data.count), 50000);
     const startNum = Math.max(1, data.startingNumber || 1);
     const category = data.category || "Standard";
     const staffName = data.staff_name || "Admin Staff";

@@ -111,6 +111,8 @@ export async function bulkCreateBandItemsAction(data: {
   color_hex: string;
   category?: BandCategory;
   notes?: string;
+  separator?: string;
+  padLength?: number;
 }): Promise<{ success: boolean; createdCount: number; error?: string }> {
   try {
     const session = await getStaffSession();

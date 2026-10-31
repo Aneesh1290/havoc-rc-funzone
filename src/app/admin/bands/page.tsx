@@ -103,8 +103,9 @@ export default function BandInventoryPage() {
   // Form States: Bulk Generator
   const [isBulkMode, setIsBulkMode] = useState(false);
   const [bulkPrefix, setBulkPrefix] = useState("BND-YEL");
-  const [bulkStartNum, setBulkStartNum] = useState(1);
+  const [bulkStartNum, setBulkStartNum] = useState("001");
   const [bulkCount, setBulkCount] = useState(10);
+  const [bulkSeparator, setBulkSeparator] = useState<"-" | "" | "auto">("auto");
 
   // Form States: Quick Issue
   const [issueBandCode, setIssueBandCode] = useState("");
@@ -264,14 +265,23 @@ export default function BandInventoryPage() {
 
     try {
       if (isBulkMode) {
+        const rawStart = String(bulkStartNum || "1").trim();
+        const parsedStartNum = parseInt(rawStart, 10) || 1;
+        const padLen = rawStart.length > 0 ? rawStart.length : 3;
+        const effectiveSep = bulkSeparator === "auto"
+          ? (bulkPrefix.endsWith("-") || !bulkPrefix ? "" : (/^\d+$/.test(bulkPrefix) && /^\d+$/.test(rawStart) ? "" : "-"))
+          : bulkSeparator;
+
         const res = await bulkCreateBandItemsAction({
           prefix: bulkPrefix,
-          startingNumber: bulkStartNum,
+          startingNumber: parsedStartNum,
           count: bulkCount,
           color_name: selectedColor.name,
           color_hex: selectedColor.hex,
           category: selectedCategory,
           notes: newBandNotes || undefined,
+          separator: effectiveSep,
+          padLength: padLen,
         });
 
         if (res.success) {
@@ -1637,10 +1647,9 @@ export default function BandInventoryPage() {
                       </label>
                       <input
                         type="text"
-                        required
                         value={bulkPrefix}
                         onChange={(e) => setBulkPrefix(e.target.value.toUpperCase())}
-                        placeholder="e.g. BND-CYAN"
+                        placeholder="e.g. 017 or BND-CYAN"
                         className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                       />
                     </div>
@@ -1649,13 +1658,56 @@ export default function BandInventoryPage() {
                         Starting #
                       </label>
                       <input
-                        type="number"
-                        min={1}
+                        type="text"
                         required
                         value={bulkStartNum}
-                        onChange={(e) => setBulkStartNum(Number(e.target.value))}
+                        onChange={(e) => setBulkStartNum(e.target.value)}
+                        placeholder="e.g. 001"
                         className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                       />
+                    </div>
+                  </div>
+
+                  {/* Format Separator Selector */}
+                  <div className="bg-gray-50 border border-gray-200/80 rounded-xl p-2.5 flex items-center justify-between text-xs">
+                    <span className="font-bold text-gray-700">Code Format:</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setBulkSeparator("auto")}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all border ${
+                          bulkSeparator === "auto"
+                            ? "bg-[#0d1b2a] text-white border-[#0d1b2a]"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                        title="Auto-detect: Direct sequence for numbers (017001), dash for words (BND-RED-001)"
+                      >
+                        Auto (Smart)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkSeparator("")}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all border ${
+                          bulkSeparator === ""
+                            ? "bg-[#ff5a1f] text-white border-[#ff5a1f]"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                        title="Direct (No Dash, e.g. 017001)"
+                      >
+                        Direct (017001)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBulkSeparator("-")}
+                        className={`px-2.5 py-1 rounded-lg font-bold text-[11px] transition-all border ${
+                          bulkSeparator === "-"
+                            ? "bg-[#ff5a1f] text-white border-[#ff5a1f]"
+                            : "bg-white text-gray-600 border-gray-200 hover:bg-gray-100"
+                        }`}
+                        title="With Dash (e.g. 017-001)"
+                      >
+                        Dash (017-001)
+                      </button>
                     </div>
                   </div>
 
@@ -1665,7 +1717,7 @@ export default function BandInventoryPage() {
                         Quantity to Generate (1 to 50,000)
                       </label>
                       <div className="flex gap-1">
-                        {[50, 100, 500, 1000].map((preset) => (
+                        {[50, 100, 500, 1000, 3000].map((preset) => (
                           <button
                             key={preset}
                             type="button"
@@ -1690,10 +1742,44 @@ export default function BandInventoryPage() {
                       onChange={(e) => setBulkCount(Number(e.target.value))}
                       className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                     />
-                    <p className="text-[11px] text-gray-500 mt-1">
-                      Preview: {bulkPrefix}-{String(bulkStartNum).padStart(3, "0")} to{" "}
-                      {bulkPrefix}-{String(bulkStartNum + bulkCount - 1).padStart(3, "0")}
-                    </p>
+                    {(() => {
+                      const cleanPrefix = (bulkPrefix || "").trim();
+                      const rawStart = String(bulkStartNum || "1").trim();
+                      const numStart = parseInt(rawStart, 10) || 1;
+                      const padLen = rawStart.length > 0 ? rawStart.length : 3;
+                      const sep = bulkSeparator === "auto"
+                        ? (cleanPrefix.endsWith("-") || !cleanPrefix ? "" : (/^\d+$/.test(cleanPrefix) && /^\d+$/.test(rawStart) ? "" : "-"))
+                        : bulkSeparator;
+
+                      const formatCode = (val: number) => {
+                        const isNumConcat = sep === "" && /^\d+$/.test(cleanPrefix) && /^\d+$/.test(rawStart);
+                        if (isNumConcat) {
+                          // e.g. Prefix '017', Start '001' (combined 17001), count 1000 -> 17001 to 18000
+                          const combinedStart = parseInt(cleanPrefix + rawStart, 10);
+                          const totalLen = cleanPrefix.length + padLen;
+                          return String(combinedStart + (val - numStart)).padStart(totalLen, "0");
+                        }
+                        const formattedNum = String(val).padStart(padLen, "0");
+                        if (!cleanPrefix) return formattedNum;
+                        if (cleanPrefix.endsWith("-") && sep === "-") return `${cleanPrefix}${formattedNum}`;
+                        return `${cleanPrefix}${sep}${formattedNum}`;
+                      };
+
+                      const startCode = formatCode(numStart);
+                      const endCode = formatCode(numStart + bulkCount - 1);
+
+                      return (
+                        <div className="mt-2 p-2.5 rounded-xl bg-orange-50/70 border border-orange-200/80 text-xs">
+                          <span className="font-bold text-orange-950 block">Live Range Preview:</span>
+                          <span className="font-mono font-black text-[#ff5a1f] text-sm mt-0.5 block">
+                            {startCode} &nbsp;➔&nbsp; {endCode}
+                          </span>
+                          <span className="text-[11px] text-gray-500 mt-1 block">
+                            Generates exactly {bulkCount} unique wristbands in sequence.
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
                 </>
               ) : (
@@ -2155,8 +2241,9 @@ export default function BandInventoryPage() {
                   setSelectedColor(matchedPalette);
                   const short = selectedColorForAction.color_name.split("/")[0].trim().slice(0, 4).toUpperCase();
                   setBulkPrefix(`BND-${short}`);
-                  setBulkStartNum(selectedColorForAction.total + 1);
+                  setBulkStartNum(String(selectedColorForAction.total + 1).padStart(3, "0"));
                   setBulkCount(10);
+                  setBulkSeparator("auto");
                   setIsBulkMode(true);
                   setIsColorManageModalOpen(false);
                   setIsStockInModalOpen(true);

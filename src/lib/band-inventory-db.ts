@@ -781,16 +781,39 @@ export async function bulkCreateBandItems(data: {
   category?: BandCategory;
   notes?: string;
   staff_name?: string;
+  separator?: string;
+  padLength?: number;
 }): Promise<{ success: boolean; createdCount: number; error?: string }> {
   try {
     await ensureBandInventorySeeded();
 
-    const prefix = data.prefix.trim().toUpperCase();
+    const prefix = (data.prefix || "").trim().toUpperCase();
     const count = Math.min(Math.max(1, data.count), 50000);
-    const startNum = Math.max(1, data.startingNumber || 1);
+    const startNum = Math.max(0, data.startingNumber ?? 1);
     const category = data.category || "Standard";
     const staffName = data.staff_name || "Admin Staff";
     const notes = data.notes?.trim() || `Batch Stock-In of ${count} bands`;
+    // If separator is explicitly specified (e.g. "" for no dash), honor it; otherwise default to "-" unless prefix ends with dash
+    const sep = data.separator !== undefined 
+      ? data.separator 
+      : (prefix.endsWith("-") || !prefix ? "" : "-");
+    const padLen = data.padLength !== undefined ? data.padLength : 3;
+
+    // Helper to format band code
+    const isNumConcat = sep === "" && /^\d+$/.test(prefix) && padLen > 0;
+    const combinedStart = isNumConcat ? parseInt(prefix + String(startNum).padStart(padLen, "0"), 10) : startNum;
+    const totalLen = isNumConcat ? prefix.length + padLen : padLen;
+
+    const formatBandCode = (indexOffset: number) => {
+      if (isNumConcat) {
+        return String(combinedStart + indexOffset).padStart(totalLen, "0");
+      }
+      const curNum = startNum + indexOffset;
+      const formattedNum = String(curNum).padStart(padLen, "0");
+      if (!prefix) return formattedNum;
+      if (prefix.endsWith("-") && sep === "-") return `${prefix}${formattedNum}`;
+      return `${prefix}${sep}${formattedNum}`;
+    };
 
     if (isPostgresActive()) {
       try {
@@ -799,9 +822,7 @@ export async function bulkCreateBandItems(data: {
           await client.query("BEGIN");
           let createdCount = 0;
           for (let i = 0; i < count; i++) {
-            const curNum = startNum + i;
-            const padCode = String(curNum).padStart(3, "0");
-            const code = prefix.endsWith("-") ? `${prefix}${padCode}` : `${prefix}-${padCode}`;
+            const code = formatBandCode(i);
 
             const existCheck = await client.query("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER($1)", [code]);
             if (existCheck.rows.length > 0) continue;
@@ -852,9 +873,7 @@ export async function bulkCreateBandItems(data: {
     let createdCount = 0;
     const runBulk = db.transaction(() => {
       for (let i = 0; i < count; i++) {
-        const curNum = startNum + i;
-        const padCode = String(curNum).padStart(3, "0");
-        const code = prefix.endsWith("-") ? `${prefix}${padCode}` : `${prefix}-${padCode}`;
+        const code = formatBandCode(i);
 
         const exists = db.prepare("SELECT id FROM band_items WHERE UPPER(band_code) = UPPER(?)").get(code);
         if (exists) continue;

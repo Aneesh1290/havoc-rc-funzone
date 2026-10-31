@@ -41,6 +41,7 @@ export default function OrderDetailPage() {
   const [editingBandId, setEditingBandId] = useState<number | null>(null);
   const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
+  const [bandAssignError, setBandAssignError] = useState<string | null>(null);
 
   const handleStartEditBand = (item: any) => {
     const qty = Math.max(1, item.quantity || 1);
@@ -56,10 +57,12 @@ export default function OrderDetailPage() {
     }
     setEditingBandId(item.id);
     setBandInputs(initialInputs);
+    setBandAssignError(null);
   };
 
   const handleSaveWristbandNumber = async (item: any) => {
     setIsSavingBand(true);
+    setBandAssignError(null);
     try {
       const combinedCodes = bandInputs
         .map(b => b.trim())
@@ -68,14 +71,22 @@ export default function OrderDetailPage() {
 
       const bandColor = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
 
-      await updateBookingWristbandNumberAction(item.id, combinedCodes, {
+      const res = await updateBookingWristbandNumberAction(item.id, combinedCodes, {
         color_hex: bandColor.hex,
         color_name: bandColor.name
       });
+
+      if (!res.success) {
+        setBandAssignError(res.error || "Failed to assign wristband.");
+        return;
+      }
+
       setEditingBandId(null);
+      setBandAssignError(null);
       await loadBooking();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
+      setBandAssignError(e.message || "Failed to assign wristband.");
     } finally {
       setIsSavingBand(false);
     }
@@ -494,6 +505,12 @@ export default function OrderDetailPage() {
                                 </div>
                               ))}
                             </div>
+                            {bandAssignError && (
+                              <div className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1 leading-tight flex items-start gap-1">
+                                <span className="font-black text-red-500">⚠️</span>
+                                <span>{bandAssignError}</span>
+                              </div>
+                            )}
                           </div>
                         ) : item.wristband_number ? (
                           <div className="inline-flex items-center gap-1.5 flex-wrap">

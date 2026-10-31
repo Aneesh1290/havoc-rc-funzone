@@ -100,6 +100,7 @@ export default function DeskCheckInModal({
   const [editingBandId, setEditingBandId] = useState<number | null>(null);
   const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
+  const [bandAssignError, setBandAssignError] = useState<string | null>(null);
 
   // Selective Check-in & Walkout States
   const [activeSessionIds, setActiveSessionIds] = useState<number[]>([]);
@@ -297,6 +298,7 @@ export default function DeskCheckInModal({
 
   const handleSaveWristband = async (session: SessionBooking) => {
     setIsSavingBand(true);
+    setBandAssignError(null);
     try {
       const combinedCodes = bandInputs
         .map(b => b.trim())
@@ -305,10 +307,16 @@ export default function DeskCheckInModal({
 
       const bandColor = getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name);
 
-      await updateBookingWristbandNumberAction(session.id, combinedCodes, {
+      const res = await updateBookingWristbandNumberAction(session.id, combinedCodes, {
         color_hex: bandColor.hex,
         color_name: bandColor.name
       });
+
+      if (!res.success) {
+        setBandAssignError(res.error || "Failed to assign wristband.");
+        return;
+      }
+
       setVerifiedSessions((prev) =>
         prev.map((s) => (s.id === session.id ? { ...s, wristband_number: combinedCodes || null } : s))
       );
@@ -316,9 +324,11 @@ export default function DeskCheckInModal({
         prev.map((s) => (s.id === session.id ? { ...s, wristband_number: combinedCodes || null } : s))
       );
       setEditingBandId(null);
+      setBandAssignError(null);
       onSuccess();
-    } catch (e) {
+    } catch (e: any) {
       console.error("Save band error:", e);
+      setBandAssignError(e.message || "Failed to assign wristband.");
     } finally {
       setIsSavingBand(false);
     }
@@ -1522,6 +1532,12 @@ export default function DeskCheckInModal({
                                                 </div>
                                               ))}
                                             </div>
+                                            {bandAssignError && (
+                                              <div className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 mt-0.5 leading-tight flex items-start gap-1">
+                                                <span className="font-black text-red-500">⚠️</span>
+                                                <span>{bandAssignError}</span>
+                                              </div>
+                                            )}
                                           </div>
                                         ) : session.wristband_number ? (
                                           <div className="inline-flex items-center gap-1 flex-wrap">

@@ -438,9 +438,6 @@ export async function updateBookingWristbandNumberAction(
     const oldBandNumber = prevBooking?.wristband_number || "";
     const cleanBand = (wristbandNumber || "").trim();
 
-    // 1. Update the booking record in db
-    updateBookingWristbandNumber(id, cleanBand);
-
     // 2. Sync with Band Items & Reception Inventory
     const slotColorHex = options?.color_hex || prevBooking?.slot_color || "";
     const slotColorName = options?.color_name || prevBooking?.slot_color_name || "";
@@ -455,9 +452,49 @@ export async function updateBookingWristbandNumberAction(
     // Parse old band codes and new band codes (comma-separated or single)
     const oldCodes = oldBandNumber.split(/[\s,]+/).map((s: string) => s.trim()).filter(Boolean);
     const newCodes = cleanBand.split(/[\s,]+/).map((s: string) => s.trim()).filter(Boolean);
-
-    // For codes that were removed: return them and increment reception count
     const removedCodes = oldCodes.filter((c: string) => !newCodes.includes(c));
+
+    // For codes that are newly added: validate that every band exists and is stocked out to reception
+    const addedCodes = newCodes.filter((c: string) => !oldCodes.includes(c));
+
+    for (const code of addedCodes) {
+      const issueCheck = await issueBandItem({
+        band_code: code,
+        color_hex: slotColorHex,
+        color_name: slotColorName,
+        customer_name: customerName,
+        booking_id: id,
+        order_number: `#${orderNum}`,
+        staff_name: staffName,
+        notes: `Issued to ${customerName} for ${prevBooking?.time_slot || 'Slot'}`
+      });
+
+      if (!issueCheck.success) {
+        // Rollback any codes that were just issued during this loop
+        const currentIdx = addedCodes.indexOf(code);
+        for (let rollbackIdx = 0; rollbackIdx < currentIdx; rollbackIdx++) {
+          const rollbackCode = addedCodes[rollbackIdx];
+          await returnBandItem({
+            band_code: rollbackCode,
+            color_hex: slotColorHex,
+            color_name: slotColorName,
+            condition: "good",
+            staff_name: staffName,
+            notes: `Rollback after failed assignment of ${code}`
+          });
+          if (slotColorHex || slotColorName) {
+            await incrementReceptionCountByHex(slotColorHex || slotColorName, 1);
+          }
+        }
+        return { success: false, error: issueCheck.error || `Band ${code} cannot be assigned.` };
+      }
+
+      if (slotColorHex || slotColorName) {
+        await decrementReceptionCountByHex(slotColorHex || slotColorName, 1);
+      }
+    }
+
+    // Now that added codes succeeded, process any removed codes
     for (const code of removedCodes) {
       try {
         await returnBandItem({
@@ -476,27 +513,8 @@ export async function updateBookingWristbandNumberAction(
       }
     }
 
-    // For codes that are newly added: issue them and decrement reception count
-    const addedCodes = newCodes.filter((c: string) => !oldCodes.includes(c));
-    for (const code of addedCodes) {
-      try {
-        await issueBandItem({
-          band_code: code,
-          color_hex: slotColorHex,
-          color_name: slotColorName,
-          customer_name: customerName,
-          booking_id: id,
-          order_number: `#${orderNum}`,
-          staff_name: staffName,
-          notes: `Issued to ${customerName} for ${prevBooking?.time_slot || 'Slot'}`
-        });
-      } catch (e) {
-        console.warn(`[Band Sync] Issue item error for ${code}:`, e);
-      }
-      if (slotColorHex || slotColorName) {
-        await decrementReceptionCountByHex(slotColorHex || slotColorName, 1);
-      }
-    }
+    // Save final updated wristband string in bookings
+    updateBookingWristbandNumber(id, cleanBand);
 
     revalidatePath('/admin/bookings');
     revalidatePath(`/admin/bookings/${id}`);

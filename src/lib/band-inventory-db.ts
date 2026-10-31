@@ -966,13 +966,23 @@ export async function issueBandItem(data: {
       : (data.band_code ? await getBandItemByCode(data.band_code, { color_hex: data.color_hex, color_name: data.color_name }) : undefined);
 
     if (!band) {
-      return { success: false, error: `Wristband '${data.band_code || data.band_id}' not found in inventory.` };
+      return { 
+        success: false, 
+        error: `Wristband '${data.band_code || data.band_id}' does not exist in inventory for this color.` 
+      };
+    }
+
+    if (band.location !== "reception") {
+      return {
+        success: false,
+        error: `Wristband '${band.band_code}' (${band.color_name}) is still in Warehouse Storage! It must be stocked out to Reception before it can be issued to a player.`
+      };
     }
 
     if (band.status === "issued") {
       return { 
         success: false, 
-        error: `Band '${band.band_code}' is currently issued to ${band.current_holder_name || "another player"}. Please return it first.` 
+        error: `Band '${band.band_code}' is already issued to ${band.current_holder_name || "another player"}. Please return it first.` 
       };
     }
 

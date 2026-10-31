@@ -134,7 +134,7 @@ export default function TicketsPage() {
             <li className="flex gap-4">
               <span className="min-w-[24px] text-[#ff5a1f]">4.</span>
               <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">Participant Ticket:</span> Grants 1 hour full access to all 16 RC Activities.<br/>
+                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">Participant Ticket:</span> Grants 1 hour full access to 15 RC Activities (Excavator activity is to be paid extra).<br/>
                 <span className="text-[#ff5a1f]">₹1000 + GST per hour per person</span>
               </div>
             </li>

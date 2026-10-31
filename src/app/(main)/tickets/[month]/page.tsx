@@ -71,14 +71,15 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     PARTICIPANT: {
       title: "Participant Pass",
-      tagline: "Full play access to all 16 RC activities for 1 hour.",
+      tagline: "Full play access to 15 RC activities for 1 hour (Excavator activity is paid extra).",
       price: "₹1,000 + GST",
       badge: "Full RC Access",
       badgeColor: "bg-blue-50 text-blue-700 border-blue-200",
       accessType: "play",
       benefits: [
-        "1 Hour unlimited play access across all 16 RC activities",
-        "Includes RC Race & Drift tracks, RC Mining excavators, Train World, and more"
+        "1 Hour unlimited play access across 15 RC activities",
+        "Excavator activity is to be paid extra",
+        "Includes RC Race & Drift tracks, Train World, and more"
       ]
     },
     VIP_VISITOR: {
@@ -1021,7 +1022,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">4.</span>
               <div>
-                <strong>Participant Ticket:</strong> Grants 1 hour full access to all 16 RC Activities.<br/>
+                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities (Excavator activity is to be paid extra).<br/>
                 <span className="text-[#ff5a1f] font-bold">₹1000 + GST per hour per person</span>
               </div>
             </li>

@@ -140,15 +140,20 @@ export default async function TicketTypePage() {
                             </ul>
                           </div>
                         ) : ticket.name.toUpperCase() === "PARTICIPANT" ? (
-                          <div className="flex items-center gap-4">
-                            <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
+                          <div className="flex items-start gap-4">
+                            <div className="shrink-0 w-8 h-8 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
                               <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
                                 <polyline points="20 6 9 17 4 12" />
                               </svg>
                             </div>
-                            <p className="text-base sm:text-lg font-bold text-black">
-                              • Full access to all 16 RC Activities
-                            </p>
+                            <div>
+                              <p className="text-base sm:text-lg font-bold text-black">
+                                • Full access to 15 RC Activities
+                              </p>
+                              <p className="text-sm font-semibold text-[#d00000] ml-3 mt-0.5">
+                                *(Excavator activity is to be paid extra)
+                              </p>
+                            </div>
                           </div>
                         ) : ticket.name.toUpperCase() === "VIP_VISITOR" ? (
                           <div>

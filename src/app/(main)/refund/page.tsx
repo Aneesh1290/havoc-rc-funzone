@@ -149,7 +149,7 @@ export default function RefundPolicyPage() {
                       <td className="py-3 px-4">₹1,000.00</td>
                       <td className="py-3 px-4">₹180.00</td>
                       <td className="py-3 px-4 font-black text-[#ff5a1f]">₹1,180.00</td>
-                      <td className="py-3 px-4 text-xs text-gray-500">Full 1-hour access to all 16 RC zones</td>
+                      <td className="py-3 px-4 text-xs text-gray-500">Full 1-hour access to 15 RC zones (Excavator extra)</td>
                     </tr>
                     <tr>
                       <td className="py-3 px-4 font-bold text-gray-900">VIP Participant Pass</td>

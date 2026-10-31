@@ -1163,6 +1163,38 @@ export function bulkUpdateAllCouponsExpiry(expiryDate: string | null) {
   return db.prepare(`UPDATE coupons SET expiry_date = ?`).run(expiryDate || null);
 }
 
+export function bulkConvertToBandCoupons(
+  ids: number[], 
+  isBandCoupon: boolean = true, 
+  bandCategory: string = 'VIP', 
+  bandColor: string | null = '#FFD700'
+) {
+  if (ids.length === 0) return { changes: 0 };
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`
+    UPDATE coupons 
+    SET is_band_coupon = ?, 
+        band_category = ?, 
+        band_color = ? 
+    WHERE id IN (${placeholders})
+  `).run(isBandCoupon ? 1 : 0, bandCategory, bandColor, ...ids);
+}
+
+export function convertCouponToBandCoupon(
+  id: number, 
+  isBandCoupon: boolean = true, 
+  bandCategory: string = 'VIP', 
+  bandColor: string | null = '#FFD700'
+) {
+  return db.prepare(`
+    UPDATE coupons 
+    SET is_band_coupon = ?, 
+        band_category = ?, 
+        band_color = ? 
+    WHERE id = ?
+  `).run(isBandCoupon ? 1 : 0, bandCategory, bandColor, id);
+}
+
 export interface AdminUser {
   id: number;
   username: string;

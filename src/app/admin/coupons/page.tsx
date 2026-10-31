@@ -25,7 +25,9 @@ import {
   deleteAllCouponsAction,
   deleteMultipleCouponsAction,
   bulkUpdateCouponsExpiryAction,
-  bulkUpdateAllCouponsExpiryAction
+  bulkUpdateAllCouponsExpiryAction,
+  bulkConvertToBandCouponsAction,
+  convertCouponToBandCouponAction
 } from "@/app/actions/tickets";
 import { CouponRow } from "@/lib/db";
 
@@ -256,29 +258,41 @@ export default function AdminCouponsPage() {
     }
   };
 
-  const handleApplyExpiryToCurrentFiltered = async (dateVal: string | null) => {
-    const targetIds = filteredAndSortedCoupons.map(c => c.id);
+  const handleBulkConvertToBand = async (isBand: boolean = true) => {
+    const targetIds = selectedIds.length > 0 
+      ? selectedIds 
+      : filteredAndSortedCoupons.map(c => c.id);
+
     if (targetIds.length === 0) {
-      showNotification("No coupons match the current filter", "error");
+      showNotification("No coupons selected or displayed", "error");
       return;
     }
 
-    const label = dateVal ? `set expiry to ${dateVal}` : `remove expiry date (Never)`;
-    if (!confirm(`Are you sure you want to ${label} for ALL ${targetIds.length} currently filtered/displayed coupons?`)) {
+    const actionName = isBand ? "convert to ⭐ VIP Offer Wristbands" : "revert to Standard Coupons";
+    if (!confirm(`Are you sure you want to ${actionName} for ${targetIds.length} coupons?`)) {
       return;
     }
 
     setIsUpdatingExpiry(true);
-    const res = await bulkUpdateCouponsExpiryAction(targetIds, dateVal);
+    const res = await bulkConvertToBandCouponsAction(targetIds, isBand, "VIP", "#FFD700");
     setIsUpdatingExpiry(false);
 
     if (res.success) {
-      showNotification(`Successfully updated expiry date for ${res.count} coupons!`);
-      setShowBulkExpiryBar(false);
-      setBulkExpiryInput("");
+      showNotification(`Successfully updated ${res.count} coupons to ${isBand ? "VIP Offer Wristbands" : "Standard"}!`);
       loadCoupons();
     } else {
-      showNotification(res.error || "Failed to update expiry date", "error");
+      showNotification(res.error || "Failed to convert coupons", "error");
+    }
+  };
+
+  const handleSingleToggleBandCoupon = async (coupon: CouponRow) => {
+    const newStatus = coupon.is_band_coupon !== 1;
+    const res = await convertCouponToBandCouponAction(coupon.id, newStatus, coupon.band_category || "VIP", coupon.band_color || "#FFD700");
+    if (res.success) {
+      showNotification(`Coupon ${coupon.code} updated to ${newStatus ? "⭐ VIP Offer Wristband" : "Standard"}!`);
+      loadCoupons();
+    } else {
+      showNotification(res.error || "Failed to update coupon", "error");
     }
   };
 
@@ -813,6 +827,20 @@ export default function AdminCouponsPage() {
 
           {coupons.length > 0 && (
             <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+              {/* 1-Click Convert to VIP Offer Band */}
+              <button
+                type="button"
+                disabled={isUpdatingExpiry || (selectedIds.length === 0 && filteredAndSortedCoupons.length === 0)}
+                onClick={() => handleBulkConvertToBand(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white text-xs font-bold transition-all shadow-xs disabled:opacity-50"
+                title="Convert selected or filtered coupons to VIP Offer Wristbands"
+              >
+                <span>⭐ Convert to VIP Band</span>
+                <span className="bg-amber-700/80 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                  {selectedIds.length > 0 ? selectedIds.length : filteredAndSortedCoupons.length}
+                </span>
+              </button>
+
               <button
                 type="button"
                 onClick={() => setShowBulkExpiryBar(prev => !prev)}
@@ -1319,14 +1347,28 @@ export default function AdminCouponsPage() {
                       <td className="py-3.5 px-6 text-gray-500 text-xs">
                         {coupon.expiry_date ? coupon.expiry_date : "Never"}
                       </td>
-                      <td className="py-3.5 px-6 text-right">
-                        <button
-                          onClick={() => handleDelete(coupon.id, coupon.code)}
-                          className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                          title="Delete coupon"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <td className="py-3.5 px-6 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleSingleToggleBandCoupon(coupon)}
+                            className={`p-1.5 rounded-lg text-xs font-bold transition-all ${
+                              coupon.is_band_coupon === 1
+                                ? "text-amber-700 bg-amber-100 hover:bg-amber-200 border border-amber-300"
+                                : "text-gray-400 hover:text-amber-700 hover:bg-amber-50"
+                            }`}
+                            title={coupon.is_band_coupon === 1 ? "Click to revert to regular coupon" : "Click to convert to ⭐ VIP Offer Wristband"}
+                          >
+                            ⭐
+                          </button>
+                          <button
+                            onClick={() => handleDelete(coupon.id, coupon.code)}
+                            className="text-gray-400 hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                            title="Delete coupon"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );

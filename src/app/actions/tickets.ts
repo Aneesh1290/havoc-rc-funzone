@@ -21,6 +21,8 @@ import {
   deleteMultipleCoupons,
   bulkUpdateCouponsExpiry,
   bulkUpdateAllCouponsExpiry,
+  bulkConvertToBandCoupons,
+  convertCouponToBandCoupon,
   getCouponByCode,
   incrementCouponUsage,
   CouponRow,
@@ -638,6 +640,38 @@ export async function bulkUpdateAllCouponsExpiryAction(expiryDate: string | null
   } catch (error: any) {
     console.error("bulkUpdateAllCouponsExpiryAction error:", error);
     return { success: false, error: error.message || "Failed to update expiry date for all coupons" };
+  }
+}
+
+export async function bulkConvertToBandCouponsAction(
+  ids: number[], 
+  isBandCoupon: boolean = true, 
+  bandCategory: string = 'VIP', 
+  bandColor: string | null = '#FFD700'
+) {
+  try {
+    const result = bulkConvertToBandCoupons(ids, isBandCoupon, bandCategory, bandColor);
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("bulkConvertToBandCouponsAction error:", error);
+    return { success: false, error: error.message || "Failed to convert coupons to VIP Band Offer" };
+  }
+}
+
+export async function convertCouponToBandCouponAction(
+  id: number, 
+  isBandCoupon: boolean = true, 
+  bandCategory: string = 'VIP', 
+  bandColor: string | null = '#FFD700'
+) {
+  try {
+    const result = convertCouponToBandCoupon(id, isBandCoupon, bandCategory, bandColor);
+    revalidatePath('/admin/coupons');
+    return { success: true, count: result.changes };
+  } catch (error: any) {
+    console.error("convertCouponToBandCouponAction error:", error);
+    return { success: false, error: error.message || "Failed to convert coupon" };
   }
 }
 

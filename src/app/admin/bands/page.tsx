@@ -2290,7 +2290,9 @@ export default function BandInventoryPage() {
               <span>{selectedColorForAction.color_name} Wristbands</span>
             </h2>
             <p className="text-xs text-gray-500 mb-5">
-              Manage stock levels, batch generate a new band series, or view and edit individual items.
+              {canManageStock
+                ? "Manage stock levels, batch generate a new band series, or view and edit individual items."
+                : "View wristband stock levels and filter the catalog to inspect wristbands."}
             </p>
 
             {/* Quick Metrics Bar */}
@@ -2420,7 +2422,7 @@ export default function BandInventoryPage() {
                 </div>
               )}
 
-              {/* Option 2: View and Edit in Master Catalog */}
+              {/* Option 2: View in Master Catalog */}
               <button
                 onClick={() => {
                   setColorFilter(selectedColorForAction.color_name);
@@ -2436,10 +2438,12 @@ export default function BandInventoryPage() {
                   </div>
                   <div>
                     <strong className="block text-xs font-bold text-gray-900 group-hover:text-blue-600 transition-colors">
-                      View &amp; Edit All {selectedColorForAction.color_name} Bands
+                      {canManageStock ? `View & Edit All ${selectedColorForAction.color_name} Bands` : `View All ${selectedColorForAction.color_name} Bands`}
                     </strong>
                     <span className="text-[11px] text-gray-500">
-                      Filter Master Items Catalog to edit status, notes, or delete bands
+                      {canManageStock 
+                        ? "Filter Master Items Catalog to edit status, notes, or delete bands"
+                        : "Filter Master Items Catalog to view wristband details"}
                     </span>
                   </div>
                 </div>

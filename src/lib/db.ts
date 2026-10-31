@@ -53,6 +53,7 @@ export function initDB() {
       current_order_number TEXT,
       total_uses INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
+      location TEXT NOT NULL DEFAULT 'warehouse', -- 'warehouse', 'reception'
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
@@ -205,8 +206,8 @@ export function initDB() {
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_color TEXT'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_created ON online_checkout_holds(created_at)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
-  try { db.exec("UPDATE bookings SET fulfillment_status = 'Fulfilled' WHERE LOWER(fulfillment_status) = 'attended'"); } catch (e) {}
-  try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
+  try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT \'all\''); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
   try {

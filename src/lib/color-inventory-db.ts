@@ -401,18 +401,22 @@ export async function updateColorStock(params: {
 /**
  * Stock Out to Reception:
  * Transfers wristbands from main warehouse stock (quantity) to Front Desk / Reception (in_reception).
- * Both stock quantity and reception counters are tracked accurately.
+ * Both stock quantity and reception counters are tracked accurately, and physical band items are tagged as 'reception'.
  */
 export async function stockOutColorToReception(params: {
   id: number;
   amount: number;
   notes?: string;
+  staffName?: string;
 }): Promise<{
   success: boolean;
   item?: WristbandColorInventoryItem;
+  startCode?: string;
+  endCode?: string;
+  movedBandsCount?: number;
   error?: string;
 }> {
-  const { id, amount } = params;
+  const { id, amount, notes, staffName } = params;
   if (!id || typeof amount !== 'number' || amount <= 0) {
     return { success: false, error: "Please provide a valid stock out quantity." };
   }
@@ -421,6 +425,10 @@ export async function stockOutColorToReception(params: {
   const cleanAmount = Math.floor(amount);
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
+  let targetColorHex = "";
+  let targetColorName = "";
+  let updatedItem: WristbandColorInventoryItem | undefined;
+
   if (hasPg) {
     try {
       // Check current quantity first
@@ -428,6 +436,9 @@ export async function stockOutColorToReception(params: {
       if (checkRes.rows.length === 0) {
         return { success: false, error: "Inventory record not found." };
       }
+      targetColorHex = checkRes.rows[0].color_hex;
+      targetColorName = checkRes.rows[0].color_name;
+
       const res = await simulatorPool.query(`
         UPDATE wristband_color_inventory
         SET quantity = GREATEST(0, quantity - $1),
@@ -449,43 +460,41 @@ export async function stockOutColorToReception(params: {
         `).run(row.quantity, row.in_reception, row.color_hex);
       } catch (e) {}
 
-      return {
-        success: true,
-        item: {
-          id: row.id,
-          color_hex: row.color_hex,
-          color_name: row.color_name,
-          quantity: Number(row.quantity),
-          in_reception: Number(row.in_reception),
-          slot_labels: [],
-          is_active_in_slots: true
-        }
+      updatedItem = {
+        id: row.id,
+        color_hex: row.color_hex,
+        color_name: row.color_name,
+        quantity: Number(row.quantity),
+        in_reception: Number(row.in_reception),
+        slot_labels: [],
+        is_active_in_slots: true
       };
     } catch (pgErr: any) {
       console.warn("[Color Inventory] PG stock out error, falling back to SQLite:", pgErr);
     }
   }
 
-  // SQLite fallback
-  try {
-    initDB();
-    const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
-    if (!current) {
-      return { success: false, error: "Inventory record not found." };
-    }
+  // SQLite fallback if not set
+  if (!updatedItem) {
+    try {
+      initDB();
+      const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+      if (!current) {
+        return { success: false, error: "Inventory record not found." };
+      }
+      targetColorHex = current.color_hex;
+      targetColorName = current.color_name;
 
-    const newQty = Math.max(0, (current.quantity || 0) - cleanAmount);
-    const newReception = (current.in_reception || 0) + cleanAmount;
+      const newQty = Math.max(0, (current.quantity || 0) - cleanAmount);
+      const newReception = (current.in_reception || 0) + cleanAmount;
 
-    db.prepare(`
-      UPDATE wristband_color_inventory 
-      SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
-      WHERE id = ?
-    `).run(newQty, newReception, id);
+      db.prepare(`
+        UPDATE wristband_color_inventory 
+        SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `).run(newQty, newReception, id);
 
-    return {
-      success: true,
-      item: {
+      updatedItem = {
         id: current.id,
         color_hex: current.color_hex,
         color_name: current.color_name,
@@ -493,11 +502,44 @@ export async function stockOutColorToReception(params: {
         in_reception: newReception,
         slot_labels: [],
         is_active_in_slots: true
-      }
-    };
-  } catch (sqliteErr: any) {
-    return { success: false, error: sqliteErr.message || "Failed to stock out to reception." };
+      };
+    } catch (sqliteErr: any) {
+      return { success: false, error: sqliteErr.message || "Failed to stock out to reception." };
+    }
   }
+
+  // Also move actual band items in catalog from warehouse -> reception
+  let startCode: string | undefined;
+  let endCode: string | undefined;
+  let movedBandsCount = 0;
+
+  try {
+    // Dynamic import to prevent circular references
+    const { handoverWristbandsToReception } = await import("./band-inventory-db");
+    const handoverRes = await handoverWristbandsToReception({
+      color_hex: targetColorHex,
+      color_name: targetColorName,
+      amount: cleanAmount,
+      staff_name: staffName || "Admin Staff",
+      notes: notes || `Stock Out Handover of ${cleanAmount} bands to Reception`
+    });
+
+    if (handoverRes.success && handoverRes.movedCount > 0) {
+      startCode = handoverRes.startCode;
+      endCode = handoverRes.endCode;
+      movedBandsCount = handoverRes.movedCount;
+    }
+  } catch (err) {
+    console.warn("[stockOutColorToReception] Could not earmark individual band items:", err);
+  }
+
+  return {
+    success: true,
+    item: updatedItem,
+    startCode,
+    endCode,
+    movedBandsCount
+  };
 }
 
 /**
@@ -520,6 +562,10 @@ export async function returnColorFromReception(params: {
   const cleanAmount = Math.floor(amount);
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
+  let targetColorHex = "";
+  let targetColorName = "";
+  let updatedItem: WristbandColorInventoryItem | undefined;
+
   if (hasPg) {
     try {
       const checkRes = await simulatorPool.query("SELECT quantity, in_reception, color_hex, color_name FROM wristband_color_inventory WHERE id = $1", [id]);
@@ -527,6 +573,9 @@ export async function returnColorFromReception(params: {
         return { success: false, error: "Inventory record not found." };
       }
       const cur = checkRes.rows[0];
+      targetColorHex = cur.color_hex;
+      targetColorName = cur.color_name;
+
       if ((cur.in_reception || 0) < cleanAmount) {
         return { success: false, error: `Cannot return ${cleanAmount} bands. Reception only has ${cur.in_reception || 0} bands recorded.` };
       }
@@ -550,46 +599,44 @@ export async function returnColorFromReception(params: {
         `).run(row.quantity, row.in_reception, row.color_hex);
       } catch (e) {}
 
-      return {
-        success: true,
-        item: {
-          id: row.id,
-          color_hex: row.color_hex,
-          color_name: row.color_name,
-          quantity: Number(row.quantity),
-          in_reception: Number(row.in_reception),
-          slot_labels: [],
-          is_active_in_slots: true
-        }
+      updatedItem = {
+        id: row.id,
+        color_hex: row.color_hex,
+        color_name: row.color_name,
+        quantity: Number(row.quantity),
+        in_reception: Number(row.in_reception),
+        slot_labels: [],
+        is_active_in_slots: true
       };
     } catch (pgErr: any) {
       console.warn("[Color Inventory] PG return from reception error:", pgErr);
     }
   }
 
-  try {
-    initDB();
-    const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
-    if (!current) {
-      return { success: false, error: "Inventory record not found." };
-    }
+  if (!updatedItem) {
+    try {
+      initDB();
+      const current = db.prepare("SELECT * FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+      if (!current) {
+        return { success: false, error: "Inventory record not found." };
+      }
+      targetColorHex = current.color_hex;
+      targetColorName = current.color_name;
 
-    if ((current.in_reception || 0) < cleanAmount) {
-      return { success: false, error: `Cannot return ${cleanAmount} bands. Reception only has ${current.in_reception || 0} bands recorded.` };
-    }
+      if ((current.in_reception || 0) < cleanAmount) {
+        return { success: false, error: `Cannot return ${cleanAmount} bands. Reception only has ${current.in_reception || 0} bands recorded.` };
+      }
 
-    const newQty = current.quantity + cleanAmount;
-    const newReception = (current.in_reception || 0) - cleanAmount;
+      const newQty = current.quantity + cleanAmount;
+      const newReception = (current.in_reception || 0) - cleanAmount;
 
-    db.prepare(`
-      UPDATE wristband_color_inventory 
-      SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
-      WHERE id = ?
-    `).run(newQty, newReception, id);
+      db.prepare(`
+        UPDATE wristband_color_inventory 
+        SET quantity = ?, in_reception = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `).run(newQty, newReception, id);
 
-    return {
-      success: true,
-      item: {
+      updatedItem = {
         id: current.id,
         color_hex: current.color_hex,
         color_name: current.color_name,
@@ -597,11 +644,30 @@ export async function returnColorFromReception(params: {
         in_reception: newReception,
         slot_labels: [],
         is_active_in_slots: true
-      }
-    };
-  } catch (sqliteErr: any) {
-    return { success: false, error: sqliteErr.message || "Failed to return from reception." };
+      };
+    } catch (sqliteErr: any) {
+      return { success: false, error: sqliteErr.message || "Failed to return from reception." };
+    }
   }
+
+  // Also return physical band items in catalog from reception -> warehouse
+  try {
+    const { returnWristbandsFromReception } = await import("./band-inventory-db");
+    await returnWristbandsFromReception({
+      color_hex: targetColorHex,
+      color_name: targetColorName,
+      amount: cleanAmount,
+      staff_name: "Admin Staff",
+      notes: `Returned ${cleanAmount} bands from Reception to Warehouse`
+    });
+  } catch (err) {
+    console.warn("[returnColorFromReception] Could not update physical band locations:", err);
+  }
+
+  return {
+    success: true,
+    item: updatedItem
+  };
 }
 
 /**

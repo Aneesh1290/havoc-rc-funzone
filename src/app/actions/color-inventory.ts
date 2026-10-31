@@ -93,11 +93,17 @@ export async function stockOutColorToReceptionAction(params: {
 }): Promise<{
   success: boolean;
   item?: WristbandColorInventoryItem;
+  startCode?: string;
+  endCode?: string;
+  movedBandsCount?: number;
   error?: string;
 }> {
   try {
-    await requireAdminSession("bands:manage_stock");
-    const result = await stockOutColorToReception(params);
+    const session = await requireAdminSession("bands:manage_stock");
+    const result = await stockOutColorToReception({
+      ...params,
+      staffName: session?.username || "Admin Staff"
+    });
     if (result.success) {
       revalidatePath("/admin/slots");
       revalidatePath("/admin/bands");

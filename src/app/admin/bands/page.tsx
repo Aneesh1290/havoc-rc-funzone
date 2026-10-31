@@ -84,6 +84,7 @@ export default function BandInventoryPage() {
   // Filters & Pagination for Master List
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [locationFilter, setLocationFilter] = useState("all");
   const [colorFilter, setColorFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [pageSize, setPageSize] = useState<number>(50);
@@ -194,6 +195,7 @@ export default function BandInventoryPage() {
         getBandItemsAction({
           search: searchQuery,
           status: statusFilter,
+          location: locationFilter,
           color_name: colorFilter,
           category: categoryFilter,
           limit: itemsLimit,
@@ -229,11 +231,11 @@ export default function BandInventoryPage() {
   // Reset to page 1 when search or filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchQuery, statusFilter, colorFilter, categoryFilter]);
+  }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter]);
 
   useEffect(() => {
     loadData();
-  }, [searchQuery, statusFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter]);
+  }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter]);
 
   const handleSyncSlots = async () => {
     setIsSyncingSlots(true);
@@ -571,9 +573,12 @@ export default function BandInventoryPage() {
         amount: colorStockOutAmount
       });
       if (res.success) {
+        const rangeText = res.startCode && res.endCode
+          ? ` (Wristbands: ${res.startCode}${res.startCode !== res.endCode ? ` to ${res.endCode}` : ''})`
+          : '';
         setFeedback({
           type: "success",
-          message: `Stock Out Recorded: ${colorStockOutAmount} '${selectedColorForAction.color_name}' bands handed over to Reception! (At Reception: ${res.item?.in_reception ?? (selectedColorForAction.in_reception || 0) + colorStockOutAmount})`
+          message: `Stock Out Recorded: ${colorStockOutAmount} '${selectedColorForAction.color_name}' bands handed over to Reception!${rangeText} (Reception Total: ${res.item?.in_reception ?? (selectedColorForAction.in_reception || 0) + colorStockOutAmount})`
         });
         setIsStockOutModalForColorOpen(false);
         setColorStockOutAmount(10);
@@ -729,6 +734,12 @@ export default function BandInventoryPage() {
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
             Lost
+          </span>
+        );
+      case "HANDOVER":
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-50 text-amber-900 border border-amber-300">
+            📍 Handover
           </span>
         );
       case "STOCK_OUT":
@@ -1208,6 +1219,17 @@ export default function BandInventoryPage() {
                 <option value="retired">⚫ Retired</option>
               </select>
 
+              {/* Location Filter */}
+              <select
+                value={locationFilter}
+                onChange={(e) => setLocationFilter(e.target.value)}
+                className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+              >
+                <option value="all">All Locations</option>
+                <option value="reception">📍 At Reception Counter</option>
+                <option value="warehouse">📦 In Warehouse / Storage</option>
+              </select>
+
               {/* Color Filter */}
               <select
                 value={colorFilter}
@@ -1310,6 +1332,7 @@ export default function BandInventoryPage() {
                   <th className="py-3.5 px-4">Unique Band ID</th>
                   <th className="py-3.5 px-4">Color / Scheme</th>
                   <th className="py-3.5 px-4">Category</th>
+                  <th className="py-3.5 px-4">Location</th>
                   <th className="py-3.5 px-4">Current Status</th>
                   <th className="py-3.5 px-4">Current Holder / Order</th>
                   <th className="py-3.5 px-4 text-center">Uses</th>
@@ -1320,7 +1343,7 @@ export default function BandInventoryPage() {
               <tbody className="divide-y divide-gray-100">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-12 text-center text-gray-500">
+                    <td colSpan={10} className="py-12 text-center text-gray-500">
                       No wristbands found matching your filter criteria.
                     </td>
                   </tr>
@@ -1370,6 +1393,19 @@ export default function BandInventoryPage() {
                         {/* Category */}
                         <td className="py-3 px-4 text-gray-700 font-medium">
                           {item.category}
+                        </td>
+
+                        {/* Location */}
+                        <td className="py-3 px-4">
+                          {item.location === "reception" ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300 shadow-xs">
+                              📍 Reception
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold text-gray-500 bg-gray-100 border border-gray-200">
+                              📦 Storage
+                            </span>
+                          )}
                         </td>
 
                         {/* Status */}
@@ -1536,6 +1572,7 @@ export default function BandInventoryPage() {
               className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
             >
               <option value="all">All Movement Types</option>
+              <option value="HANDOVER">📍 Handover to Reception</option>
               <option value="ISSUE">Issue Operations</option>
               <option value="RETURN">Return Operations</option>
               <option value="STOCK_IN">Stock In Operations</option>

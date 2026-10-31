@@ -5,9 +5,12 @@ import { getDistinctSlotColors, ensureColorInventorySchema } from "./color-inven
 
 export type BandStatus = "available" | "issued" | "damaged" | "lost" | "retired";
 export type BandCategory = "Standard" | "VIP" | "Child" | "Staff / Marshal";
+export type BandLocation = "warehouse" | "reception";
+
 export type BandTransactionType = 
   | "STOCK_IN" 
   | "STOCK_OUT" 
+  | "HANDOVER"
   | "ISSUE" 
   | "RETURN" 
   | "DAMAGED" 
@@ -21,6 +24,7 @@ export interface BandItem {
   color_hex: string;
   category: BandCategory;
   status: BandStatus;
+  location?: BandLocation;
   current_holder_name?: string | null;
   current_booking_id?: number | null;
   current_order_number?: string | null;
@@ -97,13 +101,16 @@ async function ensurePgSchema() {
         current_order_number VARCHAR(100),
         total_uses INTEGER DEFAULT 0,
         notes TEXT,
+        location VARCHAR(50) DEFAULT 'warehouse',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
 
+      ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
       CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
       CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
       CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
+      CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location);
 
       CREATE TABLE IF NOT EXISTS band_transactions (
         id SERIAL PRIMARY KEY,
@@ -560,6 +567,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 export interface GetBandItemsOptions {
   search?: string;
   status?: string;
+  location?: string;
   color_name?: string;
   category?: string;
   limit?: number;
@@ -588,6 +596,12 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       if (options.status && options.status !== 'all') {
         whereClauses.push(`status = $${pIdx}`);
         params.push(options.status.trim().toLowerCase());
+        pIdx++;
+      }
+
+      if (options.location && options.location !== 'all') {
+        whereClauses.push(`location = $${pIdx}`);
+        params.push(options.location.trim().toLowerCase());
         pIdx++;
       }
 
@@ -637,6 +651,11 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
   if (options.status && options.status !== "all") {
     whereClauses.push("status = ?");
     params.push(options.status.trim().toLowerCase());
+  }
+
+  if (options.location && options.location !== "all") {
+    whereClauses.push("location = ?");
+    params.push(options.location.trim().toLowerCase());
   }
 
   if (options.color_name && options.color_name !== "all") {
@@ -1220,6 +1239,313 @@ export async function stockOutBandItem(data: {
   } catch (err: any) {
     console.error("[Stock Out Band Error]", err);
     return { success: false, error: err.message || "Failed to retire band." };
+  }
+}
+
+/**
+ * Handover Wristbands to Reception:
+ * Earmarks specific available bands of a given color and moves their location from 'warehouse' to 'reception'.
+ * Returns the exact count and band code range (e.g. BND-AQU-001 to BND-AQU-200).
+ */
+export async function handoverWristbandsToReception(data: {
+  color_name?: string;
+  color_hex?: string;
+  amount: number;
+  staff_name?: string;
+  notes?: string;
+}): Promise<{
+  success: boolean;
+  movedCount: number;
+  startCode?: string;
+  endCode?: string;
+  bandCodes: string[];
+  error?: string;
+}> {
+  try {
+    const { color_name, color_hex, amount } = data;
+    const cleanAmount = Math.floor(amount);
+    if (cleanAmount <= 0) {
+      return { success: false, movedCount: 0, bandCodes: [], error: "Invalid handover quantity." };
+    }
+
+    const staffName = data.staff_name || "Admin Staff";
+    const notes = data.notes?.trim() || `Handed over ${cleanAmount} bands to Reception Desk`;
+
+    await ensureBandInventorySeeded();
+
+    if (isPostgresActive()) {
+      try {
+        await ensurePgSchema();
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+
+          const whereParams: any[] = [];
+          const whereParts = ["status = 'available'", "COALESCE(location, 'warehouse') != 'reception'"];
+          let pIdx = 1;
+
+          if (color_hex) {
+            whereParts.push(`UPPER(color_hex) = UPPER($${pIdx++})`);
+            whereParams.push(color_hex.trim());
+          } else if (color_name) {
+            whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
+            whereParams.push(color_name.trim());
+          }
+
+          whereParams.push(cleanAmount);
+          const selectSql = `
+            SELECT id, band_code, color_name, color_hex 
+            FROM band_items 
+            WHERE ${whereParts.join(" AND ")}
+            ORDER BY band_code ASC, id ASC
+            LIMIT $${pIdx}
+          `;
+
+          const eligibleRes = await client.query(selectSql, whereParams);
+          const eligibleBands = eligibleRes.rows;
+
+          if (eligibleBands.length > 0) {
+            const ids = eligibleBands.map(b => b.id);
+            await client.query(`
+              UPDATE band_items 
+              SET location = 'reception', updated_at = CURRENT_TIMESTAMP
+              WHERE id = ANY($1::int[])
+            `, [ids]);
+
+            for (const b of eligibleBands) {
+              await client.query(`
+                INSERT INTO band_transactions (
+                  band_id, band_code, color_name, color_hex, transaction_type, 
+                  quantity, staff_name, notes
+                ) VALUES ($1, $2, $3, $4, 'HANDOVER', 1, $5, $6)
+              `, [b.id, b.band_code, b.color_name, b.color_hex, staffName, notes]);
+            }
+          }
+
+          await client.query("COMMIT");
+
+          const codes = eligibleBands.map(b => b.band_code);
+          return {
+            success: true,
+            movedCount: codes.length,
+            startCode: codes[0],
+            endCode: codes[codes.length - 1],
+            bandCodes: codes
+          };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for handoverWristbandsToReception:", pgErr);
+      }
+    }
+
+    // SQLite fallback
+    initDB();
+    const whereParts = ["status = 'available'", "COALESCE(location, 'warehouse') != 'reception'"];
+    const params: any[] = [];
+
+    if (color_hex) {
+      whereParts.push("UPPER(color_hex) = ?");
+      params.push(color_hex.trim().toUpperCase());
+    } else if (color_name) {
+      whereParts.push("LOWER(color_name) = ?");
+      params.push(color_name.trim().toLowerCase());
+    }
+
+    params.push(cleanAmount);
+    const selectSql = `
+      SELECT id, band_code, color_name, color_hex
+      FROM band_items
+      WHERE ${whereParts.join(" AND ")}
+      ORDER BY band_code ASC, id ASC
+      LIMIT ?
+    `;
+
+    const eligibleBands = db.prepare(selectSql).all(...params) as any[];
+
+    if (eligibleBands.length > 0) {
+      const updateStmt = db.prepare("UPDATE band_items SET location = 'reception', updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+      const txStmt = db.prepare(`
+        INSERT INTO band_transactions (
+          band_id, band_code, color_name, color_hex, transaction_type,
+          quantity, staff_name, notes
+        ) VALUES (?, ?, ?, ?, 'HANDOVER', 1, ?, ?)
+      `);
+
+      const tx = db.transaction(() => {
+        for (const b of eligibleBands) {
+          updateStmt.run(b.id);
+          txStmt.run(b.id, b.band_code, b.color_name, b.color_hex, staffName, notes);
+        }
+      });
+      tx();
+    }
+
+    const codes = eligibleBands.map(b => b.band_code);
+    return {
+      success: true,
+      movedCount: codes.length,
+      startCode: codes[0],
+      endCode: codes[codes.length - 1],
+      bandCodes: codes
+    };
+  } catch (err: any) {
+    console.error("[Handover Wristbands Error]", err);
+    return { success: false, movedCount: 0, bandCodes: [], error: err.message || "Failed to handover wristbands." };
+  }
+}
+
+/**
+ * Return Wristbands from Reception back to Warehouse:
+ * Returns wristbands located at 'reception' back to 'warehouse'.
+ */
+export async function returnWristbandsFromReception(data: {
+  color_name?: string;
+  color_hex?: string;
+  amount: number;
+  staff_name?: string;
+  notes?: string;
+}): Promise<{
+  success: boolean;
+  returnedCount: number;
+  bandCodes: string[];
+  error?: string;
+}> {
+  try {
+    const { color_name, color_hex, amount } = data;
+    const cleanAmount = Math.floor(amount);
+    if (cleanAmount <= 0) {
+      return { success: false, returnedCount: 0, bandCodes: [], error: "Invalid return quantity." };
+    }
+
+    const staffName = data.staff_name || "Admin Staff";
+    const notes = data.notes?.trim() || `Returned ${cleanAmount} bands from Reception to Warehouse`;
+
+    await ensureBandInventorySeeded();
+
+    if (isPostgresActive()) {
+      try {
+        await ensurePgSchema();
+        const client = await simulatorPool.connect();
+        try {
+          await client.query("BEGIN");
+
+          const whereParams: any[] = [];
+          const whereParts = ["status = 'available'", "location = 'reception'"];
+          let pIdx = 1;
+
+          if (color_hex) {
+            whereParts.push(`UPPER(color_hex) = UPPER($${pIdx++})`);
+            whereParams.push(color_hex.trim());
+          } else if (color_name) {
+            whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
+            whereParams.push(color_name.trim());
+          }
+
+          whereParams.push(cleanAmount);
+          const selectSql = `
+            SELECT id, band_code, color_name, color_hex 
+            FROM band_items 
+            WHERE ${whereParts.join(" AND ")}
+            ORDER BY band_code DESC, id DESC
+            LIMIT $${pIdx}
+          `;
+
+          const eligibleRes = await client.query(selectSql, whereParams);
+          const eligibleBands = eligibleRes.rows;
+
+          if (eligibleBands.length > 0) {
+            const ids = eligibleBands.map(b => b.id);
+            await client.query(`
+              UPDATE band_items 
+              SET location = 'warehouse', updated_at = CURRENT_TIMESTAMP
+              WHERE id = ANY($1::int[])
+            `, [ids]);
+
+            for (const b of eligibleBands) {
+              await client.query(`
+                INSERT INTO band_transactions (
+                  band_id, band_code, color_name, color_hex, transaction_type, 
+                  quantity, staff_name, notes
+                ) VALUES ($1, $2, $3, $4, 'STATUS_CHANGE', 1, $5, $6)
+              `, [b.id, b.band_code, b.color_name, b.color_hex, staffName, notes]);
+            }
+          }
+
+          await client.query("COMMIT");
+
+          const codes = eligibleBands.map(b => b.band_code);
+          return {
+            success: true,
+            returnedCount: codes.length,
+            bandCodes: codes
+          };
+        } catch (txErr) {
+          await client.query("ROLLBACK");
+          throw txErr;
+        } finally {
+          client.release();
+        }
+      } catch (pgErr) {
+        console.warn("[Band Inventory] Fallback to SQLite for returnWristbandsFromReception:", pgErr);
+      }
+    }
+
+    // SQLite fallback
+    initDB();
+    const whereParts = ["status = 'available'", "location = 'reception'"];
+    const params: any[] = [];
+
+    if (color_hex) {
+      whereParts.push("UPPER(color_hex) = ?");
+      params.push(color_hex.trim().toUpperCase());
+    } else if (color_name) {
+      whereParts.push("LOWER(color_name) = ?");
+      params.push(color_name.trim().toLowerCase());
+    }
+
+    params.push(cleanAmount);
+    const selectSql = `
+      SELECT id, band_code, color_name, color_hex
+      FROM band_items
+      WHERE ${whereParts.join(" AND ")}
+      ORDER BY band_code DESC, id DESC
+      LIMIT ?
+    `;
+
+    const eligibleBands = db.prepare(selectSql).all(...params) as any[];
+
+    if (eligibleBands.length > 0) {
+      const updateStmt = db.prepare("UPDATE band_items SET location = 'warehouse', updated_at = CURRENT_TIMESTAMP WHERE id = ?");
+      const txStmt = db.prepare(`
+        INSERT INTO band_transactions (
+          band_id, band_code, color_name, color_hex, transaction_type,
+          quantity, staff_name, notes
+        ) VALUES (?, ?, ?, ?, 'STATUS_CHANGE', 1, ?, ?)
+      `);
+
+      const tx = db.transaction(() => {
+        for (const b of eligibleBands) {
+          updateStmt.run(b.id);
+          txStmt.run(b.id, b.band_code, b.color_name, b.color_hex, staffName, notes);
+        }
+      });
+      tx();
+    }
+
+    const codes = eligibleBands.map(b => b.band_code);
+    return {
+      success: true,
+      returnedCount: codes.length,
+      bandCodes: codes
+    };
+  } catch (err: any) {
+    console.error("[Return Reception Error]", err);
+    return { success: false, returnedCount: 0, bandCodes: [], error: err.message || "Failed to return wristbands." };
   }
 }
 

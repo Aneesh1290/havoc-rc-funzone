@@ -331,6 +331,33 @@ export default function AdminCouponsPage() {
     }
   };
 
+  const handleBulkRevertFromBand = async () => {
+    // If items are explicitly checked with checkboxes, target those; otherwise target all currently filtered coupons that are VIP bands
+    const targetIds = selectedIds.length > 0 
+      ? selectedIds 
+      : filteredAndSortedCoupons.filter(c => c.is_band_coupon === 1).map(c => c.id);
+
+    if (targetIds.length === 0) {
+      showNotification("No VIP band coupons selected or displayed", "error");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to remove the VIP Band designation from ${targetIds.length} coupon(s) and revert them to standard coupons?`)) {
+      return;
+    }
+
+    setIsConvertingBands(true);
+    const res = await bulkConvertToBandCouponsAction(targetIds, false, "VIP", null);
+    setIsConvertingBands(false);
+
+    if (res.success) {
+      showNotification(`Successfully reverted ${res.count} coupons to Standard Coupons!`);
+      loadCoupons();
+    } else {
+      showNotification(res.error || "Failed to revert coupons", "error");
+    }
+  };
+
   const handleSingleToggleBandCoupon = async (coupon: CouponRow) => {
     if (coupon.is_band_coupon === 1) {
       if (confirm(`Revert coupon ${coupon.code} back to standard coupon without VIP wristband?`)) {
@@ -894,6 +921,25 @@ export default function AdminCouponsPage() {
                   {selectedIds.length > 0 ? selectedIds.length : filteredAndSortedCoupons.length}
                 </span>
               </button>
+
+              {/* Bulk Remove/Revert from VIP Band */}
+              {(selectedIds.some(id => coupons.find(c => c.id === id)?.is_band_coupon === 1) || 
+                (selectedIds.length === 0 && filteredAndSortedCoupons.some(c => c.is_band_coupon === 1))) && (
+                <button
+                  type="button"
+                  disabled={isConvertingBands}
+                  onClick={handleBulkRevertFromBand}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 text-xs font-bold transition-all disabled:opacity-50"
+                  title="Remove VIP wristband designation and revert back to standard coupon"
+                >
+                  <span>✕ Remove VIP Band</span>
+                  <span className="bg-gray-300 text-gray-800 text-[10px] px-1.5 py-0.2 rounded-full font-mono">
+                    {selectedIds.length > 0 
+                      ? selectedIds.filter(id => coupons.find(c => c.id === id)?.is_band_coupon === 1).length
+                      : filteredAndSortedCoupons.filter(c => c.is_band_coupon === 1).length}
+                  </span>
+                </button>
+              )}
 
               <button
                 type="button"

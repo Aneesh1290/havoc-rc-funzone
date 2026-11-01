@@ -210,22 +210,71 @@ function simplifySimulatorName(name: string): string {
 }
 
 /**
- * Calculates row height based on visual lines inside the simulator cell,
- * adding safety padding so text is NEVER cut off at the bottom when printed.
+ * Calculates optimal row height taking into account ALL text columns
+ * that might wrap or contain newlines (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name),
+ * ensuring NO text is ever cut off, clipped, or overlapping adjacent rows when viewed or printed!
  */
-function calculateSimulatorRowHeight(text: string, colWidth = 30): number {
-  if (!text || text.trim() === "" || text === "-") return 20;
+function calculateBookingRowHeight(
+  order: OrderData,
+  simPodiumDisplay: string,
+  colWidths: { simPodium?: number; deskRef?: number; gatewayTxn?: number } = {}
+): number {
+  const simWidth = colWidths.simPodium || 30;
+  const deskWidth = colWidths.deskRef || 30;
+  const txnWidth = colWidths.gatewayTxn || 24;
 
-  const lines = text.split("\n");
-  let totalVisualLines = 0;
-  for (const line of lines) {
-    const effectiveWidth = Math.max(15, colWidth - 3);
-    const vLines = Math.max(1, Math.ceil(line.length / effectiveWidth));
-    totalVisualLines += vLines;
+  let maxLines = 1;
+
+  // 1. Simulator visual lines
+  if (simPodiumDisplay && simPodiumDisplay.trim() !== "" && simPodiumDisplay !== "-") {
+    const lines = simPodiumDisplay.split("\n");
+    let count = 0;
+    const effectiveWidth = Math.max(15, simWidth - 3);
+    for (const line of lines) {
+      count += Math.max(1, Math.ceil(line.trim().length / effectiveWidth));
+    }
+    maxLines = Math.max(maxLines, count);
   }
 
-  if (totalVisualLines <= 1) return 20;
-  return Math.max(24, totalVisualLines * 17 + 8);
+  // 2. Desk Ref / UTR visual lines (Column S)
+  const deskRef = (order.payment_ref || "").trim();
+  if (deskRef && deskRef !== "-") {
+    const lines = deskRef.split(/\r?\n/);
+    let count = 0;
+    const effectiveWidth = Math.max(15, deskWidth - 3);
+    for (const line of lines) {
+      count += Math.max(1, Math.ceil(line.trim().length / effectiveWidth));
+    }
+    maxLines = Math.max(maxLines, count);
+  }
+
+  // 3. Gateway Txn ID visual lines (Column R)
+  const txnId = (order.transaction_id || "").trim();
+  if (txnId && txnId !== "-") {
+    const lines = txnId.split(/\r?\n/);
+    let count = 0;
+    const effectiveWidth = Math.max(15, txnWidth - 3);
+    for (const line of lines) {
+      count += Math.max(1, Math.ceil(line.trim().length / effectiveWidth));
+    }
+    maxLines = Math.max(maxLines, count);
+  }
+
+  // 4. Name (Column D, width 22)
+  const name = (order.name || "").trim();
+  if (name.length > 20) {
+    maxLines = Math.max(maxLines, Math.ceil(name.length / 20));
+  }
+
+  // 5. Email (Column F, width 26)
+  const email = (order.email || "").trim();
+  if (email.length > 24) {
+    maxLines = Math.max(maxLines, Math.ceil(email.length / 24));
+  }
+
+  if (maxLines <= 1) return 22;
+  // Generous vertical padding: 18pt per line + 8pt baseline breathing room
+  return Math.max(26, maxLines * 18 + 8);
 }
 
 /**
@@ -396,8 +445,8 @@ function renderDaySheet(
     { key: "amtReceived", width: 16 },    // O: AMOUNT RECEIVED
     { key: "amtDue", width: 15 },         // P: AMOUNT DUE
     { key: "status", width: 13 },         // Q: STATUS
-    { key: "gatewayTxnId", width: 20 },   // R: GATEWAY TXN ID
-    { key: "deskRef", width: 18 }         // S: DESK REF / UTR
+    { key: "gatewayTxnId", width: 24 },   // R: GATEWAY TXN ID (Widened for clean single-line display)
+    { key: "deskRef", width: 30 }         // S: DESK REF / UTR (Widened to 30 so UPI / Card / Cash refs fit cleanly without line breaks)
   ];
 
   // Helper to render the 2-row table header with:
@@ -665,8 +714,11 @@ function renderDaySheet(
         grandTotalAmountDue += due;
 
         const simPodiumDisplay = formatSimPodiumForExport(order);
-        // Dynamic row height calculated from visual lines with safety padding
-        const rowHeight = calculateSimulatorRowHeight(simPodiumDisplay, 30);
+        // Dynamic row height calculated across ALL visual columns (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name)
+        const rowHeight = calculateBookingRowHeight(order, simPodiumDisplay, { simPodium: 30, deskRef: 30, gatewayTxn: 24 });
+
+        // Clean desk ref to normalize line breaks and trim extraneous whitespace
+        const cleanDeskRef = order.payment_ref ? order.payment_ref.trim().replace(/\r\n/g, "\n").replace(/\n{2,}/g, "\n") : "-";
 
         const dataRow = worksheet.addRow([
           currentSl,
@@ -687,7 +739,7 @@ function renderDaySheet(
           due > 0 ? `₹ ${due.toLocaleString("en-IN", { minimumFractionDigits: 2 })}` : "₹ 0.00",
           order.fulfillment_status,
           order.transaction_id || "-",
-          order.payment_ref || "-"
+          cleanDeskRef
         ]);
         dataRow.height = rowHeight;
 

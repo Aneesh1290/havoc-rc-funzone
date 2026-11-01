@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { normalizePhone, isBookingForToday } from "@/lib/deskOtpStore";
 import { getBookingsByPhone, attendPaidBookings } from "@/lib/db";
-import { sendGoogleReviewWhatsApp } from "@/lib/whatsapp";
 
 export async function POST(req: NextRequest) {
   try {
@@ -99,21 +98,11 @@ export async function POST(req: NextRequest) {
     const customerName =
       todayBookings.find((b) => b.customer_name?.trim())?.customer_name?.trim() || "Guest Customer";
 
-    // Dispatch Google Review WhatsApp message to customer via Interakt in background
-    sendGoogleReviewWhatsApp({
-      customerName,
-      customerPhone: cleanPhone,
-      countryCode,
-    }).catch((reviewErr) => {
-      console.error("[Direct Check-in Google Review WhatsApp Error]", reviewErr);
-    });
-
     return NextResponse.json({
       success: true,
       message: "Customer check-in confirmed successfully.",
       customer_name: customerName,
       customer_phone: cleanPhone,
-      review_message_triggered: true,
       auto_fulfilled_count: paidBookingIds.length,
       bookings: formattedSessions,
       has_unpaid: unpaidSessions.length > 0,

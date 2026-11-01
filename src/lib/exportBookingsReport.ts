@@ -184,9 +184,56 @@ interface OrderData {
 }
 
 /**
- * Cleanly format simulator assignments for printing and export.
- * Strips redundant time slots entirely (e.g. 5PM-5:30PM) per client specification.
- * If multiple simulator sessions exist, formats each session on its own row (#1: ..., #2: ...).
+ * Simplifies lengthy simulator titles into clean, concise names that fit without wrapping awkwardly.
+ * e.g. "Flight Sim Pro (Airbus Edition)" -> "Flight Sim (Airbus)"
+ *      "Play Station PS5 - Station One" -> "PS5 (Station 1)"
+ *      "Race Sim Jr & Play Station PS5" -> "Race Sim Jr + PS5"
+ */
+function simplifySimulatorName(name: string): string {
+  let s = name.trim();
+  // Strip any embedded time slots e.g. (5PM-5:30PM), 5PM-5:30PM
+  s = s.replace(/\(?\b\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s*-\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)\)?/gi, "").trim();
+
+  s = s.replace(/Flight Sim Pro\s*\((Airbus|Boeing)\s*Edition\)/gi, "Flight Sim ($1)");
+  s = s.replace(/Flight Sim Pro/gi, "Flight Sim");
+  s = s.replace(/Play\s*Station\s*PS5\s*-\s*Station\s*One/gi, "PS5 (Station 1)");
+  s = s.replace(/Play\s*Station\s*PS5\s*-\s*Station\s*Two/gi, "PS5 (Station 2)");
+  s = s.replace(/Play\s*Station\s*PS5\s*-\s*Station\s*(\d+)/gi, "PS5 (Station $1)");
+  s = s.replace(/Play\s*Station\s*PS5/gi, "PS5");
+  s = s.replace(/PlayStation\s*PS5/gi, "PS5");
+  s = s.replace(/Race Sim Jr & Play\s*Station\s*PS5/gi, "Race Sim Jr + PS5");
+  s = s.replace(/\s*\(\s*(Airbus|Boeing)\s*Edition\s*\)/gi, " ($1)");
+  s = s.replace(/\s+Edition\b/gi, "");
+  s = s.replace(/\s*&\s*/g, " + ");
+  s = s.replace(/\s{2,}/g, " ").trim();
+  return s;
+}
+
+/**
+ * Calculates row height based on visual lines inside the simulator cell,
+ * adding safety padding so text is NEVER cut off at the bottom when printed.
+ */
+function calculateSimulatorRowHeight(text: string, colWidth = 30): number {
+  if (!text || text.trim() === "" || text === "-") return 20;
+
+  const lines = text.split("\n");
+  let totalVisualLines = 0;
+  for (const line of lines) {
+    const effectiveWidth = Math.max(15, colWidth - 3);
+    const vLines = Math.max(1, Math.ceil(line.length / effectiveWidth));
+    totalVisualLines += vLines;
+  }
+
+  if (totalVisualLines <= 1) return 20;
+  return Math.max(24, totalVisualLines * 17 + 8);
+}
+
+/**
+ * Cleanly format simulator assignments for printing and export:
+ * - Strips redundant time slots entirely (e.g. 5PM-5:30PM).
+ * - Simplifies simulator names (Flight Sim (Airbus), Race Sim GT, PS5 Station 1).
+ * - Groups multiple sessions by Participant (e.g. "P1: Flight Sim (Airbus) + Race Sim GT").
+ * - Fits cleanly within 1-2 lines with zero bottom clipping.
  */
 function formatSimPodiumForExport(order: OrderData): string {
   const candidateNames: string[] = [];
@@ -208,53 +255,77 @@ function formatSimPodiumForExport(order: OrderData): string {
     return "-";
   }
 
-  // Remove any time slot substrings (e.g. "5PM-5:30PM", "(5:00PM-6:00PM)", "11AM-12PM")
-  const stripTimeSlots = (str: string) => {
-    return str
-      .replace(/\(?\b\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s*-\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)\)?/gi, "")
-      .replace(/\s{2,}/g, " ")
-      .trim();
-  };
+  interface SimSession {
+    sessionNum: number;
+    participant?: string;
+    name: string;
+  }
 
-  const segments: string[] = [];
+  const sessions: SimSession[] = [];
+  let autoSessionIdx = 1;
+
   for (const raw of candidateNames) {
-    const cleaned = stripTimeSlots(raw);
-    if (!cleaned || cleaned === "-") continue;
-    // Multi-session strings are split by "|"
-    const parts = cleaned.split("|").map(p => p.trim()).filter(Boolean);
+    const parts = raw.split("|").map(p => p.trim()).filter(Boolean);
     for (const part of parts) {
-      if (!segments.includes(part)) {
-        segments.push(part);
+      // Check for participant tag: e.g. "(P1)", "(P2)", "P1", "P2"
+      const pMatch = part.match(/\(P(\d+)\)/i) || part.match(/\bP(\d+)\b/i);
+      const participant = pMatch ? `P${pMatch[1]}` : undefined;
+
+      // Extract session number if present: e.g. "#1" or "#2"
+      const sMatch = part.match(/#(\d+)/);
+      const sessionNum = sMatch ? parseInt(sMatch[1], 10) : autoSessionIdx++;
+
+      // Strip "#1 (P1): " or "#1: " prefixes
+      const cleanName = part.replace(/^#\s*\d+(?:\s*\([^)]*\))?\s*:\s*/i, "").trim();
+      const simplified = simplifySimulatorName(cleanName);
+
+      if (simplified && simplified !== "-") {
+        sessions.push({
+          sessionNum,
+          participant,
+          name: simplified
+        });
       }
     }
   }
 
-  if (segments.length === 0) {
+  if (sessions.length === 0) {
     return "-";
   }
 
-  if (segments.length === 1) {
-    // Single simulator: strip redundant "#1:" prefix if present
-    let single = segments[0].replace(/^#\s*1\s*:\s*/i, "").trim();
-    single = single.replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
-    return single || "-";
+  // Check if multiple participants exist
+  const distinctParticipants = Array.from(new Set(sessions.map(s => s.participant).filter(Boolean))) as string[];
+
+  if (distinctParticipants.length > 1) {
+    // Multiple participants: Group sessions by participant
+    distinctParticipants.sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, ""), 10) || 0;
+      const numB = parseInt(b.replace(/\D/g, ""), 10) || 0;
+      return numA - numB;
+    });
+
+    const lines: string[] = [];
+    for (const p of distinctParticipants) {
+      const pSessions = sessions.filter(s => s.participant === p);
+      const simNames = pSessions.map(s => s.name);
+      lines.push(`${p}: ${simNames.join(" + ")}`);
+    }
+
+    const untagged = sessions.filter(s => !s.participant);
+    if (untagged.length > 0) {
+      lines.push(untagged.map(s => s.name).join(" + "));
+    }
+
+    return lines.join("\n");
   }
 
-  // Multiple sessions: format each session with its numbered tag on separate lines
-  const lines = segments.map((seg, idx) => {
-    let s = seg.trim();
-    const prefixMatch = s.match(/^#\s*(\d+)(?:\s*\(([^)]+)\))?\s*:\s*(.*)$/i);
-    if (prefixMatch) {
-      const num = prefixMatch[1];
-      const pInfo = prefixMatch[2] ? ` (${prefixMatch[2]})` : "";
-      const name = prefixMatch[3].trim().replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
-      return `#${num}${pInfo}: ${name}`;
-    }
-    s = s.replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
-    return `#${idx + 1}: ${s}`;
-  });
+  // Single participant or untagged sessions: combine with " + "
+  const allNames = sessions.map(s => s.name);
+  if (distinctParticipants.length === 1 && sessions.length > 2) {
+    return `${distinctParticipants[0]}: ${allNames.join(" + ")}`;
+  }
 
-  return lines.join("\n");
+  return allNames.join(" + ");
 }
 
 /**
@@ -321,7 +392,7 @@ function renderDaySheet(
     { key: "p", width: 5.5 },             // K: P (Participant)
     { key: "vv", width: 5.5 },            // L: VV (VIP Visitor)
     { key: "vp", width: 5.5 },            // M: VP (VIP Participant)
-    { key: "simPodium", width: 26 },      // N: TYPE OF SIM PODIUM (Widened for clear printing)
+    { key: "simPodium", width: 30 },      // N: TYPE OF SIM PODIUM (Widened to 30 for clear printing)
     { key: "amtReceived", width: 16 },    // O: AMOUNT RECEIVED
     { key: "amtDue", width: 15 },         // P: AMOUNT DUE
     { key: "status", width: 13 },         // Q: STATUS
@@ -594,9 +665,8 @@ function renderDaySheet(
         grandTotalAmountDue += due;
 
         const simPodiumDisplay = formatSimPodiumForExport(order);
-        const simLineCount = simPodiumDisplay.split("\n").length;
-        // Dynamic row height so multi-session simulators print cleanly without clipping
-        const rowHeight = simLineCount > 1 ? Math.max(24, simLineCount * 17) : 20;
+        // Dynamic row height calculated from visual lines with safety padding
+        const rowHeight = calculateSimulatorRowHeight(simPodiumDisplay, 30);
 
         const dataRow = worksheet.addRow([
           currentSl,

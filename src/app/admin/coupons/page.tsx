@@ -60,6 +60,7 @@ export default function AdminCouponsPage() {
   const [bulkType, setBulkType] = useState<"percentage" | "flat">("percentage");
   const [bulkValue, setBulkValue] = useState<number>(10);
   const [bulkMaxUses, setBulkMaxUses] = useState<number>(1);
+  const [bulkExpiry, setBulkExpiry] = useState<string>("");
   const [bulkIsBandCoupon, setBulkIsBandCoupon] = useState<boolean>(false);
   const [bulkBandCategory, setBulkBandCategory] = useState<string>("VIP");
   const [bulkBandColor, setBulkBandColor] = useState<string>("#FFD700");
@@ -159,6 +160,7 @@ export default function AdminCouponsPage() {
       discountType: "percentage" | "flat"; 
       value: number; 
       maxUses: number | null;
+      expiryDate?: string | null;
       isBandCoupon?: boolean;
       bandCategory?: string;
       bandColor?: string;
@@ -178,6 +180,7 @@ export default function AdminCouponsPage() {
         discountType: bulkType,
         value: Number(bulkValue),
         maxUses: bulkMaxUses ? Number(bulkMaxUses) : null,
+        expiryDate: bulkExpiry.trim() ? bulkExpiry.trim() : null,
         isBandCoupon: bulkIsBandCoupon,
         bandCategory: bulkIsBandCoupon ? bulkBandCategory : undefined,
         bandColor: bulkIsBandCoupon ? bulkBandColor : undefined,
@@ -798,7 +801,7 @@ export default function AdminCouponsPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Discount Type</label>
               <select
@@ -833,6 +836,52 @@ export default function AdminCouponsPage() {
                 onChange={(e) => setBulkMaxUses(Number(e.target.value))}
                 className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
               />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500">
+                  Expiry Date (Optional)
+                </label>
+                {bulkExpiry && (
+                  <button
+                    type="button"
+                    onClick={() => setBulkExpiry("")}
+                    className="text-[10px] text-red-500 hover:text-red-700 font-semibold cursor-pointer"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              <input
+                type="date"
+                value={bulkExpiry}
+                min={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setBulkExpiry(e.target.value)}
+                className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
+              />
+              <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+                {[
+                  { label: "+30d", days: 30 },
+                  { label: "+60d", days: 60 },
+                  { label: "+90d", days: 90 },
+                  { label: "+180d", days: 180 },
+                  { label: "+1y", days: 365 },
+                ].map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + preset.days);
+                      setBulkExpiry(d.toISOString().split("T")[0]);
+                    }}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 hover:bg-amber-100 text-gray-600 hover:text-amber-800 border border-gray-200 transition-colors cursor-pointer font-mono"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 

@@ -1342,13 +1342,14 @@ export function bulkCreateCoupons(coupons: {
   discountType: 'percentage' | 'flat'; 
   value: number; 
   maxUses: number | null;
+  expiryDate?: string | null;
   isBandCoupon?: boolean;
   bandCategory?: string;
   bandColor?: string;
 }[]) {
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses, is_band_coupon, band_category, band_color)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO coupons (code, discount_type, value, max_uses, expiry_date, is_band_coupon, band_category, band_color)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const transaction = db.transaction((list: typeof coupons) => {
     let created = 0;
@@ -1358,6 +1359,7 @@ export function bulkCreateCoupons(coupons: {
         c.discountType, 
         c.value, 
         c.maxUses,
+        c.expiryDate || null,
         c.isBandCoupon ? 1 : 0,
         c.bandCategory || 'VIP',
         c.bandColor || null

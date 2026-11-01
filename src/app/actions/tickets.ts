@@ -695,6 +695,7 @@ export async function bulkCreateCouponsAction(coupons: {
   discountType: 'percentage' | 'flat';
   value: number;
   maxUses: number | null;
+  expiryDate?: string | null;
   isBandCoupon?: boolean;
   bandCategory?: string;
   bandColor?: string;

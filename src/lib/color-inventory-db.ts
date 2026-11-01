@@ -505,6 +505,10 @@ export async function updateColorStock(params: {
 export async function stockOutColorToReception(params: {
   id: number;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
+  category?: string;
   notes?: string;
   staffName?: string;
 }): Promise<{
@@ -515,7 +519,7 @@ export async function stockOutColorToReception(params: {
   movedBandsCount?: number;
   error?: string;
 }> {
-  const { id, amount, notes, staffName } = params;
+  const { id, amount, notes, staffName, start_code, end_code, specific_codes, category } = params;
   if (!id || typeof amount !== 'number' || amount <= 0) {
     return { success: false, error: "Please provide a valid stock out quantity." };
   }
@@ -618,9 +622,14 @@ export async function stockOutColorToReception(params: {
     const handoverRes = await handoverWristbandsToReception({
       color_hex: targetColorHex,
       color_name: targetColorName,
+      category,
       amount: cleanAmount,
+      start_code,
+      end_code,
+      specific_codes,
       staff_name: staffName || "Admin Staff",
-      notes: notes || `Stock Out Handover of ${cleanAmount} bands to Reception`
+      notes: notes || `Stock Out Handover of ${cleanAmount} bands to Reception`,
+      skipColorInventorySync: true
     });
 
     if (handoverRes.success && handoverRes.movedCount > 0) {

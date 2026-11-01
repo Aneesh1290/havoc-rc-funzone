@@ -73,14 +73,13 @@ export async function POST(req: NextRequest) {
 
     // Format session objects for UI preview
     const formattedSessions = todayBookings.map((b) => {
-      const rawAmount = Number(b.total_amount || 0);
+      const hasStoredTotal = b.total_amount !== null && b.total_amount !== undefined && !isNaN(Number(b.total_amount));
       const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
-      const effectiveAmount =
-        rawAmount > 0
-          ? rawAmount
-          : baseAmount > 0
-          ? Math.round(baseAmount * 1.18)
-          : 0;
+      const effectiveAmount = hasStoredTotal
+        ? Number(b.total_amount)
+        : baseAmount > 0
+        ? Math.round(baseAmount * 1.18)
+        : 0;
 
       return {
         id: b.id,

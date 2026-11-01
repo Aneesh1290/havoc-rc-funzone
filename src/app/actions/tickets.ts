@@ -1,15 +1,15 @@
 "use server";
 
-import { 
-  initDB, 
-  getTickets, 
-  updateTicketStatus, 
-  updateTicket, 
+import {
+  initDB,
+  getTickets,
+  updateTicketStatus,
+  updateTicket,
   createTicket,
   deleteTicket,
-  TicketRow, 
-  getBookedQuantities, 
-  addBooking, 
+  TicketRow,
+  getBookedQuantities,
+  addBooking,
   addBatchBooking,
   BatchBookingItem,
   getAllBookings,
@@ -25,6 +25,12 @@ import {
   convertCouponToBandCoupon,
   getCouponByCode,
   incrementCouponUsage,
+  getCouponBandInventory,
+  updateCouponBandsLocation,
+  handoverCouponBandsByOffer,
+  CouponBandInventoryItem,
+  CouponBandBreakdown,
+  CouponBandSummary,
   CouponRow,
   getBookingById,
   getBookingsByOrderNumber,
@@ -68,10 +74,10 @@ import {
   deleteStaffUser,
   cleanupExpiredHolds
 } from "@/lib/db";
-import { 
-  getTakenSimulatorSlots, 
-  lockSimulatorSlot, 
-  releaseSimulatorSlots, 
+import {
+  getTakenSimulatorSlots,
+  lockSimulatorSlot,
+  releaseSimulatorSlots,
   parseSimulatorSlotAssignments,
   getSimPodiumSimulators,
   getSimPodiumSlots,
@@ -116,13 +122,13 @@ export async function fetchBookedQuantitiesAction(date: string, timeSlot: string
 }
 
 export async function addBookingAction(
-  ticketId: number, 
-  date: string, 
-  timeSlot: string, 
-  quantity: number, 
-  customerName: string, 
-  customerEmail: string, 
-  customerPhone: string, 
+  ticketId: number,
+  date: string,
+  timeSlot: string,
+  quantity: number,
+  customerName: string,
+  customerEmail: string,
+  customerPhone: string,
   totalAmount: number,
   simulatorName?: string,
   simulatorSlot?: string
@@ -132,7 +138,7 @@ export async function addBookingAction(
 
   const effectiveOrderNum = result.orderNumber || result.id;
   const orderId = formatOrderNumber(effectiveOrderNum, result.createdAt, 'Unpaid');
-  
+
   // If this booking has an attached simulator session, lock it in the shared PostgreSQL database
   if (simulatorName && simulatorSlot && result?.id) {
     try {
@@ -260,10 +266,11 @@ export async function createBatchOrderAction(
     }
   }
 
-  const result = addBatchBooking(items, customerName, customerEmail, customerPhone, appliedCoupon);
+  const initialPaymentStatus = (totalAmount <= 0) ? 'Paid' : 'Unpaid';
+  const result = addBatchBooking(items, customerName, customerEmail, customerPhone, appliedCoupon, initialPaymentStatus);
   if (!result) return null;
 
-  const orderId = formatOrderNumber(result.orderNumber, result.createdAt, 'Unpaid');
+  const orderId = formatOrderNumber(result.orderNumber, result.createdAt, initialPaymentStatus);
 
   // Lock simulator slots for any items with simulator sessions
   for (let itemIdx = 0; itemIdx < items.length; itemIdx++) {
@@ -274,8 +281,8 @@ export async function createBatchOrderAction(
         for (let idx = 0; idx < assignments.length; idx++) {
           const assign = assignments[idx];
           if (assign.simulatorName && assign.slotLabel) {
-            const itemOrderId = assignments.length > 1 || items.length > 1 
-              ? `${orderId}_${itemIdx + 1}_${idx + 1}` 
+            const itemOrderId = assignments.length > 1 || items.length > 1
+              ? `${orderId}_${itemIdx + 1}_${idx + 1}`
               : orderId;
             await lockSimulatorSlot({
               simulatorName: assign.simulatorName,
@@ -318,7 +325,7 @@ export async function createBatchOrderAction(
         customerEmail,
         customerPhone,
         totalAmount,
-        paymentStatus: 'Unpaid',
+        paymentStatus: initialPaymentStatus,
         items: emailItems
       }).catch(err => {
         console.error("Async batch confirmation email error:", err);
@@ -426,7 +433,7 @@ export async function updateBookingTagsAction(id: number, tags: string) {
 }
 
 export async function updateBookingWristbandNumberAction(
-  id: number, 
+  id: number,
   wristbandNumber: string,
   options?: {
     color_hex?: string;
@@ -439,7 +446,7 @@ export async function updateBookingWristbandNumberAction(
   try {
     const isCategoryBand = options?.band_type === 'category';
     const prevBooking = getBookingById(id) as any;
-    const oldBandNumber = isCategoryBand 
+    const oldBandNumber = isCategoryBand
       ? (prevBooking?.category_wristband_number || "")
       : (prevBooking?.wristband_number || "");
     const cleanBand = (wristbandNumber || "").trim();
@@ -577,7 +584,7 @@ export async function deleteBookingsAction(ids: number[]) {
   }
 
   if (!ids || ids.length === 0) return { success: true, count: 0 };
-  
+
   // Find all distinct order numbers represented by these IDs
   const orderNumsToDelete = new Set<number>();
   for (const id of ids) {
@@ -614,8 +621,8 @@ export async function toggleTicketStatusAction(id: number, active: boolean) {
 }
 
 export async function updateTicketAction(
-  id: number, 
-  price: number, 
+  id: number,
+  price: number,
   capacity: number,
   hasSimulatorPerk = false,
   perkDurationMins = 30,
@@ -629,8 +636,8 @@ export async function updateTicketAction(
 }
 
 export async function createTicketAction(
-  name: string, 
-  price: number, 
+  name: string,
+  price: number,
   capacity: number,
   hasSimulatorPerk = false,
   perkDurationMins = 30,
@@ -665,10 +672,10 @@ export async function fetchCouponsAction(): Promise<CouponRow[]> {
 }
 
 export async function createCouponAction(
-  code: string, 
-  discountType: 'percentage' | 'flat', 
-  value: number, 
-  maxUses: number | null, 
+  code: string,
+  discountType: 'percentage' | 'flat',
+  value: number,
+  maxUses: number | null,
   expiryDate: string | null,
   isBandCoupon: boolean = false,
   bandCategory: string = 'VIP',
@@ -683,10 +690,10 @@ export async function createCouponAction(
   }
 }
 
-export async function bulkCreateCouponsAction(coupons: { 
-  code: string; 
-  discountType: 'percentage' | 'flat'; 
-  value: number; 
+export async function bulkCreateCouponsAction(coupons: {
+  code: string;
+  discountType: 'percentage' | 'flat';
+  value: number;
   maxUses: number | null;
   isBandCoupon?: boolean;
   bandCategory?: string;
@@ -752,9 +759,9 @@ export async function bulkUpdateAllCouponsExpiryAction(expiryDate: string | null
 }
 
 export async function bulkConvertToBandCouponsAction(
-  ids: number[], 
-  isBandCoupon: boolean = true, 
-  bandCategory: string = 'VIP', 
+  ids: number[],
+  isBandCoupon: boolean = true,
+  bandCategory: string = 'VIP',
   bandColor: string | null = '#FFD700'
 ) {
   try {
@@ -768,9 +775,9 @@ export async function bulkConvertToBandCouponsAction(
 }
 
 export async function convertCouponToBandCouponAction(
-  id: number, 
-  isBandCoupon: boolean = true, 
-  bandCategory: string = 'VIP', 
+  id: number,
+  isBandCoupon: boolean = true,
+  bandCategory: string = 'VIP',
   bandColor: string | null = '#FFD700'
 ) {
   try {
@@ -822,12 +829,12 @@ export async function validateCouponAction(code: string, subtotal: number) {
 export async function useCouponAction(code: string, context?: { customerName?: string; orderCode?: string; bookingId?: number }) {
   if (!code) return;
   const cleanCode = code.trim().toUpperCase();
-  incrementCouponUsage(cleanCode);
+  incrementCouponUsage(cleanCode, { customerName: context?.customerName, bookingId: context?.bookingId });
 
   try {
     const coupon = getCouponByCode(cleanCode);
     if (coupon && coupon.is_band_coupon) {
-      // 1. If an explicit band exists with this code, issue it directly in master catalog
+      // If an explicit band exists with this code in the master band table, issue it
       const bandItem = await getBandItemByCode(cleanCode);
       if (bandItem && bandItem.status === "available") {
         await issueBandItem({
@@ -837,14 +844,16 @@ export async function useCouponAction(code: string, context?: { customerName?: s
           booking_id: context?.bookingId,
           notes: `Auto-issued upon booking redemption of VIP Coupon: ${cleanCode}`,
         });
-      } else if (coupon.band_color) {
-        // 2. Decrement from color pool
-        await decrementColorStockByHex(coupon.band_color, 1);
       }
+      // Note: We do NOT decrement the regular 15-minute slot color pool because coupon bands
+      // maintain their own dedicated, segregated inventory and serial tracking!
     }
+    revalidatePath('/admin/bands');
+    revalidatePath('/admin/coupons');
   } catch (err) {
     console.warn("[useCouponAction] Error updating band inventory for coupon:", err);
   }
+
 
   revalidatePath('/admin/coupons');
   revalidatePath('/admin/bands');
@@ -1054,7 +1063,7 @@ export async function toggleOpenedSpecificDateAction(dateStr: string, shouldOpen
     try {
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) current = parsed;
-    } catch {}
+    } catch { }
 
     let updated: string[];
     if (shouldOpen) {
@@ -1185,5 +1194,59 @@ export async function deleteStaffUserAction(id: number) {
   }
 }
 
+// ==========================================
+// DEDICATED COUPON BAND INVENTORY ACTIONS
+// ==========================================
 
+export async function fetchCouponBandInventoryAction() {
+  try {
+    return { success: true, data: getCouponBandInventory() };
+  } catch (error: any) {
+    console.error("fetchCouponBandInventoryAction error:", error);
+    return { success: false, error: error.message || "Failed to fetch coupon band inventory" };
+  }
+}
 
+export async function handoverCouponBandsAction(params: {
+  ids?: number[];
+  codes?: string[];
+  band_category?: string;
+  band_color?: string;
+  amount?: number;
+  targetLocation: 'reception' | 'warehouse';
+  notes?: string;
+}) {
+  try {
+    if (params.amount && params.band_category) {
+      const res = handoverCouponBandsByOffer({
+        band_category: params.band_category,
+        band_color: params.band_color,
+        amount: params.amount,
+        targetLocation: params.targetLocation,
+      });
+      revalidatePath('/admin/bands');
+      revalidatePath('/admin/coupons');
+      return { 
+        success: true, 
+        count: res.changes, 
+        movedCodes: res.movedCodes,
+        message: `Successfully moved ${res.changes} band(s) to ${params.targetLocation}` 
+      };
+    }
+
+    const res = updateCouponBandsLocation(
+      { ids: params.ids, codes: params.codes },
+      params.targetLocation
+    );
+    revalidatePath('/admin/bands');
+    revalidatePath('/admin/coupons');
+    return { 
+      success: true, 
+      count: res.changes,
+      message: `Successfully updated location for ${res.changes} coupon band(s)` 
+    };
+  } catch (error: any) {
+    console.error("handoverCouponBandsAction error:", error);
+    return { success: false, error: error.message || "Failed to handover coupon bands" };
+  }
+}

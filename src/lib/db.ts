@@ -230,6 +230,10 @@ export function initDB() {
   try { db.exec('ALTER TABLE coupons ADD COLUMN is_band_coupon INTEGER DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_category TEXT DEFAULT \'VIP\''); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_color TEXT'); } catch (e) {}
+  try { db.exec("ALTER TABLE coupons ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN redeemed_booking_id INTEGER'); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN redeemed_by TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE coupons ADD COLUMN redeemed_at TEXT'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_created ON online_checkout_holds(created_at)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
@@ -495,6 +499,10 @@ export interface CouponRow {
   is_band_coupon?: number;
   band_category?: string;
   band_color?: string;
+  location?: 'warehouse' | 'reception';
+  redeemed_booking_id?: number | null;
+  redeemed_by?: string | null;
+  redeemed_at?: string | null;
   created_at: string;
 }
 
@@ -662,7 +670,7 @@ export function getAllBookings() {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -676,7 +684,7 @@ export function getBookingById(id: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -690,7 +698,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -709,7 +717,7 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
   const candidates = db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -1161,7 +1169,8 @@ export function addBatchBooking(
   customerName: string,
   customerEmail: string,
   customerPhone: string,
-  appliedCoupon?: string | null
+  appliedCoupon?: string | null,
+  paymentStatus: string = 'Unpaid'
 ) {
   if (!items || items.length === 0) return null;
   const createdAt = new Date().toISOString();
@@ -1173,7 +1182,7 @@ export function addBatchBooking(
       order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
       payment_status, fulfillment_status, simulator_name, simulator_slot, applied_coupon, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?, ?, ?)
   `);
 
   const insertedIds: number[] = [];
@@ -1190,6 +1199,7 @@ export function addBatchBooking(
         customerEmail,
         customerPhone,
         item.itemTotal,
+        paymentStatus,
         item.simulatorName || null,
         item.simulatorSlot || null,
         cleanCoupon,
@@ -1376,8 +1386,16 @@ export function getCouponByCode(code: string): CouponRow | undefined {
   return db.prepare('SELECT * FROM coupons WHERE code = ?').get(code.toUpperCase().trim()) as CouponRow | undefined;
 }
 
-export function incrementCouponUsage(code: string) {
-  return db.prepare('UPDATE coupons SET used_count = used_count + 1 WHERE code = ?').run(code.toUpperCase().trim());
+export function incrementCouponUsage(code: string, context?: { customerName?: string; bookingId?: number }) {
+  const now = new Date().toISOString();
+  return db.prepare(`
+    UPDATE coupons 
+    SET used_count = used_count + 1,
+        redeemed_booking_id = COALESCE(?, redeemed_booking_id),
+        redeemed_by = COALESCE(?, redeemed_by),
+        redeemed_at = COALESCE(?, redeemed_at)
+    WHERE code = ?
+  `).run(context?.bookingId || null, context?.customerName || null, now, code.toUpperCase().trim());
 }
 
 export function bulkUpdateCouponsExpiry(ids: number[], expiryDate: string | null) {
@@ -1420,6 +1438,229 @@ export function convertCouponToBandCoupon(
         band_color = ? 
     WHERE id = ?
   `).run(isBandCoupon ? 1 : 0, bandCategory, bandColor, id);
+}
+
+export interface CouponBandInventoryItem {
+  id: number;
+  code: string;
+  discount_type: 'percentage' | 'flat';
+  value: number;
+  max_uses: number | null;
+  used_count: number;
+  expiry_date: string | null;
+  is_band_coupon: number;
+  band_category: string;
+  band_color: string;
+  location: 'warehouse' | 'reception';
+  redeemed_booking_id?: number | null;
+  redeemed_by?: string | null;
+  redeemed_at?: string | null;
+  created_at: string;
+  booking_customer?: string | null;
+  booking_date?: string | null;
+}
+
+export interface CouponBandBreakdown {
+  band_category: string;
+  band_color: string;
+  discount_type: 'percentage' | 'flat';
+  value: number;
+  total: number;
+  warehouse: number;
+  reception: number;
+  redeemed: number;
+  expired: number;
+  sampleCodes: string[];
+}
+
+export interface CouponBandSummary {
+  total: number;
+  warehouse: number;
+  reception: number;
+  redeemed: number;
+  expired: number;
+  distinctOffers: number;
+}
+
+export function getCouponBandInventory(): {
+  summary: CouponBandSummary;
+  breakdown: CouponBandBreakdown[];
+  items: CouponBandInventoryItem[];
+} {
+  initDB();
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const rows = db.prepare(`
+    SELECT 
+      c.*,
+      b.id as b_booking_id,
+      b.customer_name as b_customer_name,
+      b.created_at as b_booking_date
+    FROM coupons c
+    LEFT JOIN bookings b ON UPPER(TRIM(b.applied_coupon)) = UPPER(TRIM(c.code))
+    WHERE c.is_band_coupon = 1
+    ORDER BY c.code ASC, c.id ASC
+  `).all() as any[];
+
+  const itemMap = new Map<number, CouponBandInventoryItem>();
+  for (const r of rows) {
+    if (!itemMap.has(r.id)) {
+      itemMap.set(r.id, {
+        id: r.id,
+        code: r.code,
+        discount_type: r.discount_type,
+        value: r.value,
+        max_uses: r.max_uses,
+        used_count: r.used_count || 0,
+        expiry_date: r.expiry_date,
+        is_band_coupon: 1,
+        band_category: r.band_category || 'VIP',
+        band_color: r.band_color || '#FFD700',
+        location: (r.location === 'reception' ? 'reception' : 'warehouse'),
+        redeemed_booking_id: r.redeemed_booking_id || r.b_booking_id || null,
+        redeemed_by: r.redeemed_by || r.b_customer_name || null,
+        redeemed_at: r.redeemed_at || r.b_booking_date || null,
+        created_at: r.created_at,
+        booking_customer: r.b_customer_name || r.redeemed_by || null,
+        booking_date: r.b_booking_date || r.redeemed_at || null,
+      });
+    }
+  }
+
+  const items = Array.from(itemMap.values());
+
+  let total = 0;
+  let warehouse = 0;
+  let reception = 0;
+  let redeemed = 0;
+  let expired = 0;
+
+  const breakdownMap = new Map<string, CouponBandBreakdown>();
+
+  for (const item of items) {
+    total++;
+    const isRedeemed = item.used_count > 0 || (item.max_uses !== null && item.used_count >= item.max_uses);
+    const isExpired = !isRedeemed && Boolean(item.expiry_date && item.expiry_date < todayStr);
+    const isReception = !isRedeemed && !isExpired && item.location === 'reception';
+    const isWarehouse = !isRedeemed && !isExpired && item.location !== 'reception';
+
+    if (isRedeemed) redeemed++;
+    else if (isExpired) expired++;
+    else if (isReception) reception++;
+    else warehouse++;
+
+    const key = `${(item.band_category || 'VIP').toUpperCase()}___${(item.band_color || '#FFD700').toUpperCase()}___${item.value}`;
+    if (!breakdownMap.has(key)) {
+      breakdownMap.set(key, {
+        band_category: item.band_category || 'VIP',
+        band_color: item.band_color || '#FFD700',
+        discount_type: item.discount_type,
+        value: item.value,
+        total: 0,
+        warehouse: 0,
+        reception: 0,
+        redeemed: 0,
+        expired: 0,
+        sampleCodes: []
+      });
+    }
+
+    const b = breakdownMap.get(key)!;
+    b.total++;
+    if (isRedeemed) b.redeemed++;
+    else if (isExpired) b.expired++;
+    else if (isReception) b.reception++;
+    else b.warehouse++;
+
+    if (b.sampleCodes.length < 5) {
+      b.sampleCodes.push(item.code);
+    }
+  }
+
+  const breakdown = Array.from(breakdownMap.values()).sort((a, b) => b.total - a.total);
+
+  return {
+    summary: {
+      total,
+      warehouse,
+      reception,
+      redeemed,
+      expired,
+      distinctOffers: breakdown.length
+    },
+    breakdown,
+    items
+  };
+}
+
+export function updateCouponBandsLocation(
+  couponIdsOrCodes: { ids?: number[]; codes?: string[] },
+  location: 'warehouse' | 'reception'
+): { changes: number } {
+  initDB();
+  if (couponIdsOrCodes.ids && couponIdsOrCodes.ids.length > 0) {
+    const placeholders = couponIdsOrCodes.ids.map(() => '?').join(',');
+    const stmt = db.prepare(`UPDATE coupons SET location = ? WHERE id IN (${placeholders})`);
+    const res = stmt.run(location, ...couponIdsOrCodes.ids);
+    return { changes: res.changes };
+  } else if (couponIdsOrCodes.codes && couponIdsOrCodes.codes.length > 0) {
+    const placeholders = couponIdsOrCodes.codes.map(() => '?').join(',');
+    const cleanCodes = couponIdsOrCodes.codes.map(c => c.trim().toUpperCase());
+    const stmt = db.prepare(`UPDATE coupons SET location = ? WHERE UPPER(code) IN (${placeholders})`);
+    const res = stmt.run(location, ...cleanCodes);
+    return { changes: res.changes };
+  }
+  return { changes: 0 };
+}
+
+export function handoverCouponBandsByOffer(params: {
+  band_category: string;
+  band_color?: string;
+  amount: number;
+  targetLocation: 'reception' | 'warehouse';
+}): { changes: number; movedCodes: string[] } {
+  initDB();
+  const { band_category, band_color, amount, targetLocation } = params;
+  const cleanAmount = Math.max(0, Math.floor(amount));
+  if (cleanAmount <= 0) return { changes: 0, movedCodes: [] };
+
+  const fromLocation = targetLocation === 'reception' ? 'warehouse' : 'reception';
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const whereParts = [
+    "is_band_coupon = 1",
+    "used_count = 0",
+    "(expiry_date IS NULL OR expiry_date >= ?)",
+    "COALESCE(location, 'warehouse') = ?"
+  ];
+  const queryParams: any[] = [todayStr, fromLocation];
+
+  if (band_category) {
+    whereParts.push("LOWER(band_category) = ?");
+    queryParams.push(band_category.trim().toLowerCase());
+  }
+  if (band_color) {
+    whereParts.push("UPPER(band_color) = ?");
+    queryParams.push(band_color.trim().toUpperCase());
+  }
+
+  const eligible = db.prepare(`
+    SELECT id, code FROM coupons
+    WHERE ${whereParts.join(" AND ")}
+    ORDER BY code ASC, id ASC
+    LIMIT ?
+  `).all(...queryParams, cleanAmount) as { id: number; code: string }[];
+
+  if (eligible.length === 0) return { changes: 0, movedCodes: [] };
+
+  const ids = eligible.map(e => e.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const updateRes = db.prepare(`UPDATE coupons SET location = ? WHERE id IN (${placeholders})`).run(targetLocation, ...ids);
+
+  return {
+    changes: updateRes.changes,
+    movedCodes: eligible.map(e => e.code)
+  };
 }
 
 export interface AdminUser {

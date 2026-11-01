@@ -23,7 +23,10 @@ import {
   Layers,
   Sparkles,
   ChevronRight,
-  RotateCcw
+  RotateCcw,
+  Zap,
+  Tag,
+  Shuffle
 } from "lucide-react";
 import { 
   fetchBlockedSlotsAction, 
@@ -65,6 +68,32 @@ const MONTH_NAMES = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 ];
 
+// Helper to parse multiple barcodes from pasted text, commas, newlines, and ranges (e.g. 016001-016010)
+function parseBarcodeInputs(text: string): string[] {
+  const parts = text.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
+  const result: string[] = [];
+  for (const part of parts) {
+    const dashMatch = part.match(/^([A-Za-z0-9_#-]+)-([A-Za-z0-9_#-]+)$/);
+    if (dashMatch) {
+      const from = dashMatch[1];
+      const to = dashMatch[2];
+      if (/^\d+$/.test(from) && /^\d+$/.test(to)) {
+        const startNum = parseInt(from, 10);
+        const endNum = parseInt(to, 10);
+        const padLen = Math.max(from.length, to.length);
+        if (startNum <= endNum && endNum - startNum <= 200) {
+          for (let i = startNum; i <= endNum; i++) {
+            result.push(String(i).padStart(padLen, '0'));
+          }
+          continue;
+        }
+      }
+    }
+    result.push(part.toUpperCase());
+  }
+  return Array.from(new Set(result));
+}
+
 export default function SlotsManagementPage() {
   const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots' | 'color_inventory'>('block_slots');
 
@@ -86,7 +115,18 @@ export default function SlotsManagementPage() {
     endCode?: string;
     count: number;
     totalAvailable: number;
+    bandCodes?: string[];
+    invalidCodes?: string[];
   }>({ isLoading: false, count: 0, totalAvailable: 0 });
+
+  // Handover Allotment Mode: 'auto' | 'series' | 'random'
+  const [handoverMode, setHandoverMode] = useState<"auto" | "series" | "random">("auto");
+  const [manualSeriesStart, setManualSeriesStart] = useState("");
+  const [manualSeriesEnd, setManualSeriesEnd] = useState("");
+  const [manualBarcodeScan, setManualBarcodeScan] = useState("");
+  const [manualCodesList, setManualCodesList] = useState<string[]>([]);
+  const [isManualBatchOpen, setIsManualBatchOpen] = useState(false);
+  const [manualBatchText, setManualBatchText] = useState("");
 
   // Live preview for slots page stock out modal
   useEffect(() => {
@@ -100,11 +140,23 @@ export default function SlotsManagementPage() {
 
     const timer = setTimeout(async () => {
       try {
-        const res = await previewHandoverRangeAction({
+        const previewParams: any = {
           color_name: stockOutModalItem.color_name,
           color_hex: stockOutModalItem.color_hex,
-          amount: stockOutAmount
-        });
+        };
+
+        if (handoverMode === "auto") {
+          previewParams.amount = stockOutAmount;
+        } else if (handoverMode === "series") {
+          previewParams.start_code = manualSeriesStart.trim() ? manualSeriesStart.trim().toUpperCase() : undefined;
+          previewParams.end_code = manualSeriesEnd.trim() ? manualSeriesEnd.trim().toUpperCase() : undefined;
+          previewParams.amount = 0;
+        } else if (handoverMode === "random") {
+          previewParams.specific_codes = manualCodesList;
+          previewParams.amount = manualCodesList.length;
+        }
+
+        const res = await previewHandoverRangeAction(previewParams);
 
         if (isMounted) {
           if (res.success) {
@@ -113,7 +165,9 @@ export default function SlotsManagementPage() {
               startCode: res.startCode,
               endCode: res.endCode,
               count: res.count,
-              totalAvailable: res.totalAvailable
+              totalAvailable: res.totalAvailable,
+              bandCodes: res.bandCodes,
+              invalidCodes: res.invalidCodes
             });
           } else {
             setStockOutPreview({
@@ -138,7 +192,14 @@ export default function SlotsManagementPage() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [stockOutModalItem, stockOutAmount]);
+  }, [
+    stockOutModalItem, 
+    stockOutAmount, 
+    handoverMode, 
+    manualSeriesStart, 
+    manualSeriesEnd, 
+    manualCodesList
+  ]);
 
   // Return from Reception State
   const [returnModalItem, setReturnModalItem] = useState<WristbandColorInventoryItem | null>(null);
@@ -478,29 +539,79 @@ export default function SlotsManagementPage() {
   const handleStockOutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stockOutModalItem) return;
-    if (stockOutAmount <= 0) {
-      setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
-      return;
-    }
-    if (stockOutAmount > stockOutModalItem.quantity) {
-      setFeedback({ type: "error", message: `Cannot stock out ${stockOutAmount}. Only ${stockOutModalItem.quantity} bands in warehouse stock.` });
-      return;
+
+    let finalAmount = stockOutAmount;
+    let start_code: string | undefined = undefined;
+    let end_code: string | undefined = undefined;
+    let specific_codes: string[] | undefined = undefined;
+
+    if (handoverMode === "auto") {
+      if (stockOutAmount <= 0) {
+        setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
+        return;
+      }
+      finalAmount = stockOutAmount;
+    } else if (handoverMode === "series") {
+      if (!manualSeriesStart.trim()) {
+        setFeedback({ type: "error", message: "Please enter a Start Code for the manual series." });
+        return;
+      }
+      start_code = manualSeriesStart.trim().toUpperCase();
+      end_code = manualSeriesEnd.trim() ? manualSeriesEnd.trim().toUpperCase() : undefined;
+      finalAmount = stockOutPreview.count;
+      if (finalAmount <= 0) {
+        setFeedback({ type: "error", message: "No warehouse wristbands found matching this series range." });
+        return;
+      }
+    } else if (handoverMode === "random") {
+      if (manualCodesList.length === 0) {
+        setFeedback({ type: "error", message: "Please add or scan at least one wristband barcode." });
+        return;
+      }
+      const validCodes = stockOutPreview.bandCodes && stockOutPreview.bandCodes.length > 0
+        ? stockOutPreview.bandCodes
+        : manualCodesList;
+      if (validCodes.length === 0) {
+        setFeedback({ type: "error", message: "None of the entered codes exist in warehouse stock for this color." });
+        return;
+      }
+      specific_codes = validCodes;
+      finalAmount = validCodes.length;
     }
 
     setIsStockingOut(true);
     try {
+      const notes = handoverMode === "auto"
+        ? `Auto Handover of ${finalAmount} ${stockOutModalItem.color_name} bands to Reception`
+        : handoverMode === "series"
+        ? `Manual Series Handover of ${finalAmount} ${stockOutModalItem.color_name} bands (${start_code}${end_code ? ` to ${end_code}` : ""}) to Reception`
+        : `Random Handover of ${finalAmount} specific ${stockOutModalItem.color_name} bands to Reception`;
+
       const res = await stockOutColorToReceptionAction({
         id: stockOutModalItem.id,
-        amount: stockOutAmount
+        amount: finalAmount,
+        start_code,
+        end_code,
+        specific_codes,
+        notes
       });
 
       if (res.success) {
+        const rangeText = res.startCode && res.endCode
+          ? ` (Wristbands: ${res.startCode}${res.startCode !== res.endCode ? ` to ${res.endCode}` : ''})`
+          : '';
         setFeedback({
           type: "success",
-          message: `Stock Out Recorded: ${stockOutAmount} '${stockOutModalItem.color_name}' bands handed over to Reception! (Reception total: ${res.item?.in_reception ?? (stockOutModalItem.in_reception || 0) + stockOutAmount})`
+          message: `Stock Out Recorded: ${finalAmount} '${stockOutModalItem.color_name}' bands handed over to Reception!${rangeText} (Reception total: ${res.item?.in_reception ?? (stockOutModalItem.in_reception || 0) + finalAmount})`
         });
         setStockOutModalItem(null);
         setStockOutAmount(10);
+        setManualSeriesStart("");
+        setManualSeriesEnd("");
+        setManualCodesList([]);
+        setManualBarcodeScan("");
+        setIsManualBatchOpen(false);
+        setManualBatchText("");
         await loadColorInventory();
       } else {
         setFeedback({
@@ -2758,6 +2869,13 @@ export default function SlotsManagementPage() {
                               onClick={() => {
                                 setStockOutModalItem(item);
                                 setStockOutAmount(Math.min(10, item.quantity > 0 ? item.quantity : 1));
+                                setHandoverMode("auto");
+                                setManualSeriesStart("");
+                                setManualSeriesEnd("");
+                                setManualCodesList([]);
+                                setManualBarcodeScan("");
+                                setIsManualBatchOpen(false);
+                                setManualBatchText("");
                               }}
                               disabled={item.quantity <= 0}
                               className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-40 text-white font-bold text-[11px] transition-all shadow-xs inline-flex items-center gap-1"
@@ -2943,93 +3061,346 @@ export default function SlotsManagementPage() {
                 </div>
               </div>
 
+              {/* Handover Mode Switcher */}
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
-                  Quantity to Give to Reception:
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span>Handover Method:</span>
+                  <span className="text-[10px] font-semibold text-gray-500 font-sans normal-case">Select how bands are allotted</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    max={stockOutModalItem.quantity}
-                    required
-                    value={stockOutAmount}
-                    onChange={(e) => setStockOutAmount(parseInt(e.target.value, 10) || 0)}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                  <div className="flex gap-1 shrink-0">
-                    {[5, 10, 25, 50].map(amt => (
-                      <button
-                        key={amt}
-                        type="button"
-                        disabled={amt > stockOutModalItem.quantity}
-                        onClick={() => setStockOutAmount(amt)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all disabled:opacity-30 ${
-                          stockOutAmount === amt
-                            ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
-                        }`}
-                      >
-                        {amt}
-                      </button>
-                    ))}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-gray-100/90 rounded-xl border border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("auto")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "auto"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Auto Allotment</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("series")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "series"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Tag className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Manual Series</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("random")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "random"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Shuffle className="w-3.5 h-3.5 text-purple-500" />
+                    <span>Random / Specific</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Mode 1: Auto Allotment */}
+              {handoverMode === "auto" && (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Quantity to Give to Reception:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max={stockOutModalItem.quantity}
+                      required
+                      value={stockOutAmount}
+                      onChange={(e) => setStockOutAmount(parseInt(e.target.value, 10) || 0)}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <div className="flex gap-1 shrink-0">
+                      {[5, 10, 25, 50].map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          disabled={amt > stockOutModalItem.quantity}
+                          onClick={() => setStockOutAmount(amt)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all disabled:opacity-30 ${
+                            stockOutAmount === amt
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {amt}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* Live Preview of Specific Wristband Range */}
-                <div className="mt-3 rounded-2xl border p-3.5 transition-all bg-emerald-50/70 border-emerald-200">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
-                      <Palette className="w-3.5 h-3.5 text-emerald-600" />
-                      Wristbands To Be Stocked Out:
-                    </span>
-                    {stockOutPreview.isLoading ? (
-                      <span className="text-[10px] font-bold text-emerald-600 animate-pulse">Calculating range...</span>
-                    ) : stockOutPreview.startCode ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-800">
-                        {stockOutPreview.count} {stockOutPreview.count === 1 ? 'Band' : 'Bands'} Ready
-                      </span>
-                    ) : null}
+              {/* Mode 2: Manual Series (Start Code to End Code) */}
+              {handoverMode === "series" && (
+                <div className="space-y-2 bg-blue-50/40 p-3.5 rounded-2xl border border-blue-200">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-xs font-bold uppercase text-blue-900 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-blue-600" />
+                      Specify Band Series Range:
+                    </label>
+                    <span className="text-[10px] text-blue-700 font-semibold">e.g. 016001 to 016025</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Start Code:</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 016001"
+                        value={manualSeriesStart}
+                        onChange={(e) => setManualSeriesStart(e.target.value)}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-600 uppercase block mb-1">End Code (Optional):</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 016025"
+                        value={manualSeriesEnd}
+                        onChange={(e) => setManualSeriesEnd(e.target.value)}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-blue-800 leading-tight">
+                    💡 Directly allots a sleeve or box of sequentially numbered warehouse wristbands to the reception desk.
+                  </p>
+                </div>
+              )}
+
+              {/* Mode 3: Specific / Random Bands */}
+              {handoverMode === "random" && (
+                <div className="space-y-2.5 bg-purple-50/40 p-3.5 rounded-2xl border border-purple-200">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase text-purple-900 flex items-center gap-1.5">
+                      <Shuffle className="w-3.5 h-3.5 text-purple-600" />
+                      Enter / Scan Loose Bands:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsManualBatchOpen(!isManualBatchOpen)}
+                      className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline"
+                    >
+                      {isManualBatchOpen ? "Single Scan Mode" : "Paste Batch / Ranges"}
+                    </button>
                   </div>
 
-                  {stockOutPreview.isLoading ? (
-                    <div className="h-9 flex items-center gap-2 text-xs text-emerald-700 font-medium">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                      Loading sequential band IDs...
-                    </div>
-                  ) : stockOutPreview.startCode ? (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-mono font-black text-emerald-950 bg-white/80 px-3 py-2 rounded-xl border border-emerald-300 shadow-xs">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
-                          {stockOutPreview.startCode}
-                        </span>
-                        {stockOutPreview.startCode !== stockOutPreview.endCode && (
-                          <>
-                            <span className="text-emerald-500 font-bold">→</span>
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
-                              {stockOutPreview.endCode}
-                            </span>
-                          </>
+                  {!isManualBatchOpen ? (
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Type or scan barcode and press Enter..."
+                          value={manualBarcodeScan}
+                          onChange={(e) => setManualBarcodeScan(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                              e.preventDefault();
+                              const clean = manualBarcodeScan.trim();
+                              if (clean) {
+                                const parsed = parseBarcodeInputs(clean);
+                                setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                                setManualBarcodeScan("");
+                              }
+                            }
+                          }}
+                          className="w-full bg-white border border-purple-300 rounded-xl pl-3 pr-8 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 uppercase"
+                        />
+                        {manualBarcodeScan && (
+                          <button
+                            type="button"
+                            onClick={() => setManualBarcodeScan("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         )}
-                        <span className="text-[11px] font-sans font-semibold text-emerald-700 ml-auto">
-                          ({stockOutPreview.count} {stockOutPreview.count === 1 ? "item" : "items"})
-                        </span>
                       </div>
-                      <p className="text-[10px] text-emerald-700 font-medium">
-                        ✓ These sequential warehouse bands will immediately transition to <strong>Reception</strong> status upon confirmation.
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = manualBarcodeScan.trim();
+                          if (clean) {
+                            const parsed = parseBarcodeInputs(clean);
+                            setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                            setManualBarcodeScan("");
+                          }
+                        }}
+                        disabled={!manualBarcodeScan.trim()}
+                        className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-xs font-bold transition-all shrink-0"
+                      >
+                        Add
+                      </button>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200">
-                      ⚠️ No individual wristband records found in warehouse storage for this color. Handover will update the reception counter balance.
+                    <div className="space-y-1.5">
+                      <textarea
+                        rows={3}
+                        placeholder="Paste codes separated by commas, spaces, or lines.&#10;e.g. 016001, 016005, 016010-016015"
+                        value={manualBatchText}
+                        onChange={(e) => setManualBatchText(e.target.value)}
+                        className="w-full bg-white border border-purple-300 rounded-xl p-2.5 text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-purple-700">Supports ranges like 016010-016015</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (manualBatchText.trim()) {
+                              const parsed = parseBarcodeInputs(manualBatchText);
+                              setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                              setManualBatchText("");
+                              setIsManualBatchOpen(false);
+                            }
+                          }}
+                          disabled={!manualBatchText.trim()}
+                          className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-[11px] font-bold"
+                        >
+                          Add All To List
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chip Cloud of Added Codes */}
+                  {manualCodesList.length > 0 && (
+                    <div className="p-2.5 bg-white/90 rounded-xl border border-purple-200 max-h-36 overflow-y-auto space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase">
+                          {manualCodesList.length} {manualCodesList.length === 1 ? "Code" : "Codes"} Entered:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setManualCodesList([])}
+                          className="text-[10px] text-red-600 hover:text-red-800 font-bold"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {manualCodesList.map((code) => {
+                          const isInvalid = stockOutPreview.invalidCodes?.includes(code.toUpperCase());
+                          return (
+                            <span
+                              key={code}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold transition-all ${
+                                isInvalid
+                                  ? "bg-red-100 text-red-800 border border-red-300 line-through"
+                                  : "bg-purple-100 text-purple-900 border border-purple-200"
+                              }`}
+                            >
+                              {code}
+                              <button
+                                type="button"
+                                onClick={() => setManualCodesList(prev => prev.filter(c => c !== code))}
+                                className="hover:text-red-600 ml-0.5"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
+              )}
 
-                <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200">
-                  ℹ️ This moves <strong className="font-mono font-bold text-amber-800">{stockOutAmount}</strong> wristbands from main warehouse to Reception counter. Remaining warehouse stock will be <strong className="font-mono font-bold">{Math.max(0, stockOutModalItem.quantity - stockOutAmount)}</strong>, and Reception total will be <strong className="font-mono font-bold text-amber-800">{(stockOutModalItem.in_reception || 0) + stockOutAmount}</strong>.
-                </p>
+              {/* Live Preview of Wristbands to be Handed Over */}
+              <div className={`rounded-2xl border p-3.5 transition-all ${
+                stockOutPreview.count > 0 ? 'bg-emerald-50/70 border-emerald-200' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                    <Package className="w-3.5 h-3.5 text-emerald-600" />
+                    Wristbands To Be Stocked Out:
+                  </span>
+                  {stockOutPreview.isLoading ? (
+                    <span className="text-[10px] font-bold text-emerald-600 animate-pulse">Checking warehouse...</span>
+                  ) : stockOutPreview.count > 0 ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-800">
+                      {stockOutPreview.count} {stockOutPreview.count === 1 ? 'Band' : 'Bands'} Ready
+                    </span>
+                  ) : null}
+                </div>
+
+                {stockOutPreview.isLoading ? (
+                  <div className="h-9 flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    Verifying available warehouse band IDs...
+                  </div>
+                ) : stockOutPreview.count > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-mono font-black text-emerald-950 bg-white/80 px-3 py-2 rounded-xl border border-emerald-300 shadow-xs flex-wrap">
+                      {handoverMode === "random" ? (
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto w-full">
+                          {stockOutPreview.bandCodes?.map(code => (
+                            <span key={code} className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 text-xs">
+                              {code}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                            {stockOutPreview.startCode}
+                          </span>
+                          {stockOutPreview.startCode !== stockOutPreview.endCode && (
+                            <>
+                              <span className="text-emerald-500 font-bold">→</span>
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                                {stockOutPreview.endCode}
+                              </span>
+                            </>
+                          )}
+                        </>
+                      )}
+                      <span className="text-[11px] font-sans font-semibold text-emerald-700 ml-auto shrink-0">
+                        ({stockOutPreview.count} {stockOutPreview.count === 1 ? "item" : "items"})
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-emerald-700 font-medium">
+                      ✓ These warehouse bands will immediately transition to <strong>Reception</strong> status upon confirmation.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200">
+                    {handoverMode === "auto" && "⚠️ No individual wristband records found in warehouse storage for this color. Handover will update the reception counter balance."}
+                    {handoverMode === "series" && (manualSeriesStart ? "⚠️ No available warehouse wristbands match this series range." : "👉 Enter a Start Code above to preview matching warehouse wristbands.")}
+                    {handoverMode === "random" && (manualCodesList.length > 0 ? "⚠️ None of the entered codes exist in warehouse stock for this color." : "👉 Type or scan wristband barcodes above.")}
+                  </div>
+                )}
+
+                {/* Warning for invalid / unmatched codes in random mode */}
+                {handoverMode === "random" && stockOutPreview.invalidCodes && stockOutPreview.invalidCodes.length > 0 && (
+                  <div className="mt-2 text-[10px] text-red-800 bg-red-50 p-2 rounded-lg border border-red-200">
+                    ⚠️ <strong>{stockOutPreview.invalidCodes.length} code(s) not in warehouse:</strong> {stockOutPreview.invalidCodes.join(", ")} (these will be skipped)
+                  </div>
+                )}
               </div>
+
+              {/* Reception Counter Impact Helper */}
+              <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                ℹ️ This directly adds <strong className="font-mono font-bold text-amber-800">
+                  {stockOutPreview.count || (handoverMode === "auto" ? stockOutAmount : 0)}
+                </strong> wristbands to the Reception counter for staff to hand out. Reception total will be <strong className="font-mono font-bold text-amber-800">
+                  {(stockOutModalItem.in_reception || 0) + (stockOutPreview.count || (handoverMode === "auto" ? stockOutAmount : 0))}
+                </strong>.
+              </p>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button
@@ -3041,11 +3412,18 @@ export default function SlotsManagementPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isStockingOut || stockOutAmount <= 0 || stockOutAmount > stockOutModalItem.quantity}
+                  disabled={
+                    isStockingOut || 
+                    (handoverMode === "auto" && (stockOutAmount <= 0 || stockOutAmount > stockOutModalItem.quantity)) ||
+                    (handoverMode === "series" && stockOutPreview.count <= 0) ||
+                    (handoverMode === "random" && stockOutPreview.count <= 0)
+                  }
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  {isStockingOut ? "Recording Handover..." : "Confirm Stock Out to Reception"}
+                  {isStockingOut 
+                    ? "Recording Handover..." 
+                    : `Confirm Stock Out to Reception (${stockOutPreview.count || (handoverMode === "auto" ? stockOutAmount : 0)})`}
                 </button>
               </div>
             </form>

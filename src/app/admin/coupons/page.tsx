@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import Link from "next/link";
 import { 
   Tag, 
   Trash2, 
@@ -15,7 +16,8 @@ import {
   ChevronLeft,
   ChevronRight,
   LayoutGrid,
-  Table as TableIcon
+  Table as TableIcon,
+  Sparkles
 } from "lucide-react";
 import { 
   fetchCouponsAction, 
@@ -569,12 +571,26 @@ export default function AdminCouponsPage() {
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
-      {/* Title */}
-      <div className="flex items-center justify-between">
+      {/* Title & Quick Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black font-heading text-gray-900 tracking-tight">Manage Coupons</h1>
-          <p className="text-gray-500 text-sm mt-1">Create individual promo codes or bulk generate ticket discount vouchers.</p>
+          <h1 className="text-2xl font-black font-heading text-gray-900 tracking-tight flex items-center gap-2">
+            <span>Manage Coupons</span>
+            <span className="text-xs bg-gray-100 text-gray-600 font-bold px-2.5 py-0.5 rounded-full">
+              {coupons.length} total
+            </span>
+          </h1>
+          <p className="text-gray-500 text-sm mt-1">Create promo codes or generate physical VIP promotional wristband inventory.</p>
         </div>
+
+        {/* Dedicated Coupon Bands Inventory Shortcut */}
+        <Link
+          href="/admin/bands?tab=coupon_bands"
+          className="bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 hover:from-purple-800 hover:to-indigo-800 text-white px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 shadow-md shadow-purple-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] self-start sm:self-auto"
+        >
+          <Sparkles className="w-4 h-4 text-amber-300 fill-amber-300" />
+          <span>⭐ Open Coupon Bands Inventory ({categoriesList.counts.VIP_BANDS})</span>
+        </Link>
       </div>
 
       {/* Notification Banner */}

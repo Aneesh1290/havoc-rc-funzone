@@ -199,19 +199,21 @@ export default function OrderDetailPage() {
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
   
-  // Compute total amount recorded across items
+  // Check if any order item has recorded total_amount
+  const hasRecordedTotal = orderItems.some(item => item.total_amount !== null && item.total_amount !== undefined && !isNaN(Number(item.total_amount)));
   const rawSumTotal = orderItems.reduce((acc, item) => acc + Number(item.total_amount || 0), 0);
   const baseItemsSubtotal = orderItems.reduce((acc, item) => {
     const qty = item.quantity || 1;
     return acc + ((item.ticket_price || 0) * qty);
   }, 0);
+  const fullTariffWithGst = Math.round(baseItemsSubtotal * 1.18);
 
-  // If rawSumTotal is recorded (> 0), that is the exact final total (incl. GST & discounts).
-  // Otherwise, fallback to baseItemsSubtotal + 18% GST.
-  const totalAmount = rawSumTotal > 0 ? rawSumTotal : Math.round(baseItemsSubtotal * 1.18);
-  const itemsSubtotal = rawSumTotal > 0 ? Math.round((totalAmount / 1.18) * 100) / 100 : baseItemsSubtotal;
+  // If total_amount was recorded in DB, use exact recorded total (even if 0 for 100% discount!)
+  const totalAmount = hasRecordedTotal ? rawSumTotal : fullTariffWithGst;
+  const itemsSubtotal = hasRecordedTotal ? Math.round((totalAmount / 1.18) * 100) / 100 : baseItemsSubtotal;
   const taxGst = Math.round((totalAmount - itemsSubtotal) * 100) / 100;
   const amountDue = isPaid ? 0 : totalAmount;
+  const discountTotal = Math.max(0, fullTariffWithGst - totalAmount);
 
   const handleTogglePayment = async (status: string) => {
     setPaymentMenuOpen(false);
@@ -438,9 +440,13 @@ export default function OrderDetailPage() {
             <div className="space-y-6">
               {orderItems.map((item, idx) => {
                 const itemQty = item.quantity || 1;
-                const rawItemAmt = Number(item.total_amount || 0);
-                const itemUnitPrice = item.ticket_price || (rawItemAmt > 0 ? Math.round(rawItemAmt / itemQty) : 0);
-                const itemLineSubtotal = itemUnitPrice * itemQty;
+                const hasItemTotal = item.total_amount !== null && item.total_amount !== undefined && !isNaN(Number(item.total_amount));
+                const catalogUnitPrice = item.ticket_price || 0;
+                const catalogLineTotalWithGst = Math.round(catalogUnitPrice * itemQty * 1.18);
+                const itemLineEffective = hasItemTotal ? Number(item.total_amount) : catalogLineTotalWithGst;
+                const itemEffectiveSubtotalBeforeTax = Math.round((itemLineEffective / 1.18) * 100) / 100;
+                const itemUnitPrice = itemQty > 0 ? (itemEffectiveSubtotalBeforeTax / itemQty) : 0;
+                const isDiscounted = hasItemTotal && itemLineEffective < catalogLineTotalWithGst;
                 const itemIsPaid = (item.payment_status || booking.payment_status || "Paid").toLowerCase() === "paid";
                 const itemIsFulfilled = (item.fulfillment_status || booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
 
@@ -714,9 +720,23 @@ export default function OrderDetailPage() {
                     </div>
 
                     <div className="flex items-center gap-6 self-start sm:self-auto text-sm">
-                      <span className="text-gray-500 font-medium">₹{itemUnitPrice.toFixed(2)}</span>
+                      <div className="text-right">
+                        {isDiscounted && catalogUnitPrice > 0 && (
+                          <span className="text-xs text-gray-400 line-through mr-1.5 block sm:inline">
+                            ₹{catalogUnitPrice.toFixed(2)}
+                          </span>
+                        )}
+                        <span className="text-gray-700 font-bold">₹{itemUnitPrice.toFixed(2)}</span>
+                      </div>
                       <span className="text-gray-400 font-semibold">×{itemQty}</span>
-                      <span className="font-black text-gray-900 text-base">₹{itemLineSubtotal.toFixed(2)}</span>
+                      <div className="text-right">
+                        {isDiscounted && (
+                          <span className="text-xs text-gray-400 line-through block font-normal">
+                            ₹{catalogLineTotalWithGst.toFixed(2)}
+                          </span>
+                        )}
+                        <span className="font-black text-gray-900 text-base">₹{itemLineEffective.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
                 );
@@ -741,9 +761,22 @@ export default function OrderDetailPage() {
 
             <div className="space-y-2.5 pt-1 text-sm text-gray-600">
               <div className="flex justify-between items-center">
-                <span className="text-gray-500">Items</span>
-                <span className="font-medium text-gray-900">₹{itemsSubtotal.toFixed(2)}</span>
+                <span className="text-gray-500">Tariff Subtotal</span>
+                <span className="font-medium text-gray-900">₹{baseItemsSubtotal.toFixed(2)}</span>
               </div>
+              {discountTotal > 0 && (
+                <div className="flex justify-between items-center text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                  <span className="flex items-center gap-1.5 text-xs">
+                    <span>🏷️ Coupon Discount</span>
+                    {(booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon) && (
+                      <span className="font-mono bg-emerald-200/80 text-emerald-950 px-1.5 py-0.5 rounded text-[11px] font-black border border-emerald-300">
+                        {booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon}
+                      </span>
+                    )}
+                  </span>
+                  <span>-₹{discountTotal.toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">Shipping / Desk Booking</span>
                 <span className="text-green-600 font-bold">Free</span>

@@ -163,7 +163,7 @@ export default function CheckoutPage() {
         simulatorSlot: item.simulatorSlot
       }));
 
-      if (paymentMethod === 'online') {
+      if (paymentMethod === 'online' && grandTotal > 0) {
         if (paymentConfig.activeGateway !== 'icici') {
           throw new Error(
             `${paymentConfig.gatewayName} is currently active in settings. Gateway connection is in setup mode. Please choose 'Pay at Desk' or switch back to ICICI Bank Gateway in Admin Settings.`

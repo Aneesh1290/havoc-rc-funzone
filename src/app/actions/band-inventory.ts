@@ -298,6 +298,9 @@ export async function previewHandoverRangeAction(params: {
   color_hex?: string;
   category?: string;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
 }): Promise<{
   success: boolean;
   totalAvailable: number;
@@ -305,6 +308,7 @@ export async function previewHandoverRangeAction(params: {
   startCode?: string;
   endCode?: string;
   bandCodes: string[];
+  invalidCodes?: string[];
   error?: string;
 }> {
   try {
@@ -321,6 +325,9 @@ export async function handoverWristbandsAction(params: {
   color_hex?: string;
   category?: string;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
   notes?: string;
 }): Promise<{
   success: boolean;

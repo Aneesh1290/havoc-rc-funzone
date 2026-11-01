@@ -31,7 +31,10 @@ import {
   Eye,
   SlidersHorizontal,
   Hash,
-  Loader2
+  Loader2,
+  Zap,
+  Tag,
+  Shuffle
 } from "lucide-react";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { 
@@ -75,14 +78,73 @@ import {
 } from "@/app/actions/color-inventory";
 import type { SubcategoryBandItem } from "@/lib/color-inventory-db";
 import { hasUserPermission } from "@/lib/permissions";
+import {
+  fetchCouponBandInventoryAction,
+  handoverCouponBandsAction,
+} from "@/app/actions/tickets";
+import type {
+  CouponBandInventoryItem,
+  CouponBandBreakdown,
+  CouponBandSummary,
+} from "@/lib/db";
+import Link from "next/link";
+
+
+// Helper to parse multiple barcodes from pasted text, commas, newlines, and ranges (e.g. 016001-016010)
+function parseBarcodeInputs(text: string): string[] {
+  const parts = text.split(/[\n,\s]+/).map(s => s.trim()).filter(Boolean);
+  const result: string[] = [];
+  for (const part of parts) {
+    const dashMatch = part.match(/^([A-Za-z0-9_#-]+)-([A-Za-z0-9_#-]+)$/);
+    if (dashMatch) {
+      const from = dashMatch[1];
+      const to = dashMatch[2];
+      if (/^\d+$/.test(from) && /^\d+$/.test(to)) {
+        const startNum = parseInt(from, 10);
+        const endNum = parseInt(to, 10);
+        const padLen = Math.max(from.length, to.length);
+        if (startNum <= endNum && endNum - startNum <= 200) {
+          for (let i = startNum; i <= endNum; i++) {
+            result.push(String(i).padStart(padLen, '0'));
+          }
+          continue;
+        }
+      }
+    }
+    result.push(part.toUpperCase());
+  }
+  return Array.from(new Set(result));
+}
 
 export default function BandInventoryPage() {
   const [sessionUser, setSessionUser] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<"summary" | "master" | "movements" | "reports">("summary");
+  const [activeTab, setActiveTab] = useState<"summary" | "coupon_bands" | "master" | "movements" | "reports">("summary");
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncingSlots, setIsSyncingSlots] = useState(false);
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  // Dedicated Coupon Band Inventory States
+  const [couponInventory, setCouponInventory] = useState<{
+    summary: CouponBandSummary;
+    breakdown: CouponBandBreakdown[];
+    items: CouponBandInventoryItem[];
+  } | null>(null);
+  const [couponSearch, setCouponSearch] = useState("");
+  const [couponStatusFilter, setCouponStatusFilter] = useState<"all" | "warehouse" | "reception" | "redeemed" | "expired">("all");
+  const [couponOfferFilter, setCouponOfferFilter] = useState("all");
+  const [couponPage, setCouponPage] = useState(1);
+  const [couponPageSize, setCouponPageSize] = useState(50);
+  const [selectedCouponIds, setSelectedCouponIds] = useState<number[]>([]);
+
+  // Coupon Handover Modal States
+  const [isCouponHandoverModalOpen, setIsCouponHandoverModalOpen] = useState(false);
+  const [handoverOfferCategory, setHandoverOfferCategory] = useState<string>("");
+  const [handoverOfferColor, setHandoverOfferColor] = useState<string>("");
+  const [handoverOfferName, setHandoverOfferName] = useState<string>("");
+  const [handoverAmount, setHandoverAmount] = useState<number>(10);
+  const [handoverDirection, setHandoverDirection] = useState<"to_reception" | "to_warehouse">("to_reception");
+  const [isSubmittingCouponHandover, setIsSubmittingCouponHandover] = useState(false);
 
   // Data States
   const [summary, setSummary] = useState<BandInventorySummary | null>(null);
@@ -90,6 +152,7 @@ export default function BandInventoryPage() {
   const [totalItemsCount, setTotalItemsCount] = useState(0);
   const [transactions, setTransactions] = useState<BandTransaction[]>([]);
   const [totalTransactionsCount, setTotalTransactionsCount] = useState(0);
+
 
   // Filters & Pagination for Master List
   const [searchQuery, setSearchQuery] = useState("");
@@ -158,7 +221,18 @@ export default function BandInventoryPage() {
     endCode?: string;
     count: number;
     totalAvailable: number;
+    bandCodes?: string[];
+    invalidCodes?: string[];
   }>({ isLoading: false, count: 0, totalAvailable: 0 });
+
+  // Handover Allotment Mode: 'auto' | 'series' | 'random'
+  const [handoverMode, setHandoverMode] = useState<"auto" | "series" | "random">("auto");
+  const [manualSeriesStart, setManualSeriesStart] = useState("");
+  const [manualSeriesEnd, setManualSeriesEnd] = useState("");
+  const [manualBarcodeScan, setManualBarcodeScan] = useState("");
+  const [manualCodesList, setManualCodesList] = useState<string[]>([]);
+  const [isManualBatchOpen, setIsManualBatchOpen] = useState(false);
+  const [manualBatchText, setManualBatchText] = useState("");
 
   // Live query preview of wristbands to be stocked out
   useEffect(() => {
@@ -172,12 +246,24 @@ export default function BandInventoryPage() {
 
     const timer = setTimeout(async () => {
       try {
-        const res = await previewHandoverRangeAction({
+        const previewParams: any = {
           color_name: selectedColorForAction.color_name,
           color_hex: selectedColorForAction.color_hex,
           category: handoverCategoryFilter === "all" ? undefined : handoverCategoryFilter,
-          amount: colorStockOutAmount
-        });
+        };
+
+        if (handoverMode === "auto") {
+          previewParams.amount = colorStockOutAmount;
+        } else if (handoverMode === "series") {
+          previewParams.start_code = manualSeriesStart.trim() ? manualSeriesStart.trim().toUpperCase() : undefined;
+          previewParams.end_code = manualSeriesEnd.trim() ? manualSeriesEnd.trim().toUpperCase() : undefined;
+          previewParams.amount = 0; // Don't limit to let backend fetch entire series range
+        } else if (handoverMode === "random") {
+          previewParams.specific_codes = manualCodesList;
+          previewParams.amount = manualCodesList.length;
+        }
+
+        const res = await previewHandoverRangeAction(previewParams);
 
         if (isMounted) {
           if (res.success) {
@@ -186,7 +272,9 @@ export default function BandInventoryPage() {
               startCode: res.startCode,
               endCode: res.endCode,
               count: res.count,
-              totalAvailable: res.totalAvailable
+              totalAvailable: res.totalAvailable,
+              bandCodes: res.bandCodes,
+              invalidCodes: res.invalidCodes
             });
           } else {
             setStockOutPreview({
@@ -211,7 +299,16 @@ export default function BandInventoryPage() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [isStockOutModalForColorOpen, selectedColorForAction, colorStockOutAmount, handoverCategoryFilter]);
+  }, [
+    isStockOutModalForColorOpen, 
+    selectedColorForAction, 
+    colorStockOutAmount, 
+    handoverCategoryFilter,
+    handoverMode,
+    manualSeriesStart,
+    manualSeriesEnd,
+    manualCodesList
+  ]);
 
   // Return from Reception / Adjust Reception Modal from Color Cards
   const [isReturnModalForColorOpen, setIsReturnModalForColorOpen] = useState(false);
@@ -251,6 +348,32 @@ export default function BandInventoryPage() {
       .catch(() => {});
   }, []);
 
+  // Support direct linking via ?tab=coupon_bands
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (
+        tabParam === "coupon_bands" || 
+        tabParam === "master" || 
+        tabParam === "movements" || 
+        tabParam === "reports" || 
+        tabParam === "summary"
+      ) {
+        setActiveTab(tabParam as any);
+      }
+    }
+  }, []);
+
+  const handleTabSwitch = (tab: "summary" | "coupon_bands" | "master" | "movements" | "reports") => {
+    setActiveTab(tab);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.set("tab", tab);
+      window.history.replaceState({}, "", url.toString());
+    }
+  };
+
   const canManageStock = hasUserPermission(sessionUser, "bands:manage_stock");
   const canAssignBands = hasUserPermission(sessionUser, "bands:assign");
 
@@ -263,7 +386,7 @@ export default function BandInventoryPage() {
       const itemsLimit = pageSize === -1 ? 50000 : pageSize;
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
-      const [summaryRes, itemsRes, txRes, subcatRes] = await Promise.all([
+      const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes] = await Promise.all([
         getBandInventorySummaryAction(),
         getBandItemsAction({
           search: searchQuery,
@@ -280,6 +403,7 @@ export default function BandInventoryPage() {
           limit: 100,
         }),
         getSubcategoryBandsAction(),
+        fetchCouponBandInventoryAction(),
       ]);
 
       if (summaryRes.success && summaryRes.data) {
@@ -296,6 +420,9 @@ export default function BandInventoryPage() {
       if (subcatRes.success && subcatRes.data) {
         setConfiguredSubcategories(subcatRes.data);
       }
+      if (couponBandRes.success && couponBandRes.data) {
+        setCouponInventory(couponBandRes.data);
+      }
     } catch (err: any) {
       console.error("Failed to load inventory data:", err);
       setFeedback({ type: "error", message: "Failed to load band inventory data." });
@@ -304,6 +431,7 @@ export default function BandInventoryPage() {
       setIsRefreshing(false);
     }
   };
+
 
   // Reset to page 1 when search or filters change
   useEffect(() => {
@@ -647,31 +775,82 @@ export default function BandInventoryPage() {
       setFeedback({ type: "error", message: "Color inventory record ID not found. Please sync from slots first." });
       return;
     }
-    if (colorStockOutAmount <= 0) {
-      setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
-      return;
+
+    let finalAmount = colorStockOutAmount;
+    let start_code: string | undefined = undefined;
+    let end_code: string | undefined = undefined;
+    let specific_codes: string[] | undefined = undefined;
+
+    if (handoverMode === "auto") {
+      if (colorStockOutAmount <= 0) {
+        setFeedback({ type: "error", message: "Please specify a positive quantity to stock out." });
+        return;
+      }
+      finalAmount = colorStockOutAmount;
+    } else if (handoverMode === "series") {
+      if (!manualSeriesStart.trim()) {
+        setFeedback({ type: "error", message: "Please enter a Start Code for the manual series." });
+        return;
+      }
+      start_code = manualSeriesStart.trim().toUpperCase();
+      end_code = manualSeriesEnd.trim() ? manualSeriesEnd.trim().toUpperCase() : undefined;
+      finalAmount = stockOutPreview.count;
+      if (finalAmount <= 0) {
+        setFeedback({ type: "error", message: "No warehouse wristbands found matching this series range." });
+        return;
+      }
+    } else if (handoverMode === "random") {
+      if (manualCodesList.length === 0) {
+        setFeedback({ type: "error", message: "Please add or scan at least one wristband barcode." });
+        return;
+      }
+      const validCodes = stockOutPreview.bandCodes && stockOutPreview.bandCodes.length > 0
+        ? stockOutPreview.bandCodes
+        : manualCodesList;
+      if (validCodes.length === 0) {
+        setFeedback({ type: "error", message: "None of the entered codes exist in warehouse stock for this color." });
+        return;
+      }
+      specific_codes = validCodes;
+      finalAmount = validCodes.length;
     }
 
     setIsSubmittingColorStockOut(true);
     try {
-      if (handoverCategoryFilter !== "all") {
+      const notes = handoverMode === "auto"
+        ? `Auto Handover of ${finalAmount} ${selectedColorForAction.color_name} bands to Reception`
+        : handoverMode === "series"
+        ? `Manual Series Handover of ${finalAmount} ${selectedColorForAction.color_name} bands (${start_code}${end_code ? ` to ${end_code}` : ""}) to Reception`
+        : `Random Handover of ${finalAmount} specific ${selectedColorForAction.color_name} bands to Reception`;
+
+      if (handoverCategoryFilter !== "all" || handoverMode !== "auto") {
         const res = await handoverWristbandsAction({
           color_name: selectedColorForAction.color_name,
           color_hex: selectedColorForAction.color_hex,
-          category: handoverCategoryFilter,
-          amount: colorStockOutAmount,
-          notes: `Handover of ${colorStockOutAmount} ${selectedColorForAction.color_name} (${handoverCategoryFilter}) bands to Reception`
+          category: handoverCategoryFilter === "all" ? undefined : handoverCategoryFilter,
+          amount: finalAmount,
+          start_code,
+          end_code,
+          specific_codes,
+          notes
         });
-        if (res.success) {
+        if (res.success && res.movedCount > 0) {
           const rangeText = res.startCode && res.endCode
             ? ` (Wristbands: ${res.startCode}${res.startCode !== res.endCode ? ` to ${res.endCode}` : ''})`
             : '';
+          const catText = handoverCategoryFilter !== "all" ? ` - ${handoverCategoryFilter}` : "";
           setFeedback({
             type: "success",
-            message: `Handover Recorded: ${res.movedCount} '${selectedColorForAction.color_name} - ${handoverCategoryFilter}' bands transferred to Reception Desk!${rangeText}`
+            message: `Handover Recorded: ${res.movedCount} '${selectedColorForAction.color_name}${catText}' bands transferred to Reception Desk!${rangeText}`
           });
           setIsStockOutModalForColorOpen(false);
           setColorStockOutAmount(10);
+          setManualSeriesStart("");
+          setManualSeriesEnd("");
+          setManualCodesList([]);
+          setManualBarcodeScan("");
+          setIsManualBatchOpen(false);
+          setManualBatchText("");
           await loadData();
           return;
         } else {
@@ -682,7 +861,11 @@ export default function BandInventoryPage() {
 
       const res = await stockOutColorToReceptionAction({
         id: selectedColorForAction.color_inventory_id,
-        amount: colorStockOutAmount
+        amount: finalAmount,
+        start_code,
+        end_code,
+        specific_codes,
+        notes
       });
       if (res.success) {
         const rangeText = res.startCode && res.endCode
@@ -690,10 +873,16 @@ export default function BandInventoryPage() {
           : '';
         setFeedback({
           type: "success",
-          message: `Stock Out Recorded: ${colorStockOutAmount} '${selectedColorForAction.color_name}' bands handed over to Reception!${rangeText} (Reception Total: ${res.item?.in_reception ?? (selectedColorForAction.in_reception || 0) + colorStockOutAmount})`
+          message: `Stock Out Recorded: ${finalAmount} '${selectedColorForAction.color_name}' bands handed over to Reception!${rangeText} (Reception Total: ${res.item?.in_reception ?? (selectedColorForAction.in_reception || 0) + finalAmount})`
         });
         setIsStockOutModalForColorOpen(false);
         setColorStockOutAmount(10);
+        setManualSeriesStart("");
+        setManualSeriesEnd("");
+        setManualCodesList([]);
+        setManualBarcodeScan("");
+        setIsManualBatchOpen(false);
+        setManualBatchText("");
         await loadData();
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to record stock out." });
@@ -869,6 +1058,144 @@ export default function BandInventoryPage() {
     }
   };
 
+  // Memoized Filtering for Coupon Bands
+  const filteredCouponItems = useMemo(() => {
+    if (!couponInventory?.items) return [];
+    const today = new Date().toISOString().split("T")[0];
+    return couponInventory.items.filter((item) => {
+      // Search query filter
+      if (couponSearch.trim()) {
+        const q = couponSearch.toLowerCase().trim();
+        const matchCode = item.code.toLowerCase().includes(q);
+        const matchCategory = (item.band_category || "").toLowerCase().includes(q);
+        const matchCustomer = (item.redeemed_by || item.booking_customer || "").toLowerCase().includes(q);
+        const matchBooking = item.redeemed_booking_id?.toString().includes(q);
+        if (!matchCode && !matchCategory && !matchCustomer && !matchBooking) return false;
+      }
+
+      // Status filter
+      if (couponStatusFilter === "warehouse") {
+        if (item.location !== "warehouse" || item.used_count > 0) return false;
+      } else if (couponStatusFilter === "reception") {
+        if (item.location !== "reception" || item.used_count > 0) return false;
+      } else if (couponStatusFilter === "redeemed") {
+        if (item.used_count === 0) return false;
+      } else if (couponStatusFilter === "expired") {
+        if (!item.expiry_date || item.expiry_date >= today || item.used_count > 0) return false;
+      }
+
+      // Offer category filter
+      if (couponOfferFilter !== "all") {
+        if (item.band_category !== couponOfferFilter) return false;
+      }
+
+      return true;
+    });
+  }, [couponInventory, couponSearch, couponStatusFilter, couponOfferFilter]);
+
+  const totalCouponPages = useMemo(() => {
+    if (couponPageSize === -1) return 1;
+    return Math.max(1, Math.ceil(filteredCouponItems.length / couponPageSize));
+  }, [filteredCouponItems.length, couponPageSize]);
+
+  const paginatedCouponItems = useMemo(() => {
+    if (couponPageSize === -1) return filteredCouponItems;
+    const start = (Math.min(couponPage, totalCouponPages) - 1) * couponPageSize;
+    return filteredCouponItems.slice(start, start + couponPageSize);
+  }, [filteredCouponItems, couponPage, couponPageSize, totalCouponPages]);
+
+  // Handlers for Coupon Bands Inventory
+  const handleOpenCouponHandoverModal = (params?: {
+    category?: string;
+    color?: string;
+    name?: string;
+    defaultDirection?: "to_reception" | "to_warehouse";
+    defaultAmount?: number;
+  }) => {
+    setHandoverOfferCategory(params?.category || couponInventory?.breakdown[0]?.band_category || "");
+    setHandoverOfferColor(params?.color || couponInventory?.breakdown[0]?.band_color || "");
+    setHandoverOfferName(params?.name || params?.category || "Promotional Band");
+    setHandoverDirection(params?.defaultDirection || "to_reception");
+    setHandoverAmount(params?.defaultAmount || 10);
+    setIsCouponHandoverModalOpen(true);
+  };
+
+  const handleCouponOfferHandoverSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!handoverOfferCategory) return;
+    setIsSubmittingCouponHandover(true);
+    try {
+      const targetLoc = handoverDirection === "to_reception" ? "reception" : "warehouse";
+      const res = await handoverCouponBandsAction({
+        band_category: handoverOfferCategory,
+        band_color: handoverOfferColor || undefined,
+        amount: Number(handoverAmount),
+        targetLocation: targetLoc,
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: res.message || `Successfully transferred ${res.count} coupon bands!`
+        });
+        setIsCouponHandoverModalOpen(false);
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to handover coupon bands." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred." });
+    } finally {
+      setIsSubmittingCouponHandover(false);
+    }
+  };
+
+  const handleBulkCouponLocationUpdate = async (targetLocation: "reception" | "warehouse") => {
+    if (selectedCouponIds.length === 0) return;
+    setIsSubmittingCouponHandover(true);
+    try {
+      const res = await handoverCouponBandsAction({
+        ids: selectedCouponIds,
+        targetLocation,
+      });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Successfully transferred ${res.count} selected coupon bands to ${targetLocation === "reception" ? "Reception Desk" : "Warehouse Storage"}!`
+        });
+        setSelectedCouponIds([]);
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to update locations" });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred." });
+    } finally {
+      setIsSubmittingCouponHandover(false);
+    }
+  };
+
+  const handleSingleCouponLocationToggle = async (item: CouponBandInventoryItem) => {
+    const nextLoc = item.location === "reception" ? "warehouse" : "reception";
+    try {
+      const res = await handoverCouponBandsAction({
+        ids: [item.id],
+        targetLocation: nextLoc,
+      });
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Moved coupon band ${item.code} to ${nextLoc === "reception" ? "Reception Desk" : "Warehouse Storage"}`
+        });
+        await loadData();
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to toggle location" });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "An error occurred." });
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Top Banner / Header */}
@@ -985,7 +1312,7 @@ export default function BandInventoryPage() {
       {/* Tabs Navigation */}
       <div className="flex items-center gap-2 border-b border-gray-200 overflow-x-auto pb-1 scrollbar-none">
         <button
-          onClick={() => setActiveTab("summary")}
+          onClick={() => handleTabSwitch("summary")}
           className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === "summary"
               ? "bg-[#0d1b2a] text-white shadow-sm"
@@ -996,8 +1323,26 @@ export default function BandInventoryPage() {
           <span>Stock Summary &amp; Overview</span>
         </button>
 
+        {/* Dedicated Coupon Bands Tab Button */}
         <button
-          onClick={() => setActiveTab("master")}
+          onClick={() => handleTabSwitch("coupon_bands")}
+          className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
+            activeTab === "coupon_bands"
+              ? "bg-gradient-to-r from-purple-700 via-indigo-700 to-purple-800 text-white shadow-md shadow-purple-500/25 ring-2 ring-purple-400"
+              : "text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200/80 bg-purple-50/40"
+          }`}
+        >
+          <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400" />
+          <span>⭐ Coupon Bands ({couponInventory?.summary?.total || 0})</span>
+          {Boolean(couponInventory?.summary?.reception) && (
+            <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-emerald-500 text-white font-black tracking-wider uppercase">
+              {couponInventory?.summary?.reception} at Desk
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => handleTabSwitch("master")}
           className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === "master"
               ? "bg-[#0d1b2a] text-white shadow-sm"
@@ -1009,7 +1354,7 @@ export default function BandInventoryPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("movements")}
+          onClick={() => handleTabSwitch("movements")}
           className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === "movements"
               ? "bg-[#0d1b2a] text-white shadow-sm"
@@ -1021,7 +1366,7 @@ export default function BandInventoryPage() {
         </button>
 
         <button
-          onClick={() => setActiveTab("reports")}
+          onClick={() => handleTabSwitch("reports")}
           className={`px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all whitespace-nowrap ${
             activeTab === "reports"
               ? "bg-[#0d1b2a] text-white shadow-sm"
@@ -1142,6 +1487,58 @@ export default function BandInventoryPage() {
               </div>
             </div>
           )}
+
+          {/* Dedicated Coupon & VIP Promotional Bands Overview Banner */}
+          <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 shadow-md border border-purple-800/60 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-72 h-72 bg-amber-400/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[10px] font-extrabold uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-300 fill-amber-300" />
+                    Dedicated Inventory
+                  </span>
+                  <span className="text-purple-200 text-xs">Completely Segregated from 15-min Slot Colors</span>
+                </div>
+                <h3 className="text-xl font-extrabold tracking-tight flex items-center gap-2">
+                  <span>⭐ Promotional &amp; Coupon Bands Inventory</span>
+                </h3>
+                <p className="text-purple-200/80 text-xs mt-1 max-w-xl leading-relaxed">
+                  Dedicated serial tracking for VIP promotional coupon wristbands (Pink 100%, Green 50%, etc.). Track physical inventory between warehouse reserve, reception desk distribution, and booking redemptions.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="grid grid-cols-4 gap-2 bg-black/40 backdrop-blur-sm p-2 rounded-xl border border-white/10 text-center">
+                  <div className="px-3 py-1">
+                    <div className="text-[10px] uppercase font-bold text-gray-400">Total</div>
+                    <div className="text-lg font-black font-mono text-white">{couponInventory?.summary?.total || 0}</div>
+                  </div>
+                  <div className="px-3 py-1 border-l border-white/10">
+                    <div className="text-[10px] uppercase font-bold text-blue-300">Warehouse</div>
+                    <div className="text-lg font-black font-mono text-blue-300">{couponInventory?.summary?.warehouse || 0}</div>
+                  </div>
+                  <div className="px-3 py-1 border-l border-white/10">
+                    <div className="text-[10px] uppercase font-bold text-emerald-300">Reception</div>
+                    <div className="text-lg font-black font-mono text-emerald-300">{couponInventory?.summary?.reception || 0}</div>
+                  </div>
+                  <div className="px-3 py-1 border-l border-white/10">
+                    <div className="text-[10px] uppercase font-bold text-purple-300">Redeemed</div>
+                    <div className="text-lg font-black font-mono text-purple-300">{couponInventory?.summary?.redeemed || 0}</div>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleTabSwitch("coupon_bands")}
+                  className="bg-amber-400 hover:bg-amber-300 text-gray-950 font-black px-4 py-3 rounded-xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-amber-400/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <span>Open Coupon Bands Tab</span>
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
 
           {/* Color Breakdown Section */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
@@ -1334,6 +1731,577 @@ export default function BandInventoryPage() {
                 );
               })}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB: DEDICATED COUPON BANDS INVENTORY                                   */}
+      {/* ========================================================================= */}
+      {activeTab === "coupon_bands" && (
+        <div className="space-y-6 animate-in fade-in duration-150">
+          {/* Top Header Card */}
+          <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white rounded-2xl p-6 sm:p-7 shadow-lg border border-purple-800/60 relative overflow-hidden flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="absolute -top-10 -right-10 w-80 h-80 bg-purple-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300 fill-amber-300" />
+                  VIP &amp; Promotional Wristbands
+                </span>
+                <span className="text-purple-300 text-xs">Separate physical stock pool</span>
+              </div>
+              <h2 className="text-2xl sm:text-3xl font-black font-heading tracking-tight flex items-center gap-3">
+                <span>Coupon Wristbands Inventory</span>
+              </h2>
+              <p className="text-purple-200/80 text-xs sm:text-sm mt-1 max-w-2xl leading-relaxed">
+                Physical serial number tracking for VIP promotional coupon bands. Completely segregated from regular 15-minute slot rotation colors, with warehouse-to-reception desk handover and booking redemption audit.
+              </p>
+            </div>
+
+            <div className="relative z-10 flex flex-wrap items-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => handleOpenCouponHandoverModal({ defaultDirection: "to_reception" })}
+                className="bg-amber-400 hover:bg-amber-300 text-gray-950 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-black flex items-center gap-2 shadow-lg shadow-amber-400/20 transition-all active:scale-[0.98]"
+              >
+                <ArrowUpRight className="w-4 h-4" />
+                <span>Handover to Desk</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleOpenCouponHandoverModal({ defaultDirection: "to_warehouse" })}
+                className="bg-purple-800/80 hover:bg-purple-800 text-purple-100 border border-purple-600/50 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-bold flex items-center gap-2 transition-all active:scale-[0.98]"
+              >
+                <ArrowDownLeft className="w-4 h-4" />
+                <span>Return to Warehouse</span>
+              </button>
+
+              <Link
+                href="/admin/coupons"
+                className="bg-white/10 hover:bg-white/15 text-white border border-white/20 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all"
+              >
+                <Tag className="w-4 h-4" />
+                <span>Coupons &amp; Offers</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* 5 Top KPI Cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+            {/* Total Coupon Bands */}
+            <div className="p-4 rounded-2xl bg-white border border-gray-200 shadow-sm flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-purple-600" />
+                Total Coupon Bands
+              </span>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-2xl sm:text-3xl font-black text-gray-900 font-mono">
+                  {couponInventory?.summary?.total || 0}
+                </span>
+                <span className="text-xs text-purple-700 font-bold bg-purple-50 px-2 py-0.5 rounded-md">
+                  {couponInventory?.summary?.distinctOffers || 0} Offers
+                </span>
+              </div>
+              <div className="mt-2 text-[11px] text-gray-500">All registered promo bands</div>
+            </div>
+
+            {/* Warehouse Stock */}
+            <div className="p-4 rounded-2xl bg-blue-50/70 border border-blue-200 shadow-sm flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800 flex items-center gap-1.5">
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                In Warehouse
+              </span>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-2xl sm:text-3xl font-black text-blue-700 font-mono">
+                  {couponInventory?.summary?.warehouse || 0}
+                </span>
+                <span className="text-xs text-blue-800 font-semibold">Reserve Storage</span>
+              </div>
+              <div className="mt-2 text-[11px] text-blue-700">Available to stock desk</div>
+            </div>
+
+            {/* Reception Desk Active */}
+            <div className="p-4 rounded-2xl bg-emerald-50/70 border border-emerald-200 shadow-sm flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                At Reception Desk
+              </span>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-2xl sm:text-3xl font-black text-emerald-700 font-mono">
+                  {couponInventory?.summary?.reception || 0}
+                </span>
+                <span className="text-xs text-emerald-800 font-semibold">Ready to Issue</span>
+              </div>
+              <div className="mt-2 text-[11px] text-emerald-700">Currently in front desk box</div>
+            </div>
+
+            {/* Redeemed / Used */}
+            <div className="p-4 rounded-2xl bg-purple-50/70 border border-purple-200 shadow-sm flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-purple-800 flex items-center gap-1.5">
+                <Receipt className="w-3.5 h-3.5 text-purple-600" />
+                Redeemed on Bookings
+              </span>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-2xl sm:text-3xl font-black text-purple-700 font-mono">
+                  {couponInventory?.summary?.redeemed || 0}
+                </span>
+                <span className="text-xs text-purple-800 font-semibold">Tracked</span>
+              </div>
+              <div className="mt-2 text-[11px] text-purple-700">Linked to customer bookings</div>
+            </div>
+
+            {/* Expired Bands */}
+            <div className="p-4 rounded-2xl bg-red-50/70 border border-red-200 shadow-sm flex flex-col justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-red-800 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 text-red-600" />
+                Expired Bands
+              </span>
+              <div className="mt-2 flex items-baseline justify-between">
+                <span className="text-2xl sm:text-3xl font-black text-red-700 font-mono">
+                  {couponInventory?.summary?.expired || 0}
+                </span>
+                <span className="text-xs text-red-800 font-semibold">Past Validity</span>
+              </div>
+              <div className="mt-2 text-[11px] text-red-700">Past offer end date</div>
+            </div>
+          </div>
+
+          {/* Offer Categories Breakdown Cards */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-purple-600" />
+                <span>Promotional Band Offers &amp; Batch Balances</span>
+              </h3>
+              <span className="text-xs text-gray-500">
+                {(couponInventory?.breakdown || []).length} Distinct Band Offers
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(couponInventory?.breakdown || []).map((b) => (
+                <div
+                  key={`${b.band_category}-${b.band_color}-${b.value}`}
+                  className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 hover:border-purple-300 transition-all flex flex-col justify-between"
+                >
+                  <div>
+                    {/* Header: Category & Discount Badge */}
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="w-4 h-4 rounded-full border border-black/10 shrink-0 shadow-xs"
+                          style={{ backgroundColor: b.band_color || "#FFD700" }}
+                        />
+                        <div>
+                          <h4 className="font-extrabold text-sm text-gray-900 leading-snug">
+                            {b.band_category}
+                          </h4>
+                          <span className="text-[11px] text-gray-500 font-medium">
+                            {b.discount_type === "percentage" ? `${b.value}% Discount Offer` : `₹${b.value} Flat Off`}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-black bg-purple-100 text-purple-800 shrink-0">
+                        {b.value}{b.discount_type === "percentage" ? "% OFF" : " ₹ OFF"}
+                      </span>
+                    </div>
+
+                    {/* Stock Counts Matrix */}
+                    <div className="grid grid-cols-4 gap-2 bg-gray-50 p-3 rounded-xl border border-gray-100 text-center mb-3">
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold text-gray-400">Total</span>
+                        <span className="font-mono font-black text-sm text-gray-900">{b.total}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold text-blue-600">Whouse</span>
+                        <span className="font-mono font-black text-sm text-blue-700">{b.warehouse}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold text-emerald-600">Desk</span>
+                        <span className="font-mono font-black text-sm text-emerald-700">{b.reception}</span>
+                      </div>
+                      <div>
+                        <span className="block text-[10px] uppercase font-bold text-purple-600">Redeemed</span>
+                        <span className="font-mono font-black text-sm text-purple-700">{b.redeemed}</span>
+                      </div>
+                    </div>
+
+                    {/* Sample Code Series */}
+                    {b.sampleCodes.length > 0 && (
+                      <div className="text-[11px] text-gray-500 mb-4 bg-purple-50/50 px-2.5 py-1.5 rounded-lg border border-purple-100 flex items-center justify-between">
+                        <span className="font-semibold text-purple-900">Serials:</span>
+                        <span className="font-mono text-purple-700 truncate max-w-[200px]" title={b.sampleCodes.join(", ")}>
+                          {b.sampleCodes.slice(0, 3).join(", ")}{b.sampleCodes.length > 3 ? "..." : ""}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions for this Offer */}
+                  <div className="pt-3 border-t border-gray-100 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCouponHandoverModal({
+                        category: b.band_category,
+                        color: b.band_color,
+                        name: `${b.band_category} (${b.value}${b.discount_type === "percentage" ? "%" : "₹"})`,
+                        defaultDirection: "to_reception",
+                        defaultAmount: Math.min(b.warehouse, 10) || 10,
+                      })}
+                      disabled={b.warehouse <= 0}
+                      className="flex-1 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 text-xs font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-all disabled:opacity-40"
+                    >
+                      <ArrowUpRight className="w-3.5 h-3.5 text-amber-700" />
+                      <span>Send to Desk</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCouponHandoverModal({
+                        category: b.band_category,
+                        color: b.band_color,
+                        name: `${b.band_category} (${b.value}${b.discount_type === "percentage" ? "%" : "₹"})`,
+                        defaultDirection: "to_warehouse",
+                        defaultAmount: Math.min(b.reception, 10) || 10,
+                      })}
+                      disabled={b.reception <= 0}
+                      className="bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-200 text-xs font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1 transition-all disabled:opacity-40"
+                      title="Return from desk to warehouse"
+                    >
+                      <ArrowDownLeft className="w-3.5 h-3.5" />
+                      <span>To Whouse</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Master Table of Coupon Bands */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
+            {/* Table Filters Header */}
+            <div className="p-4 sm:p-5 border-b border-gray-200 bg-gray-50/80 space-y-3">
+              <div className="flex flex-col sm:flex-row gap-3">
+                {/* Search Box */}
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+                  <input
+                    type="text"
+                    value={couponSearch}
+                    onChange={(e) => {
+                      setCouponSearch(e.target.value);
+                      setCouponPage(1);
+                    }}
+                    placeholder="Search by Barcode / Serial (e.g. F003281), Category, Guest name..."
+                    className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-xl text-xs sm:text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                {/* Status Filter */}
+                <select
+                  value={couponStatusFilter}
+                  onChange={(e) => {
+                    setCouponStatusFilter(e.target.value as any);
+                    setCouponPage(1);
+                  }}
+                  className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                >
+                  <option value="all">All Statuses ({couponInventory?.summary?.total || 0})</option>
+                  <option value="warehouse">🏢 In Warehouse Reserve ({couponInventory?.summary?.warehouse || 0})</option>
+                  <option value="reception">🛎️ At Reception Desk ({couponInventory?.summary?.reception || 0})</option>
+                  <option value="redeemed">🎟️ Redeemed on Booking ({couponInventory?.summary?.redeemed || 0})</option>
+                  <option value="expired">⌛ Expired ({couponInventory?.summary?.expired || 0})</option>
+                </select>
+
+                {/* Offer Category Filter */}
+                <select
+                  value={couponOfferFilter}
+                  onChange={(e) => {
+                    setCouponOfferFilter(e.target.value);
+                    setCouponPage(1);
+                  }}
+                  className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500 font-medium"
+                >
+                  <option value="all">All Offers ({(couponInventory?.breakdown || []).length})</option>
+                  {(couponInventory?.breakdown || []).map((b) => (
+                    <option key={b.band_category} value={b.band_category}>
+                      {b.band_category} ({b.total})
+                    </option>
+                  ))}
+                </select>
+
+                {/* Per Page */}
+                <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white border border-gray-300 rounded-xl px-2.5 py-1">
+                  <span className="text-gray-500 font-semibold text-xs whitespace-nowrap">Per Page:</span>
+                  <select
+                    value={couponPageSize}
+                    onChange={(e) => {
+                      setCouponPageSize(Number(e.target.value));
+                      setCouponPage(1);
+                    }}
+                    className="bg-transparent text-gray-900 text-xs font-bold py-1 focus:outline-none cursor-pointer"
+                  >
+                    <option value={25}>25</option>
+                    <option value={50}>50</option>
+                    <option value={100}>100</option>
+                    <option value={250}>250</option>
+                    <option value={-1}>All ({filteredCouponItems.length})</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            {/* Bulk Selection Bar */}
+            {selectedCouponIds.length > 0 && (
+              <div className="bg-purple-50 border-y border-purple-200 px-4 py-2.5 flex items-center justify-between gap-4 animate-in fade-in">
+                <div className="flex items-center gap-2 text-xs font-bold text-purple-900">
+                  <Sparkles className="w-4 h-4 text-purple-600" />
+                  <span>{selectedCouponIds.length} coupon wristbands selected</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleBulkCouponLocationUpdate("reception")}
+                    disabled={isSubmittingCouponHandover}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs flex items-center gap-1 transition-all disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>Move to Reception Desk</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleBulkCouponLocationUpdate("warehouse")}
+                    disabled={isSubmittingCouponHandover}
+                    className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs flex items-center gap-1 transition-all disabled:opacity-50"
+                  >
+                    <Package className="w-3.5 h-3.5" />
+                    <span>Move to Warehouse</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCouponIds([])}
+                    className="px-2.5 py-1.5 rounded-lg bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 font-bold text-xs transition-all"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs sm:text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50/50 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+                    <th className="py-3.5 px-4 w-10">
+                      <input
+                        type="checkbox"
+                        checked={
+                          paginatedCouponItems.length > 0 &&
+                          paginatedCouponItems.every((item) => selectedCouponIds.includes(item.id))
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const newIds = Array.from(
+                              new Set([...selectedCouponIds, ...paginatedCouponItems.map((item) => item.id)])
+                            );
+                            setSelectedCouponIds(newIds);
+                          } else {
+                            const pageIds = new Set(paginatedCouponItems.map((item) => item.id));
+                            setSelectedCouponIds(selectedCouponIds.filter((id) => !pageIds.has(id)));
+                          }
+                        }}
+                        className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                      />
+                    </th>
+                    <th className="py-3.5 px-4">Band Serial / Barcode</th>
+                    <th className="py-3.5 px-4">Promotional Offer</th>
+                    <th className="py-3.5 px-4">Current Physical Location</th>
+                    <th className="py-3.5 px-4">Lifecycle Status</th>
+                    <th className="py-3.5 px-4">Redemption / Customer Audit</th>
+                    <th className="py-3.5 px-4">Expiry</th>
+                    <th className="py-3.5 px-4 text-right">Quick Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {paginatedCouponItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-12 text-center text-gray-400">
+                        <Tag className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                        <span className="block font-medium">No coupon wristbands found matching your filter.</span>
+                        <span className="text-xs text-gray-400 mt-1 block">
+                          Configure promo bands in <Link href="/admin/coupons" className="text-purple-600 underline">Manage Coupons</Link>.
+                        </span>
+                      </td>
+                    </tr>
+                  ) : (
+                    paginatedCouponItems.map((item) => {
+                      const isRedeemed = item.used_count > 0;
+                      const today = new Date().toISOString().split("T")[0];
+                      const isExpired = item.expiry_date && item.expiry_date < today && !isRedeemed;
+                      const isChecked = selectedCouponIds.includes(item.id);
+
+                      return (
+                        <tr
+                          key={item.id}
+                          className={`hover:bg-purple-50/30 transition-colors ${
+                            isChecked ? "bg-purple-50/50" : ""
+                          }`}
+                        >
+                          <td className="py-3 px-4">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedCouponIds([...selectedCouponIds, item.id]);
+                                } else {
+                                  setSelectedCouponIds(selectedCouponIds.filter((id) => id !== item.id));
+                                }
+                              }}
+                              className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
+                            />
+                          </td>
+
+                          {/* Serial / Barcode */}
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
+                                style={{ backgroundColor: item.band_color || "#FFD700" }}
+                              />
+                              <span className="font-mono font-black text-gray-900 bg-gray-100 px-2.5 py-1 rounded-lg border border-gray-200 tracking-wider">
+                                {item.code}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Promotional Offer */}
+                          <td className="py-3 px-4">
+                            <div>
+                              <div className="font-bold text-gray-900">{item.band_category || "VIP"}</div>
+                              <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800">
+                                {item.discount_type === "percentage" ? `${item.value}% Discount` : `₹${item.value} Flat`}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Location */}
+                          <td className="py-3 px-4">
+                            {item.location === "reception" ? (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                                🛎️ Reception Desk
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                <Package className="w-3.5 h-3.5 text-blue-600" />
+                                🏢 Warehouse Reserve
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-3 px-4">
+                            {isRedeemed ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-purple-100 text-purple-800 border border-purple-200">
+                                <Receipt className="w-3 h-3 text-purple-600" />
+                                Redeemed / Used
+                              </span>
+                            ) : isExpired ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-800 border border-red-200">
+                                <AlertCircle className="w-3 h-3 text-red-600" />
+                                Expired
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
+                                <Check className="w-3 h-3 text-green-600" />
+                                Available
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Redemption details */}
+                          <td className="py-3 px-4">
+                            {isRedeemed ? (
+                              <div>
+                                <span className="font-semibold text-gray-900 block">
+                                  {item.redeemed_by || item.booking_customer || "Online Guest"}
+                                </span>
+                                <span className="text-[11px] font-mono text-purple-700">
+                                  {item.redeemed_booking_id ? `Booking #${item.redeemed_booking_id}` : ""}
+                                  {item.redeemed_at ? ` • ${new Date(item.redeemed_at).toLocaleDateString()}` : ""}
+                                </span>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 text-xs italic">Not yet redeemed</span>
+                            )}
+                          </td>
+
+                          {/* Expiry */}
+                          <td className="py-3 px-4 text-gray-600 font-mono text-xs">
+                            {item.expiry_date || <span className="text-gray-400">Never</span>}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3 px-4 text-right">
+                            {isRedeemed ? (
+                              <span className="text-[11px] text-gray-400 font-medium">Locked</span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleSingleCouponLocationToggle(item)}
+                                className={`px-2.5 py-1 rounded-lg text-xs font-bold border transition-all ${
+                                  item.location === "reception"
+                                    ? "bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200"
+                                    : "bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border-emerald-200"
+                                }`}
+                              >
+                                {item.location === "reception" ? "⬅️ Whouse" : "➡️ Desk"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination */}
+            {filteredCouponItems.length > 0 && couponPageSize !== -1 && (
+              <div className="p-4 border-t border-gray-100 bg-gray-50 flex items-center justify-between text-xs text-gray-500">
+                <div>
+                  Showing <strong>{(couponPage - 1) * couponPageSize + 1}</strong> to{" "}
+                  <strong>{Math.min(couponPage * couponPageSize, filteredCouponItems.length)}</strong> of{" "}
+                  <strong>{filteredCouponItems.length}</strong> coupon wristbands
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setCouponPage((p) => Math.max(1, p - 1))}
+                    disabled={couponPage === 1}
+                    className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="px-2 py-1 font-bold text-gray-700 font-mono">
+                    Page {couponPage} / {totalCouponPages}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setCouponPage((p) => Math.min(totalCouponPages, p + 1))}
+                    disabled={couponPage >= totalCouponPages}
+                    className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-40 transition-colors"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2633,6 +3601,13 @@ export default function BandInventoryPage() {
                     onClick={() => {
                       setIsColorManageModalOpen(false);
                       setColorStockOutAmount(10);
+                      setHandoverMode("auto");
+                      setManualSeriesStart("");
+                      setManualSeriesEnd("");
+                      setManualCodesList([]);
+                      setManualBarcodeScan("");
+                      setIsManualBatchOpen(false);
+                      setManualBatchText("");
                       setIsStockOutModalForColorOpen(true);
                     }}
                     className="w-full text-left p-4 rounded-xl border border-amber-200 bg-amber-50/40 hover:bg-amber-100/50 hover:border-amber-400 transition-all flex items-center justify-between group"
@@ -3088,91 +4063,344 @@ export default function BandInventoryPage() {
                 </select>
               </div>
 
+              {/* Handover Mode Switcher */}
               <div>
-                <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
-                  Quantity to Hand Over to Reception:
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span>Handover Method:</span>
+                  <span className="text-[10px] font-semibold text-gray-500 font-sans normal-case">Select how bands are allotted</span>
                 </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min="1"
-                    required
-                    value={colorStockOutAmount}
-                    onChange={(e) => setColorStockOutAmount(parseInt(e.target.value, 10) || 0)}
-                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  />
-                  <div className="flex gap-1 shrink-0">
-                    {[5, 10, 25, 50].map(amt => (
-                      <button
-                        key={amt}
-                        type="button"
-                        onClick={() => setColorStockOutAmount(amt)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
-                          colorStockOutAmount === amt
-                            ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                            : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
-                        }`}
-                      >
-                        {amt}
-                      </button>
-                    ))}
+                <div className="grid grid-cols-3 gap-1.5 p-1 bg-gray-100/90 rounded-xl border border-gray-200">
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("auto")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "auto"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-500" />
+                    <span>Auto Allotment</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("series")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "series"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Tag className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Manual Series</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setHandoverMode("random")}
+                    className={`py-2 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                      handoverMode === "random"
+                        ? "bg-white text-gray-900 shadow-xs border border-gray-200/80"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    <Shuffle className="w-3.5 h-3.5 text-purple-500" />
+                    <span>Random / Specific</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Mode 1: Auto Allotment */}
+              {handoverMode === "auto" && (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-gray-700 mb-2">
+                    Quantity to Hand Over to Reception:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={colorStockOutAmount}
+                      onChange={(e) => setColorStockOutAmount(parseInt(e.target.value, 10) || 0)}
+                      className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    />
+                    <div className="flex gap-1 shrink-0">
+                      {[5, 10, 25, 50].map(amt => (
+                        <button
+                          key={amt}
+                          type="button"
+                          onClick={() => setColorStockOutAmount(amt)}
+                          className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                            colorStockOutAmount === amt
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                              : 'bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200'
+                          }`}
+                        >
+                          {amt}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
+              )}
 
-                {/* Live Preview of Specific Wristband Range */}
-                <div className="mt-3 rounded-2xl border p-3.5 transition-all bg-emerald-50/70 border-emerald-200">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
-                      <Package className="w-3.5 h-3.5 text-emerald-600" />
-                      Wristbands To Be Stocked Out:
-                    </span>
-                    {stockOutPreview.isLoading ? (
-                      <span className="text-[10px] font-bold text-emerald-600 animate-pulse">Calculating range...</span>
-                    ) : stockOutPreview.startCode ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-800">
-                        {stockOutPreview.count} {stockOutPreview.count === 1 ? 'Band' : 'Bands'} Ready
-                      </span>
-                    ) : null}
+              {/* Mode 2: Manual Series (Start Code to End Code) */}
+              {handoverMode === "series" && (
+                <div className="space-y-2 bg-blue-50/40 p-3.5 rounded-2xl border border-blue-200">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="text-xs font-bold uppercase text-blue-900 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-blue-600" />
+                      Specify Band Series Range:
+                    </label>
+                    <span className="text-[10px] text-blue-700 font-semibold">e.g. 016001 to 016025</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-600 uppercase block mb-1">Start Code:</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 016001"
+                        value={manualSeriesStart}
+                        onChange={(e) => setManualSeriesStart(e.target.value)}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-bold text-gray-600 uppercase block mb-1">End Code (Optional):</span>
+                      <input
+                        type="text"
+                        placeholder="e.g. 016025"
+                        value={manualSeriesEnd}
+                        onChange={(e) => setManualSeriesEnd(e.target.value)}
+                        className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 uppercase"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-blue-800 leading-tight">
+                    💡 Directly allots a sleeve or box of sequentially numbered warehouse wristbands to the reception desk.
+                  </p>
+                </div>
+              )}
+
+              {/* Mode 3: Specific / Random Bands */}
+              {handoverMode === "random" && (
+                <div className="space-y-2.5 bg-purple-50/40 p-3.5 rounded-2xl border border-purple-200">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold uppercase text-purple-900 flex items-center gap-1.5">
+                      <Shuffle className="w-3.5 h-3.5 text-purple-600" />
+                      Enter / Scan Loose Bands:
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setIsManualBatchOpen(!isManualBatchOpen)}
+                      className="text-[10px] font-bold text-purple-700 hover:text-purple-900 underline"
+                    >
+                      {isManualBatchOpen ? "Single Scan Mode" : "Paste Batch / Ranges"}
+                    </button>
                   </div>
 
-                  {stockOutPreview.isLoading ? (
-                    <div className="h-9 flex items-center gap-2 text-xs text-emerald-700 font-medium">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
-                      Loading sequential band IDs...
-                    </div>
-                  ) : stockOutPreview.startCode ? (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-mono font-black text-emerald-950 bg-white/80 px-3 py-2 rounded-xl border border-emerald-300 shadow-xs">
-                        <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
-                          {stockOutPreview.startCode}
-                        </span>
-                        {stockOutPreview.startCode !== stockOutPreview.endCode && (
-                          <>
-                            <span className="text-emerald-500 font-bold">→</span>
-                            <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
-                              {stockOutPreview.endCode}
-                            </span>
-                          </>
+                  {!isManualBatchOpen ? (
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Type or scan barcode and press Enter..."
+                          value={manualBarcodeScan}
+                          onChange={(e) => setManualBarcodeScan(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === "," || e.key === " ") {
+                              e.preventDefault();
+                              const clean = manualBarcodeScan.trim();
+                              if (clean) {
+                                const parsed = parseBarcodeInputs(clean);
+                                setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                                setManualBarcodeScan("");
+                              }
+                            }
+                          }}
+                          className="w-full bg-white border border-purple-300 rounded-xl pl-3 pr-8 py-2 text-xs font-mono font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500 uppercase"
+                        />
+                        {manualBarcodeScan && (
+                          <button
+                            type="button"
+                            onClick={() => setManualBarcodeScan("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
                         )}
-                        <span className="text-[11px] font-sans font-semibold text-emerald-700 ml-auto">
-                          ({stockOutPreview.count} {stockOutPreview.count === 1 ? "item" : "items"})
-                        </span>
                       </div>
-                      <p className="text-[10px] text-emerald-700 font-medium">
-                        ✓ These sequential warehouse bands will immediately transition to <strong>Reception</strong> status upon confirmation.
-                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const clean = manualBarcodeScan.trim();
+                          if (clean) {
+                            const parsed = parseBarcodeInputs(clean);
+                            setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                            setManualBarcodeScan("");
+                          }
+                        }}
+                        disabled={!manualBarcodeScan.trim()}
+                        className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-xs font-bold transition-all shrink-0"
+                      >
+                        Add
+                      </button>
                     </div>
                   ) : (
-                    <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200">
-                      ⚠️ No individual wristband records found in warehouse storage for this color. Handover will update the reception counter balance.
+                    <div className="space-y-1.5">
+                      <textarea
+                        rows={3}
+                        placeholder="Paste codes separated by commas, spaces, or lines.&#10;e.g. 016001, 016005, 016010-016015"
+                        value={manualBatchText}
+                        onChange={(e) => setManualBatchText(e.target.value)}
+                        className="w-full bg-white border border-purple-300 rounded-xl p-2.5 text-xs font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      />
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-purple-700">Supports ranges like 016010-016015</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (manualBatchText.trim()) {
+                              const parsed = parseBarcodeInputs(manualBatchText);
+                              setManualCodesList(prev => Array.from(new Set([...prev, ...parsed])));
+                              setManualBatchText("");
+                              setIsManualBatchOpen(false);
+                            }
+                          }}
+                          disabled={!manualBatchText.trim()}
+                          className="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 disabled:opacity-40 text-white text-[11px] font-bold"
+                        >
+                          Add All To List
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Chip Cloud of Added Codes */}
+                  {manualCodesList.length > 0 && (
+                    <div className="p-2.5 bg-white/90 rounded-xl border border-purple-200 max-h-36 overflow-y-auto space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase">
+                          {manualCodesList.length} {manualCodesList.length === 1 ? "Code" : "Codes"} Entered:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setManualCodesList([])}
+                          className="text-[10px] text-red-600 hover:text-red-800 font-bold"
+                        >
+                          Clear All
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {manualCodesList.map((code) => {
+                          const isInvalid = stockOutPreview.invalidCodes?.includes(code.toUpperCase());
+                          return (
+                            <span
+                              key={code}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-mono font-bold transition-all ${
+                                isInvalid
+                                  ? "bg-red-100 text-red-800 border border-red-300 line-through"
+                                  : "bg-purple-100 text-purple-900 border border-purple-200"
+                              }`}
+                            >
+                              {code}
+                              <button
+                                type="button"
+                                onClick={() => setManualCodesList(prev => prev.filter(c => c !== code))}
+                                className="hover:text-red-600 ml-0.5"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
+              )}
 
-                <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
-                  ℹ️ This directly adds <strong className="font-mono font-bold text-amber-800">{colorStockOutAmount}</strong> wristbands to the Reception counter for staff to hand out. Reception total will be <strong className="font-mono font-bold text-amber-800">{(selectedColorForAction.in_reception || 0) + colorStockOutAmount}</strong>.
-                </p>
+              {/* Live Preview of Wristbands to be Handed Over */}
+              <div className={`rounded-2xl border p-3.5 transition-all ${
+                stockOutPreview.count > 0 ? 'bg-emerald-50/70 border-emerald-200' : 'bg-gray-50 border-gray-200'
+              }`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                    <Package className="w-3.5 h-3.5 text-emerald-600" />
+                    Wristbands To Be Stocked Out:
+                  </span>
+                  {stockOutPreview.isLoading ? (
+                    <span className="text-[10px] font-bold text-emerald-600 animate-pulse">Checking warehouse...</span>
+                  ) : stockOutPreview.count > 0 ? (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-200/80 text-emerald-800">
+                      {stockOutPreview.count} {stockOutPreview.count === 1 ? 'Band' : 'Bands'} Ready
+                    </span>
+                  ) : null}
+                </div>
+
+                {stockOutPreview.isLoading ? (
+                  <div className="h-9 flex items-center gap-2 text-xs text-emerald-700 font-medium">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
+                    Verifying available warehouse band IDs...
+                  </div>
+                ) : stockOutPreview.count > 0 ? (
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2 text-sm font-mono font-black text-emerald-950 bg-white/80 px-3 py-2 rounded-xl border border-emerald-300 shadow-xs flex-wrap">
+                      {handoverMode === "random" ? (
+                        <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto w-full">
+                          {stockOutPreview.bandCodes?.map(code => (
+                            <span key={code} className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-900 text-xs">
+                              {code}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                            {stockOutPreview.startCode}
+                          </span>
+                          {stockOutPreview.startCode !== stockOutPreview.endCode && (
+                            <>
+                              <span className="text-emerald-500 font-bold">→</span>
+                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-900 text-xs">
+                                {stockOutPreview.endCode}
+                              </span>
+                            </>
+                          )}
+                        </>
+                      )}
+                      <span className="text-[11px] font-sans font-semibold text-emerald-700 ml-auto shrink-0">
+                        ({stockOutPreview.count} {stockOutPreview.count === 1 ? "item" : "items"})
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-emerald-700 font-medium">
+                      ✓ These warehouse bands will immediately transition to <strong>Reception</strong> status upon confirmation.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-amber-800 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200">
+                    {handoverMode === "auto" && "⚠️ No individual wristband records found in warehouse storage for this color. Handover will update the reception counter balance."}
+                    {handoverMode === "series" && (manualSeriesStart ? "⚠️ No available warehouse wristbands match this series range." : "👉 Enter a Start Code above to preview matching warehouse wristbands.")}
+                    {handoverMode === "random" && (manualCodesList.length > 0 ? "⚠️ None of the entered codes exist in warehouse stock for this color." : "👉 Type or scan wristband barcodes above.")}
+                  </div>
+                )}
+
+                {/* Warning for invalid / unmatched codes in random mode */}
+                {handoverMode === "random" && stockOutPreview.invalidCodes && stockOutPreview.invalidCodes.length > 0 && (
+                  <div className="mt-2 text-[10px] text-red-800 bg-red-50 p-2 rounded-lg border border-red-200">
+                    ⚠️ <strong>{stockOutPreview.invalidCodes.length} code(s) not in warehouse:</strong> {stockOutPreview.invalidCodes.join(", ")} (these will be skipped)
+                  </div>
+                )}
               </div>
+
+              {/* Reception Counter Impact Helper */}
+              <p className="text-[11px] text-gray-500 mt-2 bg-amber-50/60 p-2.5 rounded-xl border border-amber-200 leading-relaxed">
+                ℹ️ This directly adds <strong className="font-mono font-bold text-amber-800">
+                  {stockOutPreview.count || (handoverMode === "auto" ? colorStockOutAmount : 0)}
+                </strong> wristbands to the Reception counter for staff to hand out. Reception total will be <strong className="font-mono font-bold text-amber-800">
+                  {(selectedColorForAction.in_reception || 0) + (stockOutPreview.count || (handoverMode === "auto" ? colorStockOutAmount : 0))}
+                </strong>.
+              </p>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button
@@ -3184,11 +4412,18 @@ export default function BandInventoryPage() {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmittingColorStockOut || colorStockOutAmount <= 0}
+                  disabled={
+                    isSubmittingColorStockOut || 
+                    (handoverMode === "auto" && colorStockOutAmount <= 0) ||
+                    (handoverMode === "series" && stockOutPreview.count <= 0) ||
+                    (handoverMode === "random" && stockOutPreview.count <= 0)
+                  }
                   className="px-5 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black text-xs shadow-md transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   <Check className="w-3.5 h-3.5" />
-                  {isSubmittingColorStockOut ? "Recording Handover..." : "Confirm Stock Out to Reception"}
+                  {isSubmittingColorStockOut 
+                    ? "Recording Handover..." 
+                    : `Confirm Stock Out to Reception (${stockOutPreview.count || (handoverMode === "auto" ? colorStockOutAmount : 0)})`}
                 </button>
               </div>
             </form>
@@ -3361,6 +4596,152 @@ export default function BandInventoryPage() {
           </div>
         </div>
       )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: COUPON BANDS HANDOVER / TRANSFER                                   */}
+      {/* ========================================================================= */}
+      {isCouponHandoverModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 sm:p-7 shadow-2xl border border-purple-200 relative my-auto">
+            <button
+              onClick={() => setIsCouponHandoverModalOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span
+                className="w-5 h-5 rounded-full border border-black/10 shrink-0 shadow-sm"
+                style={{ backgroundColor: handoverOfferColor || "#FFD700" }}
+              />
+              <div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800">
+                  Stock Handover &amp; Movement
+                </span>
+                <h3 className="text-base font-black text-gray-900 mt-0.5">
+                  Coupon Bands: {handoverOfferName || handoverOfferCategory}
+                </h3>
+              </div>
+            </div>
+
+            <form onSubmit={handleCouponOfferHandoverSubmit} className="space-y-4">
+              {/* Select Offer Category */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                  Promotional Band Offer
+                </label>
+                <select
+                  value={handoverOfferCategory}
+                  onChange={(e) => {
+                    setHandoverOfferCategory(e.target.value);
+                    const found = couponInventory?.breakdown.find(b => b.band_category === e.target.value);
+                    if (found) {
+                      setHandoverOfferColor(found.band_color);
+                      setHandoverOfferName(`${found.band_category} (${found.value}${found.discount_type === "percentage" ? "%" : "₹"})`);
+                    }
+                  }}
+                  className="w-full bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2.5 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                >
+                  {(couponInventory?.breakdown || []).map((b) => (
+                    <option key={b.band_category} value={b.band_category}>
+                      {b.band_category} (Whouse: {b.warehouse}, Desk: {b.reception})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Transfer Direction */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                  Transfer Direction
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setHandoverDirection("to_reception")}
+                    className={`p-3 rounded-xl border text-xs font-extrabold flex flex-col items-center gap-1 transition-all ${
+                      handoverDirection === "to_reception"
+                        ? "bg-amber-50 border-amber-500 text-amber-900 ring-2 ring-amber-400"
+                        : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    <ArrowUpRight className="w-4 h-4 text-amber-600" />
+                    <span>Whouse ➡️ Reception</span>
+                    <span className="text-[10px] font-normal text-gray-500">For active daily handover</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setHandoverDirection("to_warehouse")}
+                    className={`p-3 rounded-xl border text-xs font-extrabold flex flex-col items-center gap-1 transition-all ${
+                      handoverDirection === "to_warehouse"
+                        ? "bg-blue-50 border-blue-500 text-blue-900 ring-2 ring-blue-400"
+                        : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
+                    }`}
+                  >
+                    <ArrowDownLeft className="w-4 h-4 text-blue-600" />
+                    <span>Reception ➡️ Whouse</span>
+                    <span className="text-[10px] font-normal text-gray-500">Return to safe storage</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-1.5">
+                  Number of Wristbands to Transfer
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    value={handoverAmount}
+                    onChange={(e) => setHandoverAmount(parseInt(e.target.value, 10) || 1)}
+                    className="w-full bg-white border border-gray-300 rounded-xl px-4 py-2.5 text-base font-black font-mono text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[5, 10, 25, 50].map((amt) => (
+                      <button
+                        key={amt}
+                        type="button"
+                        onClick={() => setHandoverAmount(amt)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-bold border transition-all ${
+                          handoverAmount === amt
+                            ? "bg-purple-600 text-white border-purple-600 shadow-xs"
+                            : "bg-gray-100 hover:bg-gray-200 text-gray-700 border-gray-200"
+                        }`}
+                      >
+                        +{amt}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsCouponHandoverModalOpen(false)}
+                  className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 font-bold text-xs hover:bg-gray-50 transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmittingCouponHandover}
+                  className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-black text-xs shadow-md shadow-purple-500/20 transition-all disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {isSubmittingCouponHandover ? "Transferring..." : "Confirm Handover"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

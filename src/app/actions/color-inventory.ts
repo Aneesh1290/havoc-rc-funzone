@@ -95,6 +95,10 @@ export async function updateColorStockAction(params: {
 export async function stockOutColorToReceptionAction(params: {
   id: number;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
+  category?: string;
   notes?: string;
 }): Promise<{
   success: boolean;

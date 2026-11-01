@@ -1412,13 +1412,23 @@ export async function stockOutBandItem(data: {
  * Earmarks specific available bands of a given color and moves their location from 'warehouse' to 'reception'.
  * Returns the exact count and band code range (e.g. BND-AQU-001 to BND-AQU-200).
  */
+/**
+ * Handover Wristbands to Reception:
+ * Earmarks specific available bands of a given color and moves their location from 'warehouse' to 'reception'.
+ * Supports Auto Sequential Allotment, Manual Series (start_code to end_code), or Random Specific Barcodes.
+ * Returns the exact count and band code range (e.g. BND-AQU-001 to BND-AQU-200).
+ */
 export async function handoverWristbandsToReception(data: {
   color_name?: string;
   color_hex?: string;
   category?: string;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
   staff_name?: string;
   notes?: string;
+  skipColorInventorySync?: boolean;
 }): Promise<{
   success: boolean;
   movedCount: number;
@@ -1428,14 +1438,17 @@ export async function handoverWristbandsToReception(data: {
   error?: string;
 }> {
   try {
-    const { color_name, color_hex, category, amount } = data;
-    const cleanAmount = Math.floor(amount);
-    if (cleanAmount <= 0) {
+    const { color_name, color_hex, category, amount, start_code, end_code, specific_codes, skipColorInventorySync } = data;
+    const cleanAmount = Math.max(0, Math.floor(amount || 0));
+    const hasSpecific = specific_codes && specific_codes.length > 0;
+    const hasSeries = !!(start_code && start_code.trim());
+
+    if (!hasSpecific && !hasSeries && cleanAmount <= 0) {
       return { success: false, movedCount: 0, bandCodes: [], error: "Invalid handover quantity." };
     }
 
     const staffName = data.staff_name || "Admin Staff";
-    const notes = data.notes?.trim() || `Handed over ${cleanAmount} bands to Reception Desk`;
+    const notes = data.notes?.trim() || `Handed over bands to Reception Desk`;
 
     await ensureBandInventorySeeded();
 
@@ -1463,13 +1476,36 @@ export async function handoverWristbandsToReception(data: {
             whereParams.push(category.trim());
           }
 
-          whereParams.push(cleanAmount);
+          let limitClause = "";
+          if (hasSpecific) {
+            const cleanCodes = Array.from(new Set(specific_codes!.map(c => c.trim().toUpperCase()).filter(Boolean)));
+            whereParts.push(`UPPER(band_code) = ANY($${pIdx++}::text[])`);
+            whereParams.push(cleanCodes);
+          } else if (start_code && end_code && end_code.trim()) {
+            whereParts.push(`UPPER(band_code) >= UPPER($${pIdx++}) AND UPPER(band_code) <= UPPER($${pIdx++})`);
+            whereParams.push(start_code.trim(), end_code.trim());
+            if (cleanAmount > 0) {
+              limitClause = `LIMIT $${pIdx++}`;
+              whereParams.push(cleanAmount);
+            }
+          } else if (start_code) {
+            whereParts.push(`UPPER(band_code) >= UPPER($${pIdx++})`);
+            whereParams.push(start_code.trim());
+            if (cleanAmount > 0) {
+              limitClause = `LIMIT $${pIdx++}`;
+              whereParams.push(cleanAmount);
+            }
+          } else {
+            limitClause = `LIMIT $${pIdx++}`;
+            whereParams.push(cleanAmount);
+          }
+
           const selectSql = `
             SELECT id, band_code, color_name, color_hex 
             FROM band_items 
             WHERE ${whereParts.join(" AND ")}
             ORDER BY band_code ASC, id ASC
-            LIMIT $${pIdx}
+            ${limitClause}
           `;
 
           const eligibleRes = await client.query(selectSql, whereParams);
@@ -1490,6 +1526,20 @@ export async function handoverWristbandsToReception(data: {
                   quantity, staff_name, notes
                 ) VALUES ($1, $2, $3, $4, 'HANDOVER', 1, $5, $6)
               `, [b.id, b.band_code, b.color_name, b.color_hex, staffName, notes]);
+            }
+
+            if (!skipColorInventorySync && (color_hex || color_name)) {
+              try {
+                await client.query(`
+                  UPDATE wristband_color_inventory 
+                  SET quantity = GREATEST(0, quantity - $1),
+                      in_reception = COALESCE(in_reception, 0) + $1,
+                      updated_at = CURRENT_TIMESTAMP
+                  WHERE UPPER(color_hex) = UPPER($2) OR LOWER(color_name) = LOWER($3)
+                `, [eligibleBands.length, (color_hex || '').trim(), (color_name || '').trim()]);
+              } catch (syncErr) {
+                console.warn("[Postgres] Failed to update color inventory:", syncErr);
+              }
             }
           }
 
@@ -1532,13 +1582,36 @@ export async function handoverWristbandsToReception(data: {
       params.push(category.trim().toLowerCase());
     }
 
-    params.push(cleanAmount);
+    let limitClause = "";
+    if (hasSpecific) {
+      const cleanCodes = Array.from(new Set(specific_codes!.map(c => c.trim().toUpperCase()).filter(Boolean)));
+      whereParts.push(`UPPER(band_code) IN (${cleanCodes.map(() => '?').join(',')})`);
+      params.push(...cleanCodes);
+    } else if (start_code && end_code && end_code.trim()) {
+      whereParts.push("UPPER(band_code) >= ? AND UPPER(band_code) <= ?");
+      params.push(start_code.trim().toUpperCase(), end_code.trim().toUpperCase());
+      if (cleanAmount > 0) {
+        limitClause = "LIMIT ?";
+        params.push(cleanAmount);
+      }
+    } else if (start_code) {
+      whereParts.push("UPPER(band_code) >= ?");
+      params.push(start_code.trim().toUpperCase());
+      if (cleanAmount > 0) {
+        limitClause = "LIMIT ?";
+        params.push(cleanAmount);
+      }
+    } else {
+      limitClause = "LIMIT ?";
+      params.push(cleanAmount);
+    }
+
     const selectSql = `
       SELECT id, band_code, color_name, color_hex
       FROM band_items
       WHERE ${whereParts.join(" AND ")}
       ORDER BY band_code ASC, id ASC
-      LIMIT ?
+      ${limitClause}
     `;
 
     const eligibleBands = db.prepare(selectSql).all(...params) as any[];
@@ -1556,6 +1629,20 @@ export async function handoverWristbandsToReception(data: {
         for (const b of eligibleBands) {
           updateStmt.run(b.id);
           txStmt.run(b.id, b.band_code, b.color_name, b.color_hex, staffName, notes);
+        }
+
+        if (!skipColorInventorySync && (color_hex || color_name)) {
+          try {
+            db.prepare(`
+              UPDATE wristband_color_inventory 
+              SET quantity = MAX(0, quantity - ?),
+                  in_reception = COALESCE(in_reception, 0) + ?,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE UPPER(color_hex) = ? OR LOWER(color_name) = ?
+            `).run(eligibleBands.length, eligibleBands.length, (color_hex || '').toUpperCase(), (color_name || '').toLowerCase());
+          } catch (syncErr) {
+            console.warn("[SQLite] Failed to update color inventory:", syncErr);
+          }
         }
       });
       tx();
@@ -1577,12 +1664,16 @@ export async function handoverWristbandsToReception(data: {
 
 /**
  * Preview Wristbands that will be handed over to Reception without modifying DB.
+ * Supports Auto Sequential, Manual Series (start_code to end_code), or Specific/Random Codes.
  */
 export async function previewHandoverRange(data: {
   color_name?: string;
   color_hex?: string;
   category?: string;
   amount: number;
+  start_code?: string;
+  end_code?: string;
+  specific_codes?: string[];
 }): Promise<{
   success: boolean;
   totalAvailable: number;
@@ -1590,11 +1681,17 @@ export async function previewHandoverRange(data: {
   startCode?: string;
   endCode?: string;
   bandCodes: string[];
+  invalidCodes?: string[];
   error?: string;
 }> {
   try {
-    const { color_name, color_hex, category, amount } = data;
-    const cleanAmount = Math.max(0, Math.floor(amount));
+    const { color_name, color_hex, category, amount, start_code, end_code, specific_codes } = data;
+    const cleanAmount = Math.max(0, Math.floor(amount || 0));
+    const hasSpecific = specific_codes && specific_codes.length > 0;
+    const cleanSpecificCodes = hasSpecific
+      ? Array.from(new Set(specific_codes!.map(c => c.trim().toUpperCase()).filter(Boolean)))
+      : [];
+
     await ensureBandInventorySeeded();
 
     if (isPostgresActive()) {
@@ -1622,19 +1719,50 @@ export async function previewHandoverRange(data: {
         );
         const totalAvailable = parseInt(countRes.rows[0]?.cnt || "0", 10);
 
-        if (cleanAmount <= 0) {
-          return { success: true, totalAvailable, count: 0, bandCodes: [] };
+        const filterParts = [...whereParts];
+        const queryParams = [...params];
+        let limitClause = "";
+
+        if (hasSpecific) {
+          filterParts.push(`UPPER(band_code) = ANY($${pIdx++}::text[])`);
+          queryParams.push(cleanSpecificCodes);
+        } else if (start_code && end_code && end_code.trim()) {
+          filterParts.push(`UPPER(band_code) >= UPPER($${pIdx++}) AND UPPER(band_code) <= UPPER($${pIdx++})`);
+          queryParams.push(start_code.trim(), end_code.trim());
+          if (cleanAmount > 0) {
+            limitClause = `LIMIT $${pIdx++}`;
+            queryParams.push(cleanAmount);
+          }
+        } else if (start_code) {
+          filterParts.push(`UPPER(band_code) >= UPPER($${pIdx++})`);
+          queryParams.push(start_code.trim());
+          if (cleanAmount > 0) {
+            limitClause = `LIMIT $${pIdx++}`;
+            queryParams.push(cleanAmount);
+          }
+        } else {
+          if (cleanAmount <= 0) {
+            return { success: true, totalAvailable, count: 0, bandCodes: [] };
+          }
+          limitClause = `LIMIT $${pIdx++}`;
+          queryParams.push(cleanAmount);
         }
 
         const querySql = `
           SELECT band_code
           FROM band_items
-          WHERE ${whereParts.join(" AND ")}
+          WHERE ${filterParts.join(" AND ")}
           ORDER BY band_code ASC, id ASC
-          LIMIT $${pIdx}
+          ${limitClause}
         `;
-        const res = await simulatorPool.query(querySql, [...params, cleanAmount]);
+        const res = await simulatorPool.query(querySql, queryParams);
         const codes = res.rows.map((r: any) => r.band_code);
+
+        let invalidCodes: string[] | undefined = undefined;
+        if (hasSpecific) {
+          const matchedUpper = codes.map((c: string) => c.toUpperCase());
+          invalidCodes = cleanSpecificCodes.filter(c => !matchedUpper.includes(c));
+        }
 
         return {
           success: true,
@@ -1642,7 +1770,8 @@ export async function previewHandoverRange(data: {
           count: codes.length,
           startCode: codes[0],
           endCode: codes[codes.length - 1],
-          bandCodes: codes
+          bandCodes: codes,
+          invalidCodes
         };
       } catch (pgErr) {
         console.warn("[Band Inventory] Fallback to SQLite for previewHandoverRange:", pgErr);
@@ -1670,19 +1799,50 @@ export async function previewHandoverRange(data: {
     const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM band_items WHERE ${whereParts.join(" AND ")}`).get(...params) as { cnt: number };
     const totalAvailable = countRow ? countRow.cnt : 0;
 
-    if (cleanAmount <= 0) {
-      return { success: true, totalAvailable, count: 0, bandCodes: [] };
+    const filterParts = [...whereParts];
+    const queryParams = [...params];
+    let limitClause = "";
+
+    if (hasSpecific) {
+      filterParts.push(`UPPER(band_code) IN (${cleanSpecificCodes.map(() => '?').join(',')})`);
+      queryParams.push(...cleanSpecificCodes);
+    } else if (start_code && end_code && end_code.trim()) {
+      filterParts.push("UPPER(band_code) >= ? AND UPPER(band_code) <= ?");
+      queryParams.push(start_code.trim().toUpperCase(), end_code.trim().toUpperCase());
+      if (cleanAmount > 0) {
+        limitClause = "LIMIT ?";
+        queryParams.push(cleanAmount);
+      }
+    } else if (start_code) {
+      filterParts.push("UPPER(band_code) >= ?");
+      queryParams.push(start_code.trim().toUpperCase());
+      if (cleanAmount > 0) {
+        limitClause = "LIMIT ?";
+        queryParams.push(cleanAmount);
+      }
+    } else {
+      if (cleanAmount <= 0) {
+        return { success: true, totalAvailable, count: 0, bandCodes: [] };
+      }
+      limitClause = "LIMIT ?";
+      queryParams.push(cleanAmount);
     }
 
     const selectSql = `
       SELECT band_code
       FROM band_items
-      WHERE ${whereParts.join(" AND ")}
+      WHERE ${filterParts.join(" AND ")}
       ORDER BY band_code ASC, id ASC
-      LIMIT ?
+      ${limitClause}
     `;
-    const rows = db.prepare(selectSql).all(...params, cleanAmount) as { band_code: string }[];
+    const rows = db.prepare(selectSql).all(...queryParams) as { band_code: string }[];
     const codes = rows.map(r => r.band_code);
+
+    let invalidCodes: string[] | undefined = undefined;
+    if (hasSpecific) {
+      const matchedUpper = codes.map((c: string) => c.toUpperCase());
+      invalidCodes = cleanSpecificCodes.filter(c => !matchedUpper.includes(c));
+    }
 
     return {
       success: true,
@@ -1690,7 +1850,8 @@ export async function previewHandoverRange(data: {
       count: codes.length,
       startCode: codes[0],
       endCode: codes[codes.length - 1],
-      bandCodes: codes
+      bandCodes: codes,
+      invalidCodes
     };
   } catch (err: any) {
     console.error("[previewHandoverRange Error]", err);

@@ -46,14 +46,13 @@ export async function POST(req: NextRequest) {
         // If booking was already paid, expected due for this booking is 0,
         // otherwise it's the effective amount
         if ((booking.payment_status || "").toLowerCase() !== "paid") {
-          const rawAmount = Number(booking.total_amount || 0);
+          const hasStoredTotal = booking.total_amount !== null && booking.total_amount !== undefined && !isNaN(Number(booking.total_amount));
           const baseAmount = (booking.ticket_price || 0) * (booking.quantity || 1);
-          const effectiveAmount =
-            rawAmount > 0
-              ? rawAmount
-              : baseAmount > 0
-              ? Math.round(baseAmount * 1.18)
-              : 0;
+          const effectiveAmount = hasStoredTotal
+            ? Number(booking.total_amount)
+            : baseAmount > 0
+            ? Math.round(baseAmount * 1.18)
+            : 0;
 
           expectedTotal += effectiveAmount;
         }

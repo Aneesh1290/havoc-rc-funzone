@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
         slot_color: b.slot_color || null,
         slot_color_name: b.slot_color_name || null,
         wristband_number: b.wristband_number || null,
+        category_wristband_number: b.category_wristband_number || null,
       };
     });
 

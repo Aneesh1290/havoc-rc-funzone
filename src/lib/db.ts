@@ -225,6 +225,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN payment_ref TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN icici_txn_id TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN wristband_number TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN category_wristband_number TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN applied_coupon TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN is_band_coupon INTEGER DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_category TEXT DEFAULT \'VIP\''); } catch (e) {}
@@ -661,7 +662,7 @@ export function getAllBookings() {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -675,7 +676,7 @@ export function getBookingById(id: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -689,7 +690,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -708,7 +709,7 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
   const candidates = db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -827,6 +828,11 @@ export function updateBookingTags(id: number, tags: string) {
 export function updateBookingWristbandNumber(id: number, wristbandNumber: string) {
   const cleanBand = (wristbandNumber || '').trim();
   return db.prepare('UPDATE bookings SET wristband_number = ? WHERE id = ?').run(cleanBand || null, id);
+}
+
+export function updateBookingCategoryWristbandNumber(id: number, wristbandNumber: string) {
+  const cleanBand = (wristbandNumber || '').trim();
+  return db.prepare('UPDATE bookings SET category_wristband_number = ? WHERE id = ?').run(cleanBand || null, id);
 }
 
 export function cancelBooking(id: number) {

@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
+import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { parseSimPerkDisplay, ParsedSimSlot } from "@/components/SimPerkBadgeList";
 
 interface DeskCheckInModalProps {
@@ -56,6 +57,7 @@ interface SessionBooking {
   slot_color?: string | null;
   slot_color_name?: string | null;
   wristband_number?: string | null;
+  category_wristband_number?: string | null;
   applied_coupon?: string | null;
 }
 
@@ -96,11 +98,33 @@ export default function DeskCheckInModal({
   const [paymentError, setPaymentError] = useState<string | null>(null);
   const [paymentSuccess, setPaymentSuccess] = useState(false);
 
-  // Inline Wristband Assignment State
+  // Inline Wristband Assignment State (Slot Bands)
   const [editingBandId, setEditingBandId] = useState<number | null>(null);
   const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
   const [bandAssignError, setBandAssignError] = useState<string | null>(null);
+
+  // Inline Wristband Assignment State (Ticket Type / Sub-Category Bands)
+  const [editingCategoryBandId, setEditingCategoryBandId] = useState<number | null>(null);
+  const [categoryBandInputs, setCategoryBandInputs] = useState<string[]>([]);
+  const [isSavingCategoryBand, setIsSavingCategoryBand] = useState(false);
+  const [categoryBandAssignError, setCategoryBandAssignError] = useState<string | null>(null);
+  const [subcategoryBands, setSubcategoryBands] = useState<any[]>([]);
+
+  useEffect(() => {
+    getSubcategoryBandsAction()
+      .then((res) => {
+        if (res?.success && res.data) setSubcategoryBands(res.data);
+      })
+      .catch((err) => console.error("DeskCheckInModal subcategory bands error:", err));
+  }, []);
+
+  const matchSubcategoryBand = (ticketName: string) => {
+    if (!ticketName || !subcategoryBands || subcategoryBands.length === 0) return undefined;
+    const clean = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '');
+    const target = clean(ticketName);
+    return subcategoryBands.find((b) => clean(b.category_name) === target);
+  };
 
   // Selective Check-in & Walkout States
   const [activeSessionIds, setActiveSessionIds] = useState<number[]>([]);
@@ -332,6 +356,62 @@ export default function DeskCheckInModal({
       setBandAssignError(e.message || "Failed to assign wristband.");
     } finally {
       setIsSavingBand(false);
+    }
+  };
+
+  const handleStartEditCategoryBand = (session: SessionBooking) => {
+    const qty = Math.max(1, session.quantity || 1);
+    const existing = (session.category_wristband_number || "")
+      .split(/[\s,]+/)
+      .map((s: string) => s.trim())
+      .filter(Boolean);
+
+    const initialInputs: string[] = [];
+    for (let i = 0; i < qty; i++) {
+      initialInputs.push(existing[i] || "");
+    }
+    setEditingCategoryBandId(session.id);
+    setCategoryBandInputs(initialInputs);
+    setCategoryBandAssignError(null);
+  };
+
+  const handleSaveCategoryBand = async (session: SessionBooking) => {
+    setIsSavingCategoryBand(true);
+    setCategoryBandAssignError(null);
+    try {
+      const combinedCodes = categoryBandInputs
+        .map(b => b.trim())
+        .filter(Boolean)
+        .join(", ");
+
+      const catBand = matchSubcategoryBand(session.ticket_name);
+
+      const res = await updateBookingWristbandNumberAction(session.id, combinedCodes, {
+        color_hex: catBand?.color_hex,
+        color_name: catBand?.color_name,
+        category: catBand?.category_name || session.ticket_name,
+        band_type: 'category'
+      });
+
+      if (!res.success) {
+        setCategoryBandAssignError(res.error || "Failed to assign ticket wristband.");
+        return;
+      }
+
+      setVerifiedSessions((prev) =>
+        prev.map((s) => (s.id === session.id ? { ...s, category_wristband_number: combinedCodes || null } : s))
+      );
+      setFoundSessions((prev) =>
+        prev.map((s) => (s.id === session.id ? { ...s, category_wristband_number: combinedCodes || null } : s))
+      );
+      setEditingCategoryBandId(null);
+      setCategoryBandAssignError(null);
+      onSuccess();
+    } catch (e: any) {
+      console.error("Save ticket band error:", e);
+      setCategoryBandAssignError(e.message || "Failed to assign ticket wristband.");
+    } finally {
+      setIsSavingCategoryBand(false);
     }
   };
 
@@ -1472,6 +1552,116 @@ export default function DeskCheckInModal({
                                         <span className="text-[10px] text-gray-400 font-mono">
                                           #FZ_{session.order_number}
                                         </span>
+                                      )}
+
+                                      {/* Sub-Category Band Badge (if configured) */}
+                                      {(() => {
+                                        const catBand = matchSubcategoryBand(session.ticket_name);
+                                        if (catBand) {
+                                          const badgeStyle = getWristbandBadgeStyle(catBand.color_hex);
+                                          return (
+                                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-2xs" style={badgeStyle}>
+                                              {catBand.color_name} Band
+                                            </span>
+                                          );
+                                        }
+                                        return null;
+                                      })()}
+
+                                      {/* Ticket Type Wristband Assignment in Check-In session */}
+                                      {!isCanceled && (
+                                        editingCategoryBandId === session.id ? (
+                                          <div className="inline-flex flex-col gap-1 bg-white border border-indigo-400 rounded-lg p-2 shadow-sm min-w-[220px]">
+                                            <div className="flex items-center justify-between text-[9px] font-bold text-gray-700 uppercase tracking-wide border-b border-gray-100 pb-1">
+                                              <div className="flex items-center gap-1.5">
+                                                <span className="font-extrabold text-indigo-900">{session.ticket_name}</span>
+                                                <span className="text-gray-400 font-mono">({categoryBandInputs.length})</span>
+                                              </div>
+                                              <div className="flex items-center gap-1">
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleSaveCategoryBand(session)}
+                                                  disabled={isSavingCategoryBand}
+                                                  className="text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5"
+                                                  title="Save Ticket Band"
+                                                >
+                                                  <CheckCircle2 className="w-3 h-3" />
+                                                  <span>Save</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => setEditingCategoryBandId(null)}
+                                                  disabled={isSavingCategoryBand}
+                                                  className="text-gray-400 hover:text-gray-600 p-0.5"
+                                                  title="Cancel"
+                                                >
+                                                  <X className="w-3 h-3" />
+                                                </button>
+                                              </div>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                              {categoryBandInputs.map((val, idx) => (
+                                                <div key={idx} className="flex items-center gap-1">
+                                                  {categoryBandInputs.length > 1 && (
+                                                    <span className="text-[9px] font-black text-gray-400 font-mono">
+                                                      #{idx + 1}:
+                                                    </span>
+                                                  )}
+                                                  <input
+                                                    type="text"
+                                                    value={val}
+                                                    onChange={(e) => {
+                                                      const next = [...categoryBandInputs];
+                                                      next[idx] = e.target.value;
+                                                      setCategoryBandInputs(next);
+                                                    }}
+                                                    placeholder={`Band ${idx + 1}`}
+                                                    className="w-16 text-[11px] font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1 py-0.5 focus:outline-none font-mono"
+                                                    autoFocus={idx === 0}
+                                                    onKeyDown={(e) => {
+                                                      if (e.key === "Enter") handleSaveCategoryBand(session);
+                                                      if (e.key === "Escape") setEditingCategoryBandId(null);
+                                                    }}
+                                                  />
+                                                </div>
+                                              ))}
+                                            </div>
+                                            {categoryBandAssignError && (
+                                              <div className="text-[9px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-1.5 py-0.5 mt-0.5 leading-tight flex items-start gap-1">
+                                                <span className="font-black text-red-500">⚠️</span>
+                                                <span>{categoryBandAssignError}</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                        ) : session.category_wristband_number ? (
+                                          <div className="inline-flex items-center gap-1 flex-wrap">
+                                            <span className="text-[9px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1 py-0.2 rounded">
+                                              Ticket:
+                                            </span>
+                                            {session.category_wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
+                                              <span key={bIdx} className="inline-flex items-center gap-0.5 bg-indigo-50 border border-indigo-300 text-indigo-900 px-1.5 py-0.5 rounded-full text-[10px] font-bold">
+                                                <span>🏷️ <strong className="font-mono">{bCode}</strong></span>
+                                              </span>
+                                            ))}
+                                            <button
+                                              type="button"
+                                              onClick={() => handleStartEditCategoryBand(session)}
+                                              className="text-indigo-700 hover:text-indigo-950 p-0.5 hover:bg-indigo-100 rounded-full"
+                                              title="Change Ticket Band #"
+                                            >
+                                              <Edit3 className="w-2.5 h-2.5" />
+                                            </button>
+                                          </div>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditCategoryBand(session)}
+                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 border border-indigo-200 border-dashed px-1.5 py-0.5 rounded-full"
+                                            title={`Assign ${session.ticket_name} wristband numbers`}
+                                          >
+                                            <span>+ Ticket Band # ({Math.max(1, session.quantity || 1)})</span>
+                                          </button>
+                                        )
                                       )}
                                     </div>
                                     <div className="text-[11px] text-gray-500 font-mono mt-0.5 flex flex-wrap items-center gap-1.5">

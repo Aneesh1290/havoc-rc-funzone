@@ -11,12 +11,18 @@ import {
   updateBookingWristbandNumberAction,
   cancelBookingAction
 } from "@/app/actions/tickets";
+import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
 import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
+
+interface EditingBandState {
+  id: number;
+  type: 'slot' | 'category';
+}
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -29,6 +35,7 @@ export default function OrderDetailPage() {
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [paymentMenuOpen, setPaymentMenuOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
+  const [subcategoryBands, setSubcategoryBands] = useState<any[]>([]);
 
   // Tags and Transaction ID editing
   const [isEditingTags, setIsEditingTags] = useState(false);
@@ -37,15 +44,33 @@ export default function OrderDetailPage() {
   const [paymentRefInput, setPaymentRefInput] = useState("");
   const [isSavingRef, setIsSavingRef] = useState(false);
 
-  // Wristband Number editing per item
-  const [editingBandId, setEditingBandId] = useState<number | null>(null);
+  // Wristband Number editing per item (supports 'slot' and 'category')
+  const [editingBand, setEditingBand] = useState<EditingBandState | null>(null);
   const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
   const [bandAssignError, setBandAssignError] = useState<string | null>(null);
 
-  const handleStartEditBand = (item: any) => {
+  useEffect(() => {
+    getSubcategoryBandsAction()
+      .then((res) => {
+        if (res?.success && res.data) {
+          setSubcategoryBands(res.data);
+        }
+      })
+      .catch((err) => console.error("Failed to load subcategory bands:", err));
+  }, []);
+
+  const matchSubcategoryBand = (ticketName: string) => {
+    if (!ticketName || !subcategoryBands || subcategoryBands.length === 0) return undefined;
+    const clean = (s: string) => s.toLowerCase().replace(/[_\s-]+/g, '');
+    const target = clean(ticketName);
+    return subcategoryBands.find((b) => clean(b.category_name) === target);
+  };
+
+  const handleStartEditBand = (item: any, type: 'slot' | 'category' = 'slot') => {
     const qty = Math.max(1, item.quantity || 1);
-    const existing = (item.wristband_number || "")
+    const rawCodes = type === 'category' ? (item.category_wristband_number || "") : (item.wristband_number || "");
+    const existing = rawCodes
       .split(/[\s,]+/)
       .map((s: string) => s.trim())
       .filter(Boolean);
@@ -55,12 +80,12 @@ export default function OrderDetailPage() {
     for (let i = 0; i < qty; i++) {
       initialInputs.push(existing[i] || "");
     }
-    setEditingBandId(item.id);
+    setEditingBand({ id: item.id, type });
     setBandInputs(initialInputs);
     setBandAssignError(null);
   };
 
-  const handleSaveWristbandNumber = async (item: any) => {
+  const handleSaveWristbandNumber = async (item: any, type: 'slot' | 'category' = 'slot') => {
     setIsSavingBand(true);
     setBandAssignError(null);
     try {
@@ -69,19 +94,35 @@ export default function OrderDetailPage() {
         .filter(Boolean)
         .join(", ");
 
-      const bandColor = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
+      if (type === 'category') {
+        const catBand = matchSubcategoryBand(item.ticket_name);
+        const res = await updateBookingWristbandNumberAction(item.id, combinedCodes, {
+          color_hex: catBand?.color_hex,
+          color_name: catBand?.color_name,
+          category: catBand?.category_name || item.ticket_name,
+          band_type: 'category'
+        });
 
-      const res = await updateBookingWristbandNumberAction(item.id, combinedCodes, {
-        color_hex: bandColor.hex,
-        color_name: bandColor.name
-      });
+        if (!res.success) {
+          setBandAssignError(res.error || "Failed to assign ticket wristband.");
+          return;
+        }
+      } else {
+        const bandColor = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
 
-      if (!res.success) {
-        setBandAssignError(res.error || "Failed to assign wristband.");
-        return;
+        const res = await updateBookingWristbandNumberAction(item.id, combinedCodes, {
+          color_hex: bandColor.hex,
+          color_name: bandColor.name,
+          band_type: 'slot'
+        });
+
+        if (!res.success) {
+          setBandAssignError(res.error || "Failed to assign slot wristband.");
+          return;
+        }
       }
 
-      setEditingBandId(null);
+      setEditingBand(null);
       setBandAssignError(null);
       await loadBooking();
     } catch (e: any) {
@@ -404,12 +445,42 @@ export default function OrderDetailPage() {
                 const itemIsFulfilled = (item.fulfillment_status || booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
 
                 return (
-                  <div key={item.id || idx} className="flex flex-col sm:flex-row sm:items-center justify-between pb-5 border-b border-gray-100 gap-4 last:pb-0 last:border-0">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2.5">
-                        <span className="font-bold text-gray-900 text-base">
+                  <div key={item.id || idx} className="flex flex-col sm:flex-row sm:items-start justify-between pb-6 border-b border-gray-100 gap-4 last:pb-0 last:border-0">
+                    <div className="space-y-2 flex-1 min-w-0">
+                      {/* Ticket Type & Sub-Category Band Row */}
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-extrabold text-gray-900 text-sm tracking-tight uppercase">
                           {item.ticket_name ? item.ticket_name.replace("_", " ") : "Havoc Funzone Pass"}
                         </span>
+
+                        {/* Ticket Sub-Category Band Badge (if configured) */}
+                        {(() => {
+                          const catBand = matchSubcategoryBand(item.ticket_name);
+                          if (catBand) {
+                            const badgeStyle = getWristbandBadgeStyle(catBand.color_hex);
+                            return (
+                              <span 
+                                className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
+                                style={{
+                                  backgroundColor: badgeStyle.backgroundColor,
+                                  borderColor: badgeStyle.borderColor,
+                                  color: badgeStyle.color
+                                }}
+                              >
+                                <span 
+                                  className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
+                                  style={{ 
+                                    backgroundColor: catBand.color_hex,
+                                    borderColor: badgeStyle.dotBorderColor
+                                  }}
+                                />
+                                <span>{catBand.color_name} Band</span>
+                              </span>
+                            );
+                          }
+                          return null;
+                        })()}
+
                         {itemIsPaid && (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-green-50 text-green-700 border border-green-200">
                             PAID
@@ -420,10 +491,104 @@ export default function OrderDetailPage() {
                             FULFILLED
                           </span>
                         )}
+
+                        {/* Ticket Type Wristband Assignment */}
+                        {editingBand?.id === item.id && editingBand?.type === 'category' ? (
+                          <div className="inline-flex flex-col gap-1.5 bg-gray-50 border border-indigo-400 rounded-xl p-2 shadow-xs">
+                            <div className="flex items-center justify-between text-[10px] font-bold text-gray-700 uppercase tracking-wide border-b border-gray-200 pb-1">
+                              <span>Assign {item.ticket_name ? item.ticket_name.replace("_", " ") : "Ticket"} Band #{bandInputs.length > 1 ? ` (1 to ${bandInputs.length})` : ''}:</span>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveWristbandNumber(item, 'category')}
+                                  disabled={isSavingBand}
+                                  className="text-white bg-indigo-600 hover:bg-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-xs"
+                                  title="Save Ticket Bands"
+                                >
+                                  <Check className="w-3 h-3" />
+                                  <span>Save</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditingBand(null)}
+                                  disabled={isSavingBand}
+                                  className="text-gray-500 hover:text-gray-700 p-0.5 hover:bg-gray-200 rounded"
+                                  title="Cancel"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                              {bandInputs.map((val, bIdx) => (
+                                <div key={bIdx} className="flex items-center gap-1">
+                                  {bandInputs.length > 1 && (
+                                    <span className="text-[10px] font-black text-gray-400 font-mono">
+                                      #{bIdx + 1}:
+                                    </span>
+                                  )}
+                                  <input
+                                    type="text"
+                                    value={val}
+                                    onChange={(e) => {
+                                      const next = [...bandInputs];
+                                      next[bIdx] = e.target.value;
+                                      setBandInputs(next);
+                                    }}
+                                    placeholder={`Band ${bIdx + 1}`}
+                                    className="w-24 text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-mono"
+                                    autoFocus={bIdx === 0}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") handleSaveWristbandNumber(item, 'category');
+                                      if (e.key === "Escape") setEditingBand(null);
+                                    }}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                            {bandAssignError && (
+                              <div className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1 leading-tight flex items-start gap-1">
+                                <span className="font-black text-red-500">⚠️</span>
+                                <span>{bandAssignError}</span>
+                              </div>
+                            )}
+                          </div>
+                        ) : item.category_wristband_number ? (
+                          <div className="inline-flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded">
+                              Ticket Band:
+                            </span>
+                            {item.category_wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
+                              <span key={bIdx} className="inline-flex items-center gap-1 bg-indigo-50 border border-indigo-300 text-indigo-900 px-2 py-0.5 rounded-full text-[11px] font-bold shadow-xs">
+                                <span className="text-indigo-600 text-xs font-black">#</span>
+                                <span><strong className="text-indigo-950 font-black font-mono">{bCode}</strong></span>
+                              </span>
+                            ))}
+                            <button
+                              onClick={() => handleStartEditBand(item, 'category')}
+                              className="text-indigo-700 hover:text-indigo-950 p-1 hover:bg-indigo-100 rounded-full transition-colors"
+                              title="Edit Assigned Ticket Bands"
+                            >
+                              <Edit2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => handleStartEditBand(item, 'category')}
+                            className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 border-dashed px-2.5 py-0.5 rounded-full transition-all shadow-2xs"
+                            title={`Assign wristband numbers for ${item.ticket_name || 'Ticket'}`}
+                          >
+                            <span>+ Assign {item.ticket_name ? item.ticket_name.replace("_", " ") : "Ticket"} Band # ({Math.max(1, item.quantity || 1)})</span>
+                          </button>
+                        )}
                       </div>
+
+                      {/* Date Row */}
                       <p className="text-xs text-gray-500">
                         Select Date: <strong className="text-gray-700 font-semibold">{item.booking_date}</strong>
                       </p>
+
+                      {/* Time Slot & Slot Band Row */}
                       <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2 pt-0.5">
                         <span>Select Time Slot:</span>
                         <strong className="text-gray-900 font-bold">{item.time_slot}</strong>
@@ -446,20 +611,20 @@ export default function OrderDetailPage() {
                                   borderColor: badgeStyle.dotBorderColor
                                 }}
                               />
-                              <span>{band.name} Band</span>
+                              <span>{band.name} Slot Band</span>
                             </span>
                           );
                         })()}
 
-                        {/* Wristband Number Section */}
-                        {editingBandId === item.id ? (
+                        {/* Slot Wristband Number Section */}
+                        {editingBand?.id === item.id && editingBand?.type === 'slot' ? (
                           <div className="inline-flex flex-col gap-1.5 bg-gray-50 border border-blue-400 rounded-xl p-2 shadow-xs">
                             <div className="flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wide border-b border-gray-200 pb-1">
-                              <span>Assign Band #{bandInputs.length > 1 ? ` (1 to ${bandInputs.length})` : ''}:</span>
+                              <span>Assign Slot Band #{bandInputs.length > 1 ? ` (1 to ${bandInputs.length})` : ''}:</span>
                               <div className="flex items-center gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => handleSaveWristbandNumber(item)}
+                                  onClick={() => handleSaveWristbandNumber(item, 'slot')}
                                   disabled={isSavingBand}
                                   className="text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-xs"
                                   title="Save All Bands"
@@ -469,7 +634,7 @@ export default function OrderDetailPage() {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setEditingBandId(null)}
+                                  onClick={() => setEditingBand(null)}
                                   disabled={isSavingBand}
                                   className="text-gray-500 hover:text-gray-700 p-0.5 hover:bg-gray-200 rounded"
                                   title="Cancel"
@@ -498,8 +663,8 @@ export default function OrderDetailPage() {
                                     className="w-24 text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
                                     autoFocus={idx === 0}
                                     onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleSaveWristbandNumber(item);
-                                      if (e.key === "Escape") setEditingBandId(null);
+                                      if (e.key === "Enter") handleSaveWristbandNumber(item, 'slot');
+                                      if (e.key === "Escape") setEditingBand(null);
                                     }}
                                   />
                                 </div>
@@ -514,6 +679,9 @@ export default function OrderDetailPage() {
                           </div>
                         ) : item.wristband_number ? (
                           <div className="inline-flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                              Slot Band:
+                            </span>
                             {item.wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
                               <span key={bIdx} className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full text-[11px] font-bold shadow-xs">
                                 <span className="text-amber-600 text-xs font-black">#</span>
@@ -521,19 +689,19 @@ export default function OrderDetailPage() {
                               </span>
                             ))}
                             <button
-                              onClick={() => handleStartEditBand(item)}
+                              onClick={() => handleStartEditBand(item, 'slot')}
                               className="text-amber-700 hover:text-amber-950 p-1 hover:bg-amber-100 rounded-full transition-colors"
-                              title="Edit Assigned Bands"
+                              title="Edit Assigned Slot Bands"
                             >
                               <Edit2 className="w-3 h-3" />
                             </button>
                           </div>
                         ) : (
                           <button
-                            onClick={() => handleStartEditBand(item)}
+                            onClick={() => handleStartEditBand(item, 'slot')}
                             className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 border-dashed px-2.5 py-0.5 rounded-full transition-all shadow-2xs"
                           >
-                            <span>+ Assign Band # ({Math.max(1, item.quantity || 1)})</span>
+                            <span>+ Assign Slot Band # ({Math.max(1, item.quantity || 1)})</span>
                           </button>
                         )}
                       </div>

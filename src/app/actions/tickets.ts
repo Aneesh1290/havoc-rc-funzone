@@ -33,6 +33,7 @@ import {
   updateOrderGroupPaymentRef,
   updateBookingTags,
   updateBookingWristbandNumber,
+  updateBookingCategoryWristbandNumber,
   updateOrderGroupTags,
   cancelBooking,
   cancelOrderGroup,
@@ -432,16 +433,20 @@ export async function updateBookingWristbandNumberAction(
     color_name?: string;
     category?: string;
     staff_name?: string;
+    band_type?: 'slot' | 'category';
   }
 ) {
   try {
+    const isCategoryBand = options?.band_type === 'category';
     const prevBooking = getBookingById(id) as any;
-    const oldBandNumber = prevBooking?.wristband_number || "";
+    const oldBandNumber = isCategoryBand 
+      ? (prevBooking?.category_wristband_number || "")
+      : (prevBooking?.wristband_number || "");
     const cleanBand = (wristbandNumber || "").trim();
 
     // 2. Sync with Band Items & Reception Inventory
-    const slotColorHex = options?.color_hex || prevBooking?.slot_color || "";
-    const slotColorName = options?.color_name || prevBooking?.slot_color_name || "";
+    const slotColorHex = options?.color_hex || (isCategoryBand ? "" : (prevBooking?.slot_color || ""));
+    const slotColorName = options?.color_name || (isCategoryBand ? "" : (prevBooking?.slot_color_name || ""));
     const targetCategory = options?.category || prevBooking?.ticket_name || "";
     const customerName = prevBooking?.customer_name || "Guest";
     const orderNum = prevBooking?.order_number || id;
@@ -462,14 +467,17 @@ export async function updateBookingWristbandNumberAction(
     for (const code of addedCodes) {
       const issueCheck = await issueBandItem({
         band_code: code,
-        color_hex: slotColorHex,
-        color_name: slotColorName,
+        color_hex: slotColorHex || undefined,
+        color_name: slotColorName || undefined,
         expected_category: targetCategory,
+        allow_category_override: !isCategoryBand, // Category band must match ticket category; slot band is flexible
         customer_name: customerName,
         booking_id: id,
         order_number: `#${orderNum}`,
         staff_name: staffName,
-        notes: `Issued to ${customerName} (${targetCategory || 'Pass'}) for ${prevBooking?.time_slot || 'Slot'}`
+        notes: isCategoryBand
+          ? `Issued to ${customerName} (${targetCategory}) [Ticket Sub-Category Band]`
+          : `Issued to ${customerName} (${targetCategory || 'Pass'}) for ${prevBooking?.time_slot || 'Slot'}`
       });
 
       if (!issueCheck.success) {
@@ -506,7 +514,7 @@ export async function updateBookingWristbandNumberAction(
           color_name: slotColorName,
           condition: "good",
           staff_name: staffName,
-          notes: `Unassigned from Order #${orderNum}`
+          notes: `Unassigned ${isCategoryBand ? 'Ticket Band' : 'Slot Band'} from Order #${orderNum}`
         });
       } catch (e) {
         console.warn(`[Band Sync] Return item error for ${code}:`, e);
@@ -517,7 +525,11 @@ export async function updateBookingWristbandNumberAction(
     }
 
     // Save final updated wristband string in bookings
-    updateBookingWristbandNumber(id, cleanBand);
+    if (isCategoryBand) {
+      updateBookingCategoryWristbandNumber(id, cleanBand);
+    } else {
+      updateBookingWristbandNumber(id, cleanBand);
+    }
 
     revalidatePath('/admin/bookings');
     revalidatePath(`/admin/bookings/${id}`);

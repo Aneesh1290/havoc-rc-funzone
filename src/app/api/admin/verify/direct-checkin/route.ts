@@ -35,22 +35,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Auto-fulfill already paid sessions
+    const targetSessionIds: number[] | undefined = Array.isArray(body?.sessionIds) && body.sessionIds.length > 0
+      ? body.sessionIds.map(Number)
+      : undefined;
+
+    // Auto-fulfill ONLY the selected paid sessions
     const paidBookingIds = todayBookings
       .filter((b) => (b.payment_status || "").toLowerCase() === "paid")
+      .filter((b) => !targetSessionIds || targetSessionIds.includes(b.id))
       .map((b) => b.id);
 
     if (paidBookingIds.length > 0) {
       attendPaidBookings(paidBookingIds);
     }
 
-    // Re-fetch fresh statuses
+    // Re-fetch fresh statuses for the checked-in sessions
     const freshBookings = getBookingsByPhone(cleanPhone, countryCode).filter((b) => {
       const isCanceled =
         (b.fulfillment_status || "").toLowerCase() === "canceled" ||
         (b.payment_status || "").toLowerCase() === "refunded";
       if (isCanceled) return false;
-      return isBookingForToday(b.booking_date);
+      if (!isBookingForToday(b.booking_date)) return false;
+      if (targetSessionIds && !targetSessionIds.includes(b.id)) return false;
+      return true;
     });
 
     const formattedSessions = freshBookings.map((b) => {

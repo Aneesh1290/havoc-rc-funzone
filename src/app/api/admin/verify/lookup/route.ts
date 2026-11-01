@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Filter strictly for TODAY
-    const todayBookings = matchingBookings.filter((b) => {
+    const allTodayBookings = matchingBookings.filter((b) => {
       // Exclude canceled / refunded bookings
       const isCanceled =
         (b.fulfillment_status || "").toLowerCase() === "canceled" ||
@@ -47,8 +47,24 @@ export async function POST(req: NextRequest) {
       return isBookingForToday(b.booking_date);
     });
 
-    // If customer has bookings, but none for today
-    if (todayBookings.length === 0) {
+    // Exclude slots that have ALREADY been checked in / attended
+    const pendingTodayBookings = allTodayBookings.filter((b) => {
+      const isAlreadyCheckedIn =
+        (b.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
+        (b.fulfillment_status || "").toLowerCase() === "fulfilled";
+      return !isAlreadyCheckedIn;
+    });
+
+    // If customer has bookings, but none are pending for today
+    if (pendingTodayBookings.length === 0) {
+      if (allTodayBookings.length > 0) {
+        return NextResponse.json({
+          found: false,
+          error: `All ${allTodayBookings.length} session(s) scheduled for today have already been checked in (ATTENDED). No pending check-in slots remaining for this customer today.`,
+          all_checked_in: true,
+        });
+      }
+
       const distinctDates = Array.from(
         new Set(
           matchingBookings
@@ -68,11 +84,12 @@ export async function POST(req: NextRequest) {
 
     // Customer name from first booking
     const customerName =
-      todayBookings.find((b) => b.customer_name?.trim())?.customer_name?.trim() ||
+      pendingTodayBookings.find((b) => b.customer_name?.trim())?.customer_name?.trim() ||
+      allTodayBookings.find((b) => b.customer_name?.trim())?.customer_name?.trim() ||
       "Guest Customer";
 
-    // Format session objects for UI preview
-    const formattedSessions = todayBookings.map((b) => {
+    // Format session objects for UI preview (strictly pending check-in sessions)
+    const formattedSessions = pendingTodayBookings.map((b) => {
       const hasStoredTotal = b.total_amount !== null && b.total_amount !== undefined && !isNaN(Number(b.total_amount));
       const baseAmount = (b.ticket_price || 0) * (b.quantity || 1);
       const effectiveAmount = hasStoredTotal

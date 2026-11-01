@@ -256,7 +256,7 @@ export default function DeskCheckInModal({
       setFoundCustomerName(data.customer_name || "Guest Customer");
       const list = data.bookings || [];
       setFoundSessions(list);
-      setActiveSessionIds(list.map((s: SessionBooking) => s.id));
+      setActiveSessionIds([]); // By default, none of the orders/sessions are selected
       setUnpaidCount(data.unpaid_count || 0);
       setTotalDue(data.total_due || 0);
     } catch (err: any) {
@@ -269,6 +269,11 @@ export default function DeskCheckInModal({
 
   // Direct Check-In (No OTP required) -> Transition to Step 2
   const handleDirectCheckIn = async () => {
+    if (activeSessionIds.length === 0) {
+      setCheckInError("Please select at least one order or session to check in.");
+      return;
+    }
+
     setIsCheckingInDirect(true);
     setCheckInError(null);
 
@@ -276,7 +281,11 @@ export default function DeskCheckInModal({
       const res = await fetch("/api/admin/verify/direct-checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: phoneNumber, countryCode }),
+        body: JSON.stringify({ 
+          phone: phoneNumber, 
+          countryCode,
+          sessionIds: activeSessionIds,
+        }),
       });
 
       const data = await res.json();
@@ -1054,67 +1063,124 @@ export default function DeskCheckInModal({
                   )}
 
                   {/* Sessions List with Check-In Toggles & Single Walkout */}
-                  <div className="space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-amber-600" />
-                        <span>Today&apos;s Booked Vehicles &amp; Slots</span>
-                      </div>
-                      <span className="text-[11px] text-gray-400">
-                        {activeSessionIds.length} of {foundSessions.length} playing
-                      </span>
-                    </div>
+                  {(() => {
+                    // Exclude slots that have already been checked in (ATTENDED or fulfilled)
+                    const pendingSessions = foundSessions.filter((s) => {
+                      const isCanceled = (s.fulfillment_status || "").toLowerCase() === "canceled";
+                      const isAlreadyAttended =
+                        (s.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
+                        (s.fulfillment_status || "").toLowerCase() === "fulfilled";
+                      return !isCanceled && !isAlreadyAttended;
+                    });
 
-                    <div className="space-y-4">
-                      {/* Group sessions by Order Number (#FZ_X) so each order is cleanly separated */}
-                      {Array.from(new Set(foundSessions.map((s) => s.order_number || s.id))).map((orderNum) => {
-                        const orderSessions = foundSessions.filter((s) => (s.order_number || s.id) === orderNum);
-                        const firstSession = orderSessions[0];
-                        const totalOrderPlayers = orderSessions.reduce(
-                          (sum, s) => sum + (s.fulfillment_status === "Canceled" ? 0 : s.quantity),
-                          0
-                        );
-                        const orderTotalAmount = orderSessions.reduce((sum, s) => sum + s.total_amount, 0);
-                        const allOrderPaid = orderSessions.every((s) => (s.payment_status || "").toLowerCase() === "paid");
-                        const timeSlotsInOrder = Array.from(new Set(orderSessions.map((s) => s.time_slot)));
+                    if (pendingSessions.length === 0) {
+                      return (
+                        <div className="p-4 rounded-2xl bg-blue-50 border border-blue-200 text-blue-900 text-xs sm:text-sm flex items-start gap-3">
+                          <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                          <div>
+                            <strong className="block font-bold text-blue-950">All Sessions Already Checked In</strong>
+                            <p className="mt-0.5 text-blue-800">
+                              All slots scheduled for this customer today have already been verified and checked in (ATTENDED). No pending check-in sessions remaining.
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
 
-                        return (
-                          <div key={orderNum} className="rounded-2xl border border-gray-200/90 bg-gray-50/60 p-3 sm:p-4 space-y-3 shadow-xs">
-                            {/* Order Header */}
-                            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-gray-200/80 gap-2">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-mono font-black text-sm text-gray-900 bg-amber-100/90 text-amber-950 px-2.5 py-0.5 rounded-lg border border-amber-300">
-                                  Order #FZ_{orderNum}
-                                </span>
+                    const distinctOrderNumbers = Array.from(new Set(pendingSessions.map((s) => s.order_number || s.id)));
 
-                                {orderSessions.some(s => s.applied_coupon) && (
-                                  <span className="font-mono font-extrabold text-xs text-amber-950 bg-amber-200/90 border border-amber-400 px-2.5 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
-                                    ⭐ VIP BAND COUPON: {orderSessions.find(s => s.applied_coupon)?.applied_coupon}
-                                  </span>
-                                )}
+                    return (
+                      <div className="space-y-2.5">
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <div className="text-xs uppercase font-bold tracking-wider text-gray-600 flex items-center gap-1.5">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Today&apos;s Booked Vehicles &amp; Slots</span>
+                          </div>
+                          <div className="flex items-center gap-2.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (activeSessionIds.length === pendingSessions.length) {
+                                  setActiveSessionIds([]);
+                                } else {
+                                  setActiveSessionIds(pendingSessions.map((s) => s.id));
+                                }
+                              }}
+                              className="text-[11px] font-bold text-amber-700 hover:text-amber-900 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                            >
+                              {activeSessionIds.length === pendingSessions.length ? "Deselect All" : "Select All"}
+                            </button>
+                            <span className="text-[11px] text-gray-400 font-mono">
+                              {activeSessionIds.length} of {pendingSessions.length} selected
+                            </span>
+                          </div>
+                        </div>
 
-                                {/* Slots in this order */}
-                                {timeSlotsInOrder.map((slotTime) => {
-                                  const matchingSession = orderSessions.find((s) => s.time_slot === slotTime);
-                                  const slotWristband = getSlotWristbandColor(
-                                    slotTime,
-                                    matchingSession?.slot_color,
-                                    matchingSession?.slot_color_name
-                                  );
-                                  const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
-                                  return (
-                                    <div key={slotTime} className="flex items-center gap-1.5 text-xs font-semibold">
-                                      <span className="font-mono text-gray-700 flex items-center gap-1">
-                                        <Clock className="w-3 h-3 text-amber-600" />
-                                        <span>{slotTime}</span>
+                        <div className="space-y-4">
+                          {/* Group sessions by Order Number (#FZ_X) so each order is cleanly separated */}
+                          {distinctOrderNumbers.map((orderNum) => {
+                            const orderSessions = pendingSessions.filter((s) => (s.order_number || s.id) === orderNum);
+                            const totalOrderPlayers = orderSessions.reduce(
+                              (sum, s) => sum + s.quantity,
+                              0
+                            );
+                            const orderTotalAmount = orderSessions.reduce((sum, s) => sum + s.total_amount, 0);
+                            const allOrderPaid = orderSessions.every((s) => (s.payment_status || "").toLowerCase() === "paid");
+                            const timeSlotsInOrder = Array.from(new Set(orderSessions.map((s) => s.time_slot)));
+                            const allInOrderSelected = orderSessions.length > 0 && orderSessions.every((s) => activeSessionIds.includes(s.id));
+
+                            return (
+                              <div key={orderNum} className="rounded-2xl border border-gray-200/90 bg-gray-50/60 p-3 sm:p-4 space-y-3 shadow-xs">
+                                {/* Order Header with Order-Level Select Checkbox */}
+                                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between pb-2 border-b border-gray-200/80 gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <label className="flex items-center gap-1.5 cursor-pointer select-none" title="Select/Deselect all sessions in this order">
+                                      <input
+                                        type="checkbox"
+                                        checked={allInOrderSelected}
+                                        onChange={() => {
+                                          const orderIds = orderSessions.map((s) => s.id);
+                                          if (allInOrderSelected) {
+                                            setActiveSessionIds((prev) => prev.filter((id) => !orderIds.includes(id)));
+                                          } else {
+                                            setActiveSessionIds((prev) => Array.from(new Set([...prev, ...orderIds])));
+                                          }
+                                        }}
+                                        className="w-4 h-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                                      />
+                                      <span className="font-mono font-black text-sm text-gray-900 bg-amber-100/90 text-amber-950 px-2.5 py-0.5 rounded-lg border border-amber-300">
+                                        Order #FZ_{orderNum}
                                       </span>
-                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-2xs" style={slotBadgeStyle}>
-                                        {slotWristband.name} Wristband
+                                    </label>
+
+                                    {orderSessions.some(s => s.applied_coupon) && (
+                                      <span className="font-mono font-extrabold text-xs text-amber-950 bg-amber-200/90 border border-amber-400 px-2.5 py-0.5 rounded-md inline-flex items-center gap-1 shadow-2xs">
+                                        ⭐ VIP BAND COUPON: {orderSessions.find(s => s.applied_coupon)?.applied_coupon}
                                       </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
+                                    )}
+
+                                    {/* Slots in this order */}
+                                    {timeSlotsInOrder.map((slotTime) => {
+                                      const matchingSession = orderSessions.find((s) => s.time_slot === slotTime);
+                                      const slotWristband = getSlotWristbandColor(
+                                        slotTime,
+                                        matchingSession?.slot_color,
+                                        matchingSession?.slot_color_name
+                                      );
+                                      const slotBadgeStyle = getWristbandBadgeStyle(slotWristband.hex);
+                                      return (
+                                        <div key={slotTime} className="flex items-center gap-1.5 text-xs font-semibold">
+                                          <span className="font-mono text-gray-700 flex items-center gap-1">
+                                            <Clock className="w-3 h-3 text-amber-600" />
+                                            <span>{slotTime}</span>
+                                          </span>
+                                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md border shadow-2xs" style={slotBadgeStyle}>
+                                            {slotWristband.name} Wristband
+                                          </span>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
 
                               <div className="flex items-center gap-2 text-xs font-mono">
                                 <span className="font-bold text-gray-700">
@@ -1298,6 +1364,8 @@ export default function DeskCheckInModal({
                       })}
                     </div>
                   </div>
+                );
+              })()}
 
                   {/* Actions Bar: Direct Check-In vs Full Walkout Cancellation */}
                   <div className="pt-2 space-y-2.5">
@@ -1316,17 +1384,22 @@ export default function DeskCheckInModal({
                         type="button"
                         disabled={isCheckingInDirect || activeSessionIds.length === 0}
                         onClick={handleDirectCheckIn}
-                        className="w-full sm:flex-1 py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50"
+                        className="w-full sm:flex-1 py-3.5 rounded-xl font-bold text-xs sm:text-sm bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center gap-2 shadow-lg shadow-emerald-600/20 active:scale-[0.99] transition-all disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
                       >
                         {isCheckingInDirect ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin text-white" />
                             <span>Confirming Check-In...</span>
                           </>
+                        ) : activeSessionIds.length === 0 ? (
+                          <>
+                            <CheckCircle2 className="w-4 h-4 text-white/60" />
+                            <span>Select Order(s) or Session(s) to Check In</span>
+                          </>
                         ) : (
                           <>
                             <CheckCircle2 className="w-4 h-4 text-white" />
-                            <span>Proceed to Check-In for {activeSessionIds.length} Playing Player(s) →</span>
+                            <span>Proceed to Check-In for {activeSessionIds.length} Selected Session(s) →</span>
                           </>
                         )}
                       </button>

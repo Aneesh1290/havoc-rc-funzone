@@ -184,6 +184,80 @@ interface OrderData {
 }
 
 /**
+ * Cleanly format simulator assignments for printing and export.
+ * Strips redundant time slots entirely (e.g. 5PM-5:30PM) per client specification.
+ * If multiple simulator sessions exist, formats each session on its own row (#1: ..., #2: ...).
+ */
+function formatSimPodiumForExport(order: OrderData): string {
+  const candidateNames: string[] = [];
+  if (order.simulator_name && order.simulator_name.trim()) {
+    candidateNames.push(order.simulator_name.trim());
+  }
+  if (order.items && order.items.length > 0) {
+    for (const item of order.items) {
+      if (item.simulator_name && item.simulator_name.trim()) {
+        const trimmed = item.simulator_name.trim();
+        if (!candidateNames.includes(trimmed)) {
+          candidateNames.push(trimmed);
+        }
+      }
+    }
+  }
+
+  if (candidateNames.length === 0) {
+    return "-";
+  }
+
+  // Remove any time slot substrings (e.g. "5PM-5:30PM", "(5:00PM-6:00PM)", "11AM-12PM")
+  const stripTimeSlots = (str: string) => {
+    return str
+      .replace(/\(?\b\d{1,2}(?::\d{2})?\s*(?:AM|PM)\s*-\s*\d{1,2}(?::\d{2})?\s*(?:AM|PM)\)?/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim();
+  };
+
+  const segments: string[] = [];
+  for (const raw of candidateNames) {
+    const cleaned = stripTimeSlots(raw);
+    if (!cleaned || cleaned === "-") continue;
+    // Multi-session strings are split by "|"
+    const parts = cleaned.split("|").map(p => p.trim()).filter(Boolean);
+    for (const part of parts) {
+      if (!segments.includes(part)) {
+        segments.push(part);
+      }
+    }
+  }
+
+  if (segments.length === 0) {
+    return "-";
+  }
+
+  if (segments.length === 1) {
+    // Single simulator: strip redundant "#1:" prefix if present
+    let single = segments[0].replace(/^#\s*1\s*:\s*/i, "").trim();
+    single = single.replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
+    return single || "-";
+  }
+
+  // Multiple sessions: format each session with its numbered tag on separate lines
+  const lines = segments.map((seg, idx) => {
+    let s = seg.trim();
+    const prefixMatch = s.match(/^#\s*(\d+)(?:\s*\(([^)]+)\))?\s*:\s*(.*)$/i);
+    if (prefixMatch) {
+      const num = prefixMatch[1];
+      const pInfo = prefixMatch[2] ? ` (${prefixMatch[2]})` : "";
+      const name = prefixMatch[3].trim().replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
+      return `#${num}${pInfo}: ${name}`;
+    }
+    s = s.replace(/^[–—\-\s]+|[–—\-\s]+$/g, "").trim();
+    return `#${idx + 1}: ${s}`;
+  });
+
+  return lines.join("\n");
+}
+
+/**
  * Renders a complete Havoc-formatted day report into a specific Worksheet
  */
 function renderDaySheet(
@@ -247,7 +321,7 @@ function renderDaySheet(
     { key: "p", width: 5.5 },             // K: P (Participant)
     { key: "vv", width: 5.5 },            // L: VV (VIP Visitor)
     { key: "vp", width: 5.5 },            // M: VP (VIP Participant)
-    { key: "simPodium", width: 18 },      // N: TYPE OF SIM PODIUM
+    { key: "simPodium", width: 26 },      // N: TYPE OF SIM PODIUM (Widened for clear printing)
     { key: "amtReceived", width: 16 },    // O: AMOUNT RECEIVED
     { key: "amtDue", width: 15 },         // P: AMOUNT DUE
     { key: "status", width: 13 },         // Q: STATUS
@@ -519,9 +593,10 @@ function renderDaySheet(
         grandTotalAmountReceived += received;
         grandTotalAmountDue += due;
 
-        const simPodiumDisplay = order.simulator_name 
-          ? (order.simulator_slot ? `${order.simulator_name} (${order.simulator_slot})` : order.simulator_name)
-          : "-";
+        const simPodiumDisplay = formatSimPodiumForExport(order);
+        const simLineCount = simPodiumDisplay.split("\n").length;
+        // Dynamic row height so multi-session simulators print cleanly without clipping
+        const rowHeight = simLineCount > 1 ? Math.max(24, simLineCount * 17) : 20;
 
         const dataRow = worksheet.addRow([
           currentSl,
@@ -544,7 +619,7 @@ function renderDaySheet(
           order.transaction_id || "-",
           order.payment_ref || "-"
         ]);
-        dataRow.height = 20;
+        dataRow.height = rowHeight;
 
         // Apply solid borders and alignment
         for (let c = 1; c <= 19; c++) {
@@ -552,8 +627,15 @@ function renderDaySheet(
           cell.border = thinBorder;
           cell.font = { name: "Calibri", size: 10 };
 
-          if (c === 3 || c === 4 || c === 6 || c === 14 || c === 18 || c === 19) {
-            cell.alignment = { horizontal: "left", vertical: "middle" };
+          if (c === 14) {
+            // Column 14: TYPE OF SIM PODIUM (wrapText enabled for clean print display)
+            cell.alignment = { 
+              horizontal: simPodiumDisplay === "-" ? "center" : "left", 
+              vertical: "middle", 
+              wrapText: true 
+            };
+          } else if (c === 3 || c === 4 || c === 6 || c === 18 || c === 19) {
+            cell.alignment = { horizontal: "left", vertical: "middle", wrapText: true };
           } else if (c === 15 || c === 16) {
             cell.alignment = { horizontal: "right", vertical: "middle" };
           } else {
@@ -769,9 +851,13 @@ export async function generateBookingsExcelReport(
       if (b.transaction_id && !existing.transaction_id) {
         existing.transaction_id = b.transaction_id;
       }
-      if (b.simulator_name && !existing.simulator_name) {
-        existing.simulator_name = b.simulator_name;
-        existing.simulator_slot = b.simulator_slot;
+      if (b.simulator_name) {
+        if (!existing.simulator_name) {
+          existing.simulator_name = b.simulator_name;
+          existing.simulator_slot = b.simulator_slot;
+        } else if (!existing.simulator_name.includes(b.simulator_name)) {
+          existing.simulator_name = `${existing.simulator_name} | ${b.simulator_name}`;
+        }
       }
     }
     ordersMap.get(orderNum)!.items.push(b);

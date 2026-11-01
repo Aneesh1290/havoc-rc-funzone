@@ -101,6 +101,10 @@ export interface BandColorBreakdown {
   in_reception?: number;
   color_inventory_id?: number;
   subcategories?: BandSubcategoryBreakdown[];
+  time_slot_label?: string | null;
+  slot_sort_order?: number;
+  start_hour?: number;
+  is_subcategory_band?: boolean;
 }
 
 export interface BandInventorySummary {

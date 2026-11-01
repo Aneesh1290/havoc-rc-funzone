@@ -36,7 +36,7 @@ import {
   Tag,
   Shuffle
 } from "lucide-react";
-import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
+import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle, formatTimeSlotLabel, getSlotInfoForColor } from "@/lib/slotColors";
 import { 
   BAND_SUBCATEGORIES,
   normalizeBandCategory,
@@ -82,11 +82,13 @@ import { hasUserPermission } from "@/lib/permissions";
 import {
   fetchCouponBandInventoryAction,
   handoverCouponBandsAction,
+  fetchTimeSlotsAction,
 } from "@/app/actions/tickets";
 import type {
   CouponBandInventoryItem,
   CouponBandBreakdown,
   CouponBandSummary,
+  TimeSlotRow,
 } from "@/lib/db";
 import Link from "next/link";
 
@@ -162,6 +164,7 @@ export default function BandInventoryPage() {
   const [colorFilter, setColorFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [configuredSubcategories, setConfiguredSubcategories] = useState<SubcategoryBandItem[]>([]);
+  const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [pageSize, setPageSize] = useState<number>(50);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -387,7 +390,7 @@ export default function BandInventoryPage() {
       const itemsLimit = pageSize === -1 ? 50000 : pageSize;
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
-      const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes] = await Promise.all([
+      const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes, timeSlotsRes] = await Promise.all([
         getBandInventorySummaryAction(),
         getBandItemsAction({
           search: searchQuery,
@@ -405,6 +408,7 @@ export default function BandInventoryPage() {
         }),
         getSubcategoryBandsAction(),
         fetchCouponBandInventoryAction(),
+        fetchTimeSlotsAction().catch(() => []),
         standardizeAllBandCategoriesAction().catch(() => ({ success: false, updatedCount: 0 })),
       ]);
 
@@ -425,6 +429,9 @@ export default function BandInventoryPage() {
       if (couponBandRes.success && couponBandRes.data) {
         setCouponInventory(couponBandRes.data);
       }
+      if (Array.isArray(timeSlotsRes)) {
+        setTimeSlots(timeSlotsRes);
+      }
     } catch (err: any) {
       console.error("Failed to load inventory data:", err);
       setFeedback({ type: "error", message: "Failed to load band inventory data." });
@@ -439,6 +446,53 @@ export default function BandInventoryPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter]);
+
+  // Arrange colors chronologically by time slot and isolate subcategories
+  const { generalSlotColors, subcategoryColors } = useMemo(() => {
+    const rawBreakdown = summary?.colorBreakdown || [];
+
+    const isSubcategory = (c: BandColorBreakdown) => {
+      const nameUpper = (c.color_name || "").toUpperCase();
+      const hexUpper = (c.color_hex || "").toUpperCase();
+      const inConfigured = configuredSubcategories.some(
+        sub => (sub.color_hex && sub.color_hex.toUpperCase() === hexUpper) ||
+               (sub.color_name && sub.color_name.toUpperCase() === nameUpper)
+      );
+      const hasSpecialKeyword = 
+        nameUpper.includes("VIP") || 
+        nameUpper.includes("VISITOR") || 
+        nameUpper.includes("STAFF") || 
+        nameUpper.includes("MARSHAL") || 
+        nameUpper.includes("CHILD") ||
+        nameUpper.includes("SPECIAL");
+      return inConfigured || hasSpecialKeyword;
+    };
+
+    const general: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor> })[] = [];
+    const subcats: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor> })[] = [];
+
+    for (const c of rawBreakdown) {
+      const slotInfo = getSlotInfoForColor(c.color_hex, c.color_name, timeSlots);
+      if (isSubcategory(c)) {
+        subcats.push({ ...c, slotInfo });
+      } else {
+        general.push({ ...c, slotInfo });
+      }
+    }
+
+    // Sort general slot colors chronologically by track time slot (11-12, 12-1, 1-2, etc.)
+    general.sort((a, b) => {
+      const orderA = a.slotInfo?.startHour ?? (a.slotInfo?.sortOrder ?? 999);
+      const orderB = b.slotInfo?.startHour ?? (b.slotInfo?.sortOrder ?? 999);
+      if (orderA !== orderB) return orderA - orderB;
+      return a.color_name.localeCompare(b.color_name);
+    });
+
+    // Sort subcategories alphabetically
+    subcats.sort((a, b) => a.color_name.localeCompare(b.color_name));
+
+    return { generalSlotColors: general, subcategoryColors: subcats };
+  }, [summary?.colorBreakdown, configuredSubcategories, timeSlots]);
 
   useEffect(() => {
     loadData();
@@ -1542,16 +1596,16 @@ export default function BandInventoryPage() {
             </div>
           </div>
 
-          {/* Color Breakdown Section */}
+          {/* Color Breakdown Section: Ordered by Time Slot + Subcategories Separated */}
           <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5 pb-4 border-b border-gray-100">
               <div>
                 <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
                   <Package className="w-5 h-5 text-[#ff5a1f]" />
-                  <span>Color-Wise Wristband Availability &amp; Stock Levels</span>
+                  <span>Time-Slot Wristband Availability &amp; Stock Levels</span>
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Matches your track time slot color schemes for quick visual verification.
+                  Chronologically arranged according to daily track rotation slots (11:00 AM - 12:00 PM, 12:00 PM - 01:00 PM, etc.).
                 </p>
               </div>
               <div className="flex items-center gap-3 self-start sm:self-auto">
@@ -1561,7 +1615,7 @@ export default function BandInventoryPage() {
                       type="button"
                       onClick={handleSyncSlots}
                       disabled={isSyncingSlots || isRefreshing}
-                      className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
+                      className="text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-1.5 rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50 cursor-pointer"
                       title="Sync colours from configured slots (initial stock 0)"
                     >
                       <Sparkles className={`w-3.5 h-3.5 text-emerald-600 ${isSyncingSlots ? "animate-spin" : ""}`} />
@@ -1573,7 +1627,7 @@ export default function BandInventoryPage() {
                         setIsBulkMode(true);
                         setIsStockInModalOpen(true);
                       }}
-                      className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1"
+                      className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1 cursor-pointer"
                     >
                       <span>+ Batch Generate Bands</span>
                       <ChevronRight className="w-3.5 h-3.5" />
@@ -1583,11 +1637,10 @@ export default function BandInventoryPage() {
               </div>
             </div>
 
+            {/* General Track Slot Wristbands Grid (Arranged chronologically by time slot) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {summary.colorBreakdown.map((color) => {
+              {generalSlotColors.map((color) => {
                 const badgeStyle = getWristbandBadgeStyle(color.color_hex);
-                const availPct = color.total > 0 ? Math.round((color.available / color.total) * 100) : 0;
-
                 return (
                   <div
                     key={color.color_name}
@@ -1599,18 +1652,25 @@ export default function BandInventoryPage() {
                     <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-transparent via-[#ff5a1f]/0 to-transparent group-hover:via-[#ff5a1f] transition-all" />
 
                     <div>
-                      <div className="flex items-center justify-between gap-2 mb-2">
-                        <div className="flex items-center gap-2">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
                           <span
-                            className="w-3.5 h-3.5 rounded-full border shadow-xs"
+                            className="w-3.5 h-3.5 rounded-full border shadow-xs shrink-0"
                             style={{ backgroundColor: color.color_hex }}
                           />
                           <span className="font-bold text-sm text-gray-900 group-hover:text-[#ff5a1f] transition-colors">
                             {color.color_name}
                           </span>
+                          {/* Time Slot Badge Beside Color */}
+                          {color.slotInfo?.formattedSlot && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-black bg-blue-50 text-blue-700 border border-blue-200/90 shadow-2xs">
+                              <Clock className="w-3 h-3 text-blue-600" />
+                              <span>{color.slotInfo.formattedSlot}</span>
+                            </span>
+                          )}
                         </div>
                         <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border ${
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
                             color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
                           }`}
                           style={color.total > 0 ? badgeStyle : undefined}
@@ -1674,33 +1734,13 @@ export default function BandInventoryPage() {
                     {color.subcategories && color.subcategories.length > 0 && (
                       <div className="mt-2.5 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
                         {color.subcategories.map((sub) => {
-                          const norm = normalizeBandCategory(sub.category);
-                          let icon = "🎫";
-                          let pillStyle = "bg-gray-50 border-gray-200 text-gray-700";
-                          if (norm === "Participant") {
-                            icon = "🏎️";
-                            pillStyle = "bg-blue-50/80 border-blue-200 text-blue-900";
-                          } else if (norm === "Visitor") {
-                            icon = "☕";
-                            pillStyle = "bg-emerald-50/80 border-emerald-200 text-emerald-900";
-                          } else if (norm === "VIP Participant") {
-                            icon = "👑";
-                            pillStyle = "bg-purple-50/80 border-purple-200 text-purple-900";
-                          } else if (norm === "VIP Visitor") {
-                            icon = "⭐";
-                            pillStyle = "bg-amber-50/80 border-amber-200 text-amber-900";
-                          } else if (norm === "Staff / Marshal") {
-                            icon = "🛡️";
-                            pillStyle = "bg-pink-50/80 border-pink-200 text-pink-900";
-                          }
-
                           return (
                             <span
                               key={sub.category}
-                              className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${pillStyle}`}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border bg-gray-50 border-gray-200 text-gray-700"
                               title={`${sub.category}: ${sub.available} in warehouse, ${sub.in_reception} in reception, ${sub.issued} issued`}
                             >
-                              <span>{icon} {sub.category}:</span>
+                              <span>🎫 {sub.category}:</span>
                               <strong className="font-mono text-gray-900">{sub.available} avail</strong>
                               {sub.in_reception > 0 && (
                                 <span className="font-mono text-amber-800 font-bold">({sub.in_reception} rec)</span>
@@ -1733,6 +1773,138 @@ export default function BandInventoryPage() {
                 );
               })}
             </div>
+
+            {/* Sub-Category Bands Section (Kept completely separate from general slot colors) */}
+            {subcategoryColors.length > 0 && (
+              <div className="mt-8 pt-6 border-t-2 border-purple-100 bg-gradient-to-b from-purple-50/40 via-purple-50/15 to-transparent -mx-6 -mb-6 p-6 rounded-b-2xl">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-purple-600" />
+                      <span>Sub-Category &amp; Special Universal Wristbands</span>
+                      <span className="text-[10px] font-black px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">
+                        {subcategoryColors.length} special types
+                      </span>
+                    </h4>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Promotional, VIP, Visitor, and Staff passes kept separate from the hourly track slot rotation colors.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {subcategoryColors.map((color) => {
+                    const badgeStyle = getWristbandBadgeStyle(color.color_hex);
+                    return (
+                      <div
+                        key={color.color_name}
+                        onClick={() => handleColorCardPress(color)}
+                        role="button"
+                        tabIndex={0}
+                        className="p-4 rounded-xl border border-purple-200 bg-white hover:border-purple-400 hover:shadow-md transition-all shadow-xs flex flex-col justify-between cursor-pointer group relative overflow-hidden"
+                      >
+                        <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-transparent via-purple-500/0 to-transparent group-hover:via-purple-500 transition-all" />
+
+                        <div>
+                          <div className="flex items-start justify-between gap-2 mb-2">
+                            <div className="flex items-center gap-2 flex-wrap min-w-0">
+                              <span
+                                className="w-3.5 h-3.5 rounded-full border shadow-xs shrink-0"
+                                style={{ backgroundColor: color.color_hex }}
+                              />
+                              <span className="font-bold text-sm text-gray-900 group-hover:text-purple-700 transition-colors">
+                                {color.color_name}
+                              </span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                <Sparkles className="w-3 h-3 text-purple-500" />
+                                <span>Sub-Category Pass</span>
+                              </span>
+                            </div>
+                            <span
+                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                                color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
+                              }`}
+                              style={color.total > 0 ? badgeStyle : undefined}
+                            >
+                              {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
+                            </span>
+                          </div>
+
+                          {/* Stock Bar */}
+                          {color.total > 0 ? (
+                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
+                              <div
+                                className="bg-emerald-500 h-full transition-all duration-300"
+                                style={{ width: `${(color.available / color.total) * 100}%` }}
+                                title={`Available: ${color.available}`}
+                              />
+                              <div
+                                className="bg-amber-400 h-full transition-all duration-300"
+                                style={{ width: `${(color.issued / color.total) * 100}%` }}
+                                title={`Issued: ${color.issued}`}
+                              />
+                              <div
+                                className="bg-red-400 h-full transition-all duration-300"
+                                style={{ width: `${(color.damaged / color.total) * 100}%` }}
+                                title={`Damaged: ${color.damaged}`}
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2 rounded-full my-2.5" title="No bands in inventory yet" />
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-gray-100 text-center">
+                          <div>
+                            <span className="block text-[10px] uppercase font-bold text-gray-400">In Stock</span>
+                            <span className={`font-mono font-bold text-xs ${color.available > 0 ? "text-emerald-700" : "text-gray-400"}`}>
+                              {color.available}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] uppercase font-bold text-amber-600">Reception</span>
+                            <span className={`font-mono font-bold text-xs ${(color.in_reception || 0) > 0 ? "text-amber-700 font-black" : "text-gray-400"}`}>
+                              {color.in_reception || 0}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] uppercase font-bold text-gray-400">Issued</span>
+                            <span className={`font-mono font-bold text-xs ${color.issued > 0 ? "text-blue-700" : "text-gray-400"}`}>
+                              {color.issued}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="block text-[10px] uppercase font-bold text-gray-400">Damaged</span>
+                            <span className={`font-mono font-bold text-xs ${color.damaged > 0 ? "text-red-600" : "text-gray-400"}`}>
+                              {color.damaged}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="mt-2.5 pt-2 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400 group-hover:text-purple-600 font-medium transition-colors">
+                          <span className="flex items-center gap-1 font-semibold">
+                            {canManageStock ? (
+                              <>
+                                <Plus className="w-3 h-3 text-purple-600" />
+                                {color.total > 0 ? "Manage & Add Series" : "Add Inventory Now"}
+                              </>
+                            ) : (
+                              <>
+                                <Eye className="w-3 h-3 text-purple-600" />
+                                <span>View Bands &amp; Details</span>
+                              </>
+                            )}
+                          </span>
+                          <span className="flex items-center gap-0.5 font-bold">
+                            Options <ChevronRight className="w-3 h-3 group-hover:translate-x-0.5 transition-transform" />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

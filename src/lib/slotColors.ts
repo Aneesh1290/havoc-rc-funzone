@@ -163,3 +163,95 @@ export function getWristbandBadgeStyle(hex: string): {
   };
 }
 
+/**
+ * Formats time slot labels like "11AM-12PM" -> "11:00 AM - 12:00 PM"
+ * Handles formats like "11AM-12PM", "11-12", "1PM-2PM", etc.
+ */
+export function formatTimeSlotLabel(label?: string | null): string {
+  if (!label) return "";
+  const clean = label.trim();
+  
+  // Format: "11AM-12PM" or "11AM - 12PM"
+  const m = clean.match(/^(\d{1,2})\s*(AM|PM)?\s*[-–]\s*(\d{1,2})\s*(AM|PM)$/i);
+  if (m) {
+    const sNum = parseInt(m[1], 10);
+    const sAmPm = m[2] ? m[2].toUpperCase() : (sNum === 12 ? "PM" : sNum >= 11 ? "AM" : "PM");
+    const eNum = parseInt(m[3], 10);
+    const eAmPm = m[4] ? m[4].toUpperCase() : "PM";
+    return `${String(sNum).padStart(2, "0")}:00 ${sAmPm} - ${String(eNum).padStart(2, "0")}:00 ${eAmPm}`;
+  }
+
+  // If simple number range like "11-12" or "12-1"
+  const mSimple = clean.match(/^(\d{1,2})\s*[-–]\s*(\d{1,2})$/);
+  if (mSimple) {
+    const s = parseInt(mSimple[1], 10);
+    const e = parseInt(mSimple[2], 10);
+    const sAmPm = s === 12 ? "PM" : s >= 11 ? "AM" : "PM";
+    const eAmPm = e === 12 ? "PM" : e < 11 ? "PM" : "AM";
+    return `${String(s).padStart(2, "0")}:00 ${sAmPm} - ${String(e).padStart(2, "0")}:00 ${eAmPm}`;
+  }
+
+  return clean;
+}
+
+/**
+ * Resolves which time slot a wristband color belongs to, based on database time slots and standard rotation fallback.
+ */
+export function getSlotInfoForColor(
+  colorHex: string,
+  colorName: string,
+  timeSlots: { label: string; start_hour?: number | null; end_hour?: number | null; sort_order?: number | null; color?: string | null; color_name?: string | null }[] = []
+): { slotLabel: string; formattedSlot: string; sortOrder: number; startHour: number } | null {
+  const cleanHex = (colorHex || "").trim().toUpperCase();
+  const cleanName = (colorName || "").trim().toLowerCase();
+
+  // 1. Match against database time_slots
+  for (const s of timeSlots) {
+    const sHex = (s.color || "").trim().toUpperCase();
+    const sName = (s.color_name || "").trim().toLowerCase();
+    const hexMatch = Boolean(sHex && sHex === cleanHex);
+    const nameMatch = Boolean(sName && (sName === cleanName || cleanName.includes(sName)));
+
+    if (hexMatch || nameMatch) {
+      const sHour = s.start_hour ?? 99;
+      return {
+        slotLabel: s.label,
+        formattedSlot: formatTimeSlotLabel(s.label),
+        sortOrder: s.sort_order ?? sHour,
+        startHour: sHour,
+      };
+    }
+  }
+
+  // 2. Fallback to standard DEFAULT_SLOT_COLORS:
+  const defaultSlotOrder: { label: string; hex: string; hour: number; name: string }[] = [
+    { label: "11AM-12PM", hex: "#FFF0B3", hour: 11, name: "yellow" },
+    { label: "12PM-1PM",  hex: "#10B981", hour: 12, name: "green" },
+    { label: "1PM-2PM",   hex: "#EF4444", hour: 13, name: "red" },
+    { label: "2PM-3PM",   hex: "#3B82F6", hour: 14, name: "blue" },
+    { label: "3PM-4PM",   hex: "#F97316", hour: 15, name: "orange" },
+    { label: "4PM-5PM",   hex: "#8B5CF6", hour: 16, name: "purple" },
+    { label: "5PM-6PM",   hex: "#18181B", hour: 17, name: "black" },
+    { label: "6PM-7PM",   hex: "#1AF9F9", hour: 18, name: "aqua" },
+    { label: "7PM-8PM",   hex: "#F4F4F5", hour: 19, name: "white" },
+    { label: "8PM-9PM",   hex: "#FFD700", hour: 20, name: "gold" },
+    { label: "9PM-10PM",  hex: "#06B6D4", hour: 21, name: "cyan" },
+    { label: "10PM-11PM", hex: "#EC4899", hour: 22, name: "pink" },
+    { label: "11PM-12AM", hex: "#64748B", hour: 23, name: "slate" },
+  ];
+
+  for (const def of defaultSlotOrder) {
+    if (def.hex.toUpperCase() === cleanHex || cleanName === def.name || cleanName.includes(def.name)) {
+      return {
+        slotLabel: def.label,
+        formattedSlot: formatTimeSlotLabel(def.label),
+        sortOrder: def.hour,
+        startHour: def.hour,
+      };
+    }
+  }
+
+  return null;
+}
+
+

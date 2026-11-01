@@ -67,7 +67,8 @@ import {
   deleteAllBandInventoryAction,
   quickLookupBandAction,
   previewHandoverRangeAction,
-  handoverWristbandsAction
+  handoverWristbandsAction,
+  standardizeAllBandCategoriesAction
 } from "@/app/actions/band-inventory";
 import { 
   syncColorInventoryAction, 
@@ -177,7 +178,7 @@ export default function BandInventoryPage() {
   // Form States: Single Stock In
   const [newBandCode, setNewBandCode] = useState("");
   const [selectedColor, setSelectedColor] = useState(WRISTBAND_PALETTE[0]);
-  const [selectedCategory, setSelectedCategory] = useState<BandCategory>("Participant");
+  const [selectedCategory, setSelectedCategory] = useState<BandCategory>("Standard");
   const [newBandNotes, setNewBandNotes] = useState("");
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false);
 
@@ -404,6 +405,7 @@ export default function BandInventoryPage() {
         }),
         getSubcategoryBandsAction(),
         fetchCouponBandInventoryAction(),
+        standardizeAllBandCategoriesAction().catch(() => ({ success: false, updatedCount: 0 })),
       ]);
 
       if (summaryRes.success && summaryRes.data) {
@@ -2372,12 +2374,12 @@ export default function BandInventoryPage() {
                 className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
               >
                 <option value="all">All Subcategories</option>
+                <option value="Standard">🎫 Standard (Default)</option>
                 <option value="Participant">🏎️ Participant</option>
                 <option value="Visitor">☕ Visitor</option>
                 <option value="VIP Participant">👑 VIP Participant</option>
                 <option value="VIP Visitor">⭐ VIP Visitor</option>
                 <option value="Staff / Marshal">🛡️ Staff / Marshal</option>
-                <option value="Standard">🎫 Standard</option>
                 <option value="Child">🧒 Child</option>
                 {configuredSubcategories
                   .filter(c => !["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal", "Standard", "Child"].includes(c.category_name))
@@ -2405,6 +2407,29 @@ export default function BandInventoryPage() {
                   <option value={-1}>All ({totalItemsCount})</option>
                 </select>
               </div>
+
+              {/* Standardize All Categories Button */}
+              {canManageStock && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const res = await standardizeAllBandCategoriesAction();
+                    if (res.success) {
+                      setFeedback({
+                        type: "success",
+                        message: `Successfully standardized wristbands to category 'Standard'!`
+                      });
+                      loadData(true);
+                    } else {
+                      setFeedback({ type: "error", message: res.error || "Failed to standardize categories" });
+                    }
+                  }}
+                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300 px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all self-start sm:self-auto cursor-pointer"
+                  title="Make all wristbands category Standard from backend"
+                >
+                  <span>🏷️ Standardize All to Standard</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -3206,12 +3231,12 @@ export default function BandInventoryPage() {
                   }}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 >
+                  <option value="Standard">🎫 Standard (General Entry)</option>
                   <option value="Participant">🏎️ Participant (Full RC Zone Pass)</option>
                   <option value="Visitor">☕ Visitor (Companion / Lounge)</option>
                   <option value="VIP Participant">👑 VIP Participant (RC + Simulator)</option>
                   <option value="VIP Visitor">⭐ VIP Visitor (Simulator Pass)</option>
                   <option value="Staff / Marshal">🛡️ Staff / Track Marshal</option>
-                  <option value="Standard">🎫 Standard (General Entry)</option>
                   <option value="Child">🧒 Child / Junior Racer</option>
                   {configuredSubcategories
                     .filter(c => !["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal", "Standard", "Child"].includes(c.category_name))
@@ -3830,12 +3855,12 @@ export default function BandInventoryPage() {
                   onChange={(e) => setEditCategory(e.target.value as BandCategory)}
                   className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 >
+                  <option value="Standard">🎫 Standard</option>
                   <option value="Participant">🏎️ Participant</option>
                   <option value="Visitor">☕ Visitor</option>
                   <option value="VIP Participant">👑 VIP Participant</option>
                   <option value="VIP Visitor">⭐ VIP Visitor</option>
                   <option value="Staff / Marshal">🛡️ Staff / Marshal</option>
-                  <option value="Standard">🎫 Standard</option>
                   <option value="Child">🧒 Child</option>
                 </select>
               </div>

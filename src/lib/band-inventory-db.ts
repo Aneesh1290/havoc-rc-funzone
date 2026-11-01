@@ -69,6 +69,7 @@ async function ensurePgSchema() {
       END $$;
 
       ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
+      UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard';
       CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
       CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
       CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
@@ -143,6 +144,11 @@ export const TARGET_SLOT_BAND_COLORS: { code: string; name: string; hex: string;
 export async function ensureBandInventorySeeded(force: boolean = false) {
   initDB();
 
+  // Standardize any existing bands to 'Standard' category
+  try {
+    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'").run();
+  } catch (e) {}
+
   // Check persistent seeded flag in SQLite unless force is true
   try {
     const flagRow = db.prepare("SELECT value FROM site_settings WHERE key = 'band_inventory_seeded'").get() as { value: string } | undefined;
@@ -190,6 +196,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
   if (isPostgresActive()) {
     try {
       await ensurePgSchema();
+      try {
+        await simulatorPool.query("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'");
+      } catch (_) {}
       const countsRes = await simulatorPool.query(`
         SELECT
           COUNT(*)::int AS total,
@@ -403,6 +412,10 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
   }
 
   // SQLite fallback
+  try {
+    initDB();
+    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'").run();
+  } catch (_) {}
   const counts = db.prepare(`
     SELECT
       COUNT(*) AS total,
@@ -680,7 +693,8 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       }
 
       const itemsRes = await simulatorPool.query(querySql, params);
-      return { items: itemsRes.rows as BandItem[], totalCount };
+      const items = (itemsRes.rows as BandItem[]).map(i => ({ ...i, category: "Standard" as BandCategory }));
+      return { items, totalCount };
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for items:", pgErr);
     }
@@ -730,14 +744,11 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
     ORDER BY ${sortBy} ${sortOrder}
   `;
 
-  if (options.limit && options.limit > 0) {
-    querySql += ` LIMIT ? OFFSET ?`;
-    const offset = Math.max(0, options.offset || 0);
-    const items = db.prepare(querySql).all(...params, options.limit, offset) as BandItem[];
-    return { items, totalCount };
-  }
+  const rawItems = (options.limit && options.limit > 0)
+    ? db.prepare(querySql).all(...params, options.limit, Math.max(0, options.offset || 0)) as BandItem[]
+    : db.prepare(querySql).all(...params) as BandItem[];
 
-  const items = db.prepare(querySql).all(...params) as BandItem[];
+  const items = rawItems.map(i => ({ ...i, category: "Standard" as BandCategory }));
   return { items, totalCount };
 }
 
@@ -813,7 +824,7 @@ export async function createBandItem(data: {
       return { success: false, error: `Band ID '${cleanCode}' already exists for color '${data.color_name}'.` };
     }
 
-    const category = data.category || "Standard";
+    const category = "Standard";
     const notes = data.notes?.trim() || null;
     const staffName = data.staff_name || "Admin Staff";
 
@@ -890,7 +901,7 @@ export async function bulkCreateBandItems(data: {
     const prefix = (data.prefix || "").trim().toUpperCase();
     const count = Math.min(Math.max(1, data.count), 50000);
     const startNum = Math.max(0, data.startingNumber ?? 1);
-    const category = data.category || "Standard";
+    const category = "Standard";
     const staffName = data.staff_name || "Admin Staff";
     const notes = data.notes?.trim() || `Batch Stock-In of ${count} bands`;
     // If separator is explicitly specified (e.g. "" for no dash), honor it; otherwise default to "-" unless prefix ends with dash
@@ -2428,3 +2439,30 @@ export async function getBandTransactions(options: GetBandTransactionsOptions = 
   const transactions = db.prepare(querySql).all(...params) as BandTransaction[];
   return { transactions, totalCount };
 }
+
+/**
+ * Standardizes ALL band items across PostgreSQL and SQLite so their category is set to 'Standard'.
+ */
+export async function standardizeAllBandCategories(): Promise<{ success: boolean; updatedCount: number }> {
+  let updatedCount = 0;
+  if (isPostgresActive()) {
+    try {
+      await ensurePgSchema();
+      const res = await simulatorPool.query("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'");
+      updatedCount += res.rowCount || 0;
+    } catch (pgErr) {
+      console.warn("[Band Inventory] Fallback to SQLite for standardizeAllBandCategories:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    const res = db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'").run();
+    updatedCount += res.changes || 0;
+  } catch (sqliteErr) {
+    console.warn("[Band Inventory] SQLite standardize error:", sqliteErr);
+  }
+
+  return { success: true, updatedCount };
+}
+

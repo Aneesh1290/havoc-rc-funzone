@@ -277,6 +277,7 @@ export function initDB() {
     }
   } catch (migErr) {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_band_items_code_color ON band_items(band_code, color_name)'); } catch (e) {}
+  try { db.exec("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT \'all\''); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
   try {

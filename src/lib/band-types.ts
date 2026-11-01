@@ -25,14 +25,13 @@ export const BAND_SUBCATEGORIES = [
 export function normalizeBandCategory(cat?: string | null): string {
   if (!cat) return "Standard";
   const clean = cat.trim().toUpperCase().replace(/[\s_-]+/g, " ");
-  if (clean.includes("VIP") && clean.includes("PARTICIPANT")) return "VIP Participant";
+  // Standardize Participant, Standard, and generic entries to "Standard"
+  if (clean === "PARTICIPANT" || clean.includes("PARTICIPANT") || clean === "STANDARD" || clean === "") return "Standard";
   if (clean.includes("VIP") && clean.includes("VISITOR")) return "VIP Visitor";
-  if (clean.includes("PARTICIPANT")) return "Participant";
   if (clean.includes("VISITOR")) return "Visitor";
   if (clean.includes("STAFF") || clean.includes("MARSHAL")) return "Staff / Marshal";
-  if (clean === "VIP") return "VIP Participant";
   if (clean === "CHILD") return "Child";
-  return cat.trim();
+  return "Standard";
 }
 
 export type BandTransactionType = 

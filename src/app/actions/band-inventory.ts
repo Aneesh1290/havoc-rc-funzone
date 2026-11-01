@@ -20,6 +20,7 @@ import {
   deleteAllBandInventory,
   getBandTransactions,
   previewHandoverRange,
+  standardizeAllBandCategories,
   BandItem,
   BandTransaction,
   BandInventorySummary,
@@ -353,5 +354,22 @@ export async function handoverWristbandsAction(params: {
   } catch (err: any) {
     console.error("[handoverWristbandsAction Error]", err);
     return { success: false, movedCount: 0, bandCodes: [], error: err.message || "Handover failed" };
+  }
+}
+
+export async function standardizeAllBandCategoriesAction(): Promise<{
+  success: boolean;
+  updatedCount: number;
+  error?: string;
+}> {
+  try {
+    await getStaffSession();
+    const result = await standardizeAllBandCategories();
+    revalidatePath("/admin/bands");
+    revalidatePath("/admin/slots");
+    return result;
+  } catch (err: any) {
+    console.error("[standardizeAllBandCategoriesAction Error]", err);
+    return { success: false, updatedCount: 0, error: err.message || "Failed to standardize categories" };
   }
 }

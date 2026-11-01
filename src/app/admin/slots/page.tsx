@@ -233,11 +233,11 @@ export default function SlotsManagementPage() {
   const [editingSubcategoryBand, setEditingSubcategoryBand] = useState<SubcategoryBandItem | null>(null);
   const [isSubmittingSubcat, setIsSubmittingSubcat] = useState(false);
   const [subcatForm, setSubcatForm] = useState({
-    categoryName: "Participant",
+    categoryName: "Standard",
     customCategoryName: "",
-    color: "#3B82F6",
-    colorName: "Royal Blue",
-    remark: "Universal RC Track Pass Band",
+    color: "#64748B",
+    colorName: "Slate Grey",
+    remark: "Standard Entry Band",
     initialStock: 0,
     initialReception: 0
   });
@@ -1556,11 +1556,11 @@ export default function SlotsManagementPage() {
                 onClick={() => {
                   setEditingSubcategoryBand(null);
                   setSubcatForm({
-                    categoryName: "Participant",
+                    categoryName: "Standard",
                     customCategoryName: "",
-                    color: "#3B82F6",
-                    colorName: "Royal Blue",
-                    remark: "Universal RC Track Pass Band",
+                    color: "#64748B",
+                    colorName: "Slate Grey",
+                    remark: "Standard Entry Band",
                     initialStock: 0,
                     initialReception: 0
                   });
@@ -1625,6 +1625,7 @@ export default function SlotsManagementPage() {
                   </label>
                   <div className="flex flex-wrap items-center gap-2">
                     {[
+                      { id: "Standard", name: "Standard", desc: "Standard Entry Pass" },
                       { id: "Participant", name: "Participant", desc: "Full RC Track Pass" },
                       { id: "Visitor", name: "Visitor", desc: "Companion / Lounge Pass" },
                       { id: "VIP Participant", name: "VIP Participant", desc: "Track + Podium Session" },
@@ -2393,11 +2394,11 @@ export default function SlotsManagementPage() {
                 onClick={() => {
                   setEditingSubcategoryBand(null);
                   setSubcatForm({
-                    categoryName: "Participant",
+                    categoryName: "Standard",
                     customCategoryName: "",
-                    color: "#3B82F6",
-                    colorName: "Royal Blue",
-                    remark: "Universal RC Track Pass Band",
+                    color: "#64748B",
+                    colorName: "Slate Grey",
+                    remark: "Standard Entry Band",
                     initialStock: 0,
                     initialReception: 0
                   });

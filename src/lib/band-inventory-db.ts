@@ -3,81 +3,20 @@ import { simulatorPool } from "./simulator-db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "./slotColors";
 import { getDistinctSlotColors, ensureColorInventorySchema } from "./color-inventory-db";
 
-export type BandStatus = "available" | "issued" | "damaged" | "lost" | "retired";
-export type BandCategory = "Standard" | "VIP" | "Child" | "Staff / Marshal";
-export type BandLocation = "warehouse" | "reception";
-
-export type BandTransactionType = 
-  | "STOCK_IN" 
-  | "STOCK_OUT" 
-  | "HANDOVER"
-  | "ISSUE" 
-  | "RETURN" 
-  | "DAMAGED" 
-  | "LOST" 
-  | "STATUS_CHANGE";
-
-export interface BandItem {
-  id: number;
-  band_code: string;
-  color_name: string;
-  color_hex: string;
-  category: BandCategory;
-  status: BandStatus;
-  location?: BandLocation;
-  current_holder_name?: string | null;
-  current_booking_id?: number | null;
-  current_order_number?: string | null;
-  total_uses: number;
-  notes?: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface BandTransaction {
-  id: number;
-  band_id: number;
-  band_code: string;
-  color_name: string;
-  color_hex: string;
-  transaction_type: BandTransactionType;
-  quantity: number;
-  customer_name?: string | null;
-  booking_id?: number | null;
-  order_number?: string | null;
-  staff_name?: string | null;
-  notes?: string | null;
-  created_at: string;
-}
-
-export interface BandColorBreakdown {
-  color_name: string;
-  color_hex: string;
-  total: number;
-  available: number;
-  issued: number;
-  damaged: number;
-  lost: number;
-  retired: number;
-  in_reception?: number;
-  color_inventory_id?: number;
-}
-
-export interface BandInventorySummary {
-  totalBands: number;
-  available: number;
-  issued: number;
-  damaged: number;
-  lost: number;
-  retired: number;
-  activeInventory: number;
-  issuedToday: number;
-  returnedToday: number;
-  availabilityRate: number;
-  colorBreakdown: BandColorBreakdown[];
-  categoryBreakdown: { category: string; total: number; available: number; issued: number }[];
-  lowStockColors: { color_name: string; color_hex: string; available: number }[];
-}
+export * from "./band-types";
+import { 
+  BandStatus, 
+  BandCategory, 
+  BandLocation, 
+  BandTransactionType, 
+  BandItem, 
+  BandTransaction, 
+  BandSubcategoryBreakdown, 
+  BandColorBreakdown, 
+  BandInventorySummary, 
+  BAND_SUBCATEGORIES, 
+  normalizeBandCategory 
+} from "./band-types";
 
 function isPostgresActive(): boolean {
   const url = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL;
@@ -369,6 +308,49 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         }
       } catch (ignoreInv) {}
 
+      // Subcategories breakdown grouped by (color_name, color_hex, category)
+      try {
+        const subcatRes = await simulatorPool.query(`
+          SELECT
+            color_name,
+            color_hex,
+            COALESCE(category, 'Standard') as category,
+            COUNT(*)::int as total,
+            SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
+            SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
+            SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
+            SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired,
+            SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
+            SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse
+          FROM band_items
+          GROUP BY color_name, color_hex, category
+          ORDER BY color_name ASC, total DESC
+        `);
+
+        for (const row of subcatRes.rows) {
+          const hex = (row.color_hex || "").trim().toUpperCase();
+          const name = (row.color_name || "").trim();
+          const targetBreakdown = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+          if (targetBreakdown) {
+            if (!targetBreakdown.subcategories) targetBreakdown.subcategories = [];
+            targetBreakdown.subcategories.push({
+              category: row.category,
+              total: Number(row.total || 0),
+              available: Number(row.available || 0),
+              issued: Number(row.issued || 0),
+              damaged: Number(row.damaged || 0),
+              lost: Number(row.lost || 0),
+              retired: Number(row.retired || 0),
+              in_reception: Number(row.in_reception || 0),
+              warehouse: Number(row.warehouse || 0),
+            });
+          }
+        }
+      } catch (errSubcat) {
+        console.warn("[Band Inventory] Subcategory query notice:", errSubcat);
+      }
+
       const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
         if (b.total !== a.total) return b.total - a.total;
         return a.color_name.localeCompare(b.color_name);
@@ -538,6 +520,49 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       }
     }
   } catch (ignoreInv) {}
+
+  // Subcategories breakdown grouped by (color_name, color_hex, category) in SQLite
+  try {
+    const sqliteSubcats = db.prepare(`
+      SELECT
+        color_name,
+        color_hex,
+        COALESCE(category, 'Standard') as category,
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) as available,
+        SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued,
+        SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END) as damaged,
+        SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END) as lost,
+        SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END) as retired,
+        SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END) as in_reception,
+        SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END) as warehouse
+      FROM band_items
+      GROUP BY color_name, color_hex, category
+      ORDER BY color_name ASC, total DESC
+    `).all() as any[];
+
+    for (const row of sqliteSubcats) {
+      const hex = (row.color_hex || "").trim().toUpperCase();
+      const name = (row.color_name || "").trim();
+      const targetBreakdown = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+      if (targetBreakdown) {
+        if (!targetBreakdown.subcategories) targetBreakdown.subcategories = [];
+        targetBreakdown.subcategories.push({
+          category: row.category,
+          total: Number(row.total || 0),
+          available: Number(row.available || 0),
+          issued: Number(row.issued || 0),
+          damaged: Number(row.damaged || 0),
+          lost: Number(row.lost || 0),
+          retired: Number(row.retired || 0),
+          in_reception: Number(row.in_reception || 0),
+          warehouse: Number(row.warehouse || 0),
+        });
+      }
+    }
+  } catch (sqliteSubErr) {
+    console.warn("[Band Inventory SQLite] Subcategory query notice:", sqliteSubErr);
+  }
 
   const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
     if (b.total !== a.total) return b.total - a.total;
@@ -1039,6 +1064,8 @@ export async function issueBandItem(data: {
   band_code?: string;
   color_hex?: string;
   color_name?: string;
+  expected_category?: string;
+  allow_category_override?: boolean;
   customer_name?: string;
   booking_id?: number;
   order_number?: string;
@@ -1055,6 +1082,18 @@ export async function issueBandItem(data: {
         success: false, 
         error: `Wristband '${data.band_code || data.band_id}' does not exist in inventory for this color.` 
       };
+    }
+
+    // Category / Subcategory validation if ticket type was specified
+    if (data.expected_category && !data.allow_category_override && band.category) {
+      const normExpected = normalizeBandCategory(data.expected_category);
+      const normBand = normalizeBandCategory(band.category);
+      if (normBand !== "Standard" && normExpected !== "Standard" && normBand !== normExpected) {
+        return {
+          success: false,
+          error: `Subcategory Mismatch: Band '${band.band_code}' is registered as '${band.category}', but this ticket requires a '${normExpected}' band.`
+        };
+      }
     }
 
     if (band.location !== "reception") {
@@ -1376,6 +1415,7 @@ export async function stockOutBandItem(data: {
 export async function handoverWristbandsToReception(data: {
   color_name?: string;
   color_hex?: string;
+  category?: string;
   amount: number;
   staff_name?: string;
   notes?: string;
@@ -1388,7 +1428,7 @@ export async function handoverWristbandsToReception(data: {
   error?: string;
 }> {
   try {
-    const { color_name, color_hex, amount } = data;
+    const { color_name, color_hex, category, amount } = data;
     const cleanAmount = Math.floor(amount);
     if (cleanAmount <= 0) {
       return { success: false, movedCount: 0, bandCodes: [], error: "Invalid handover quantity." };
@@ -1416,6 +1456,11 @@ export async function handoverWristbandsToReception(data: {
           } else if (color_name) {
             whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
             whereParams.push(color_name.trim());
+          }
+
+          if (category && category !== "all") {
+            whereParts.push(`LOWER(category) = LOWER($${pIdx++})`);
+            whereParams.push(category.trim());
           }
 
           whereParams.push(cleanAmount);
@@ -1482,6 +1527,11 @@ export async function handoverWristbandsToReception(data: {
       params.push(color_name.trim().toLowerCase());
     }
 
+    if (category && category !== "all") {
+      whereParts.push("LOWER(category) = ?");
+      params.push(category.trim().toLowerCase());
+    }
+
     params.push(cleanAmount);
     const selectSql = `
       SELECT id, band_code, color_name, color_hex
@@ -1531,6 +1581,7 @@ export async function handoverWristbandsToReception(data: {
 export async function previewHandoverRange(data: {
   color_name?: string;
   color_hex?: string;
+  category?: string;
   amount: number;
 }): Promise<{
   success: boolean;
@@ -1542,7 +1593,7 @@ export async function previewHandoverRange(data: {
   error?: string;
 }> {
   try {
-    const { color_name, color_hex, amount } = data;
+    const { color_name, color_hex, category, amount } = data;
     const cleanAmount = Math.max(0, Math.floor(amount));
     await ensureBandInventorySeeded();
 
@@ -1558,6 +1609,11 @@ export async function previewHandoverRange(data: {
         } else if (color_name) {
           whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
           params.push(color_name.trim());
+        }
+
+        if (category && category !== "all") {
+          whereParts.push(`LOWER(category) = LOWER($${pIdx++})`);
+          params.push(category.trim());
         }
 
         const countRes = await simulatorPool.query(
@@ -1606,6 +1662,11 @@ export async function previewHandoverRange(data: {
       params.push(color_name.trim().toLowerCase());
     }
 
+    if (category && category !== "all") {
+      whereParts.push("LOWER(category) = ?");
+      params.push(category.trim().toLowerCase());
+    }
+
     const countRow = db.prepare(`SELECT COUNT(*) as cnt FROM band_items WHERE ${whereParts.join(" AND ")}`).get(...params) as { cnt: number };
     const totalAvailable = countRow ? countRow.cnt : 0;
 
@@ -1645,6 +1706,7 @@ export async function previewHandoverRange(data: {
 export async function returnWristbandsFromReception(data: {
   color_name?: string;
   color_hex?: string;
+  category?: string;
   amount: number;
   staff_name?: string;
   notes?: string;
@@ -1655,7 +1717,7 @@ export async function returnWristbandsFromReception(data: {
   error?: string;
 }> {
   try {
-    const { color_name, color_hex, amount } = data;
+    const { color_name, color_hex, category, amount } = data;
     const cleanAmount = Math.floor(amount);
     if (cleanAmount <= 0) {
       return { success: false, returnedCount: 0, bandCodes: [], error: "Invalid return quantity." };
@@ -1683,6 +1745,11 @@ export async function returnWristbandsFromReception(data: {
           } else if (color_name) {
             whereParts.push(`LOWER(color_name) = LOWER($${pIdx++})`);
             whereParams.push(color_name.trim());
+          }
+
+          if (category && category !== "all") {
+            whereParts.push(`LOWER(category) = LOWER($${pIdx++})`);
+            whereParams.push(category.trim());
           }
 
           whereParams.push(cleanAmount);
@@ -1745,6 +1812,11 @@ export async function returnWristbandsFromReception(data: {
     } else if (color_name) {
       whereParts.push("LOWER(color_name) = ?");
       params.push(color_name.trim().toLowerCase());
+    }
+
+    if (category && category !== "all") {
+      whereParts.push("LOWER(category) = ?");
+      params.push(category.trim().toLowerCase());
     }
 
     params.push(cleanAmount);

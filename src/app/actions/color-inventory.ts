@@ -11,7 +11,13 @@ import {
   returnColorFromReception,
   setColorReception,
   deleteColorInventoryRecord,
+  getSubcategoryBands,
+  createSubcategoryBand,
+  updateSubcategoryBand,
+  toggleSubcategoryBandStatus,
+  deleteSubcategoryBand,
   WristbandColorInventoryItem,
+  SubcategoryBandItem,
 } from "@/lib/color-inventory-db";
 
 /**
@@ -184,3 +190,117 @@ export async function deleteColorInventoryAction(id: number): Promise<{
     return { success: false, error: err.message || "Failed to delete inventory record" };
   }
 }
+
+/**
+ * =========================================================================
+ * UNIVERSAL SUB-CATEGORY BANDS ACTIONS
+ * =========================================================================
+ */
+
+export async function getSubcategoryBandsAction(): Promise<{
+  success: boolean;
+  data?: SubcategoryBandItem[];
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const data = await getSubcategoryBands();
+    return { success: true, data };
+  } catch (err: any) {
+    console.error("[getSubcategoryBandsAction Error]", err);
+    return { success: false, error: err.message || "Failed to load subcategory bands" };
+  }
+}
+
+export async function createSubcategoryBandAction(params: {
+  category_name: string;
+  color_hex: string;
+  color_name: string;
+  remark?: string;
+  initial_stock?: number;
+  initial_reception?: number;
+}): Promise<{
+  success: boolean;
+  id?: number;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await createSubcategoryBand(params);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[createSubcategoryBandAction Error]", err);
+    return { success: false, error: err.message || "Failed to create subcategory band" };
+  }
+}
+
+export async function updateSubcategoryBandAction(
+  id: number,
+  params: {
+    category_name: string;
+    color_hex: string;
+    color_name: string;
+    remark?: string;
+    active?: number;
+  }
+): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await updateSubcategoryBand(id, params);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[updateSubcategoryBandAction Error]", err);
+    return { success: false, error: err.message || "Failed to update subcategory band" };
+  }
+}
+
+export async function toggleSubcategoryBandStatusAction(
+  id: number,
+  active: boolean
+): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await toggleSubcategoryBandStatus(id, active);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[toggleSubcategoryBandStatusAction Error]", err);
+    return { success: false, error: err.message || "Failed to toggle status" };
+  }
+}
+
+export async function deleteSubcategoryBandAction(id: number): Promise<{
+  success: boolean;
+  error?: string;
+}> {
+  try {
+    await requireAdminSession();
+    const result = await deleteSubcategoryBand(id);
+    if (result.success) {
+      revalidatePath("/admin/slots");
+      revalidatePath("/admin/bands");
+    }
+    return result;
+  } catch (err: any) {
+    console.error("[deleteSubcategoryBandAction Error]", err);
+    return { success: false, error: err.message || "Failed to delete subcategory band" };
+  }
+}
+

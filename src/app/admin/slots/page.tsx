@@ -49,9 +49,14 @@ import {
   returnColorFromReceptionAction,
   setColorReceptionAction,
   deleteColorInventoryAction,
+  getSubcategoryBandsAction,
+  createSubcategoryBandAction,
+  updateSubcategoryBandAction,
+  toggleSubcategoryBandStatusAction,
+  deleteSubcategoryBandAction,
 } from "@/app/actions/color-inventory";
 import { previewHandoverRangeAction } from "@/app/actions/band-inventory";
-import type { WristbandColorInventoryItem } from "@/lib/color-inventory-db";
+import type { WristbandColorInventoryItem, SubcategoryBandItem } from "@/lib/color-inventory-db";
 import type { BlockedSlotRow, TimeSlotRow, TicketRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex, getWristbandBadgeStyle } from "@/lib/slotColors";
 
@@ -160,6 +165,25 @@ export default function SlotsManagementPage() {
     remark: ""
   });
 
+  // Universal Sub-Category Bands State
+  const [subcategoryBands, setSubcategoryBands] = useState<SubcategoryBandItem[]>([]);
+  const [isLoadingSubcategories, setIsLoadingSubcategories] = useState(false);
+  const [isAddingSubcategoryBand, setIsAddingSubcategoryBand] = useState(false);
+  const [editingSubcategoryBand, setEditingSubcategoryBand] = useState<SubcategoryBandItem | null>(null);
+  const [isSubmittingSubcat, setIsSubmittingSubcat] = useState(false);
+  const [subcatForm, setSubcatForm] = useState({
+    categoryName: "Participant",
+    customCategoryName: "",
+    color: "#3B82F6",
+    colorName: "Royal Blue",
+    remark: "Universal RC Track Pass Band",
+    initialStock: 0,
+    initialReception: 0
+  });
+
+  // Color Inventory Filter
+  const [colorInvFilter, setColorInvFilter] = useState<'all' | 'slots' | 'subcategories'>('all');
+
   // Blocked Slots State
   const [blockedList, setBlockedList] = useState<BlockedSlotRow[]>([]);
   const [isLoadingBlocked, setIsLoadingBlocked] = useState(true);
@@ -228,16 +252,31 @@ export default function SlotsManagementPage() {
     }
   };
 
+  const loadSubcategoryBands = async () => {
+    setIsLoadingSubcategories(true);
+    try {
+      const res = await getSubcategoryBandsAction();
+      if (res.success && res.data) {
+        setSubcategoryBands(res.data);
+      }
+    } catch (err) {
+      console.error("[loadSubcategoryBands Error]", err);
+    } finally {
+      setIsLoadingSubcategories(false);
+    }
+  };
+
   const loadAllData = async () => {
     setIsLoadingSlots(true);
     setIsLoadingBlocked(true);
     try {
-      const [slotsData, blockedData, mondayVal, openedDatesList, ticketsData] = await Promise.all([
+      const [slotsData, blockedData, mondayVal, openedDatesList, ticketsData, subcatRes] = await Promise.all([
         fetchTimeSlotsAction(false),
         fetchBlockedSlotsAction(),
         fetchSiteSettingAction('monday_open', '0'),
         fetchOpenedSpecificDatesAction(),
-        fetchTicketsAction()
+        fetchTicketsAction(),
+        getSubcategoryBandsAction()
       ]);
       const sortedSlots = [...slotsData].sort((a, b) => (a.sort_order - b.sort_order) || (a.start_hour - b.start_hour));
       setTimeSlots(sortedSlots);
@@ -245,6 +284,10 @@ export default function SlotsManagementPage() {
       setTickets(ticketsData || []);
       setIsMondayOpen(mondayVal === '1' || mondayVal.toLowerCase() === 'true');
       setOpenedSpecificDates(openedDatesList || []);
+
+      if (subcatRes.success && subcatRes.data) {
+        setSubcategoryBands(subcatRes.data);
+      }
 
       if (sortedSlots.length > 0 && selectedSlots.length === 0) {
         setSelectedSlots([sortedSlots[0].label]);
@@ -256,6 +299,115 @@ export default function SlotsManagementPage() {
       setIsLoadingBlocked(false);
     }
     loadColorInventory();
+  };
+
+  const handleCreateSubcategoryBand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSubmittingSubcat(true);
+    try {
+      const categoryName = subcatForm.categoryName === "Custom"
+        ? subcatForm.customCategoryName.trim()
+        : subcatForm.categoryName;
+
+      if (!categoryName) {
+        setFeedback({ type: "error", message: "Please specify a sub-category / ticket type name." });
+        setIsSubmittingSubcat(false);
+        return;
+      }
+
+      const res = await createSubcategoryBandAction({
+        category_name: categoryName,
+        color_hex: subcatForm.color,
+        color_name: subcatForm.colorName,
+        remark: subcatForm.remark,
+        initial_stock: subcatForm.initialStock,
+        initial_reception: subcatForm.initialReception
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Universal Sub-Category band for "${categoryName}" created and synced to inventory!`
+        });
+        setIsAddingSubcategoryBand(false);
+        await Promise.all([loadSubcategoryBands(), loadColorInventory()]);
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to create sub-category band." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to create sub-category band." });
+    } finally {
+      setIsSubmittingSubcat(false);
+    }
+  };
+
+  const handleUpdateSubcategoryBand = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingSubcategoryBand) return;
+    setIsSubmittingSubcat(true);
+    try {
+      const categoryName = subcatForm.categoryName === "Custom"
+        ? subcatForm.customCategoryName.trim()
+        : subcatForm.categoryName;
+
+      const res = await updateSubcategoryBandAction(editingSubcategoryBand.id, {
+        category_name: categoryName,
+        color_hex: subcatForm.color,
+        color_name: subcatForm.colorName,
+        remark: subcatForm.remark
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Sub-category band updated successfully!`
+        });
+        setEditingSubcategoryBand(null);
+        await Promise.all([loadSubcategoryBands(), loadColorInventory()]);
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to update sub-category band." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to update sub-category band." });
+    } finally {
+      setIsSubmittingSubcat(false);
+    }
+  };
+
+  const handleToggleSubcategoryStatus = async (item: SubcategoryBandItem) => {
+    try {
+      const newStatus = item.active === 1 ? false : true;
+      const res = await toggleSubcategoryBandStatusAction(item.id, newStatus);
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Sub-category band "${item.category_name}" ${newStatus ? 'activated' : 'disabled'}.`
+        });
+        await loadSubcategoryBands();
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to toggle status." });
+    }
+  };
+
+  const handleDeleteSubcategoryBand = async (id: number, name: string) => {
+    if (!confirm(`Are you sure you want to delete the universal sub-category band for "${name}"? (Inventory stock will remain safely in the inventory pool)`)) {
+      return;
+    }
+    try {
+      const res = await deleteSubcategoryBandAction(id);
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Sub-category band "${name}" removed.`
+        });
+        await Promise.all([loadSubcategoryBands(), loadColorInventory()]);
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to delete sub-category band." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to delete sub-category band." });
+    }
   };
 
   const handleSyncInventory = async () => {
@@ -1287,14 +1439,308 @@ export default function SlotsManagementPage() {
               </p>
             </div>
 
-            <button
-              onClick={() => setIsAddingSlot(true)}
-              className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#ff5a1f] hover:bg-[#e04812] text-white text-xs font-bold shadow-md transition-all self-start sm:self-auto"
-            >
-              <Plus className="w-4 h-4" />
-              Add New Slot
-            </button>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingSubcategoryBand(null);
+                  setSubcatForm({
+                    categoryName: "Participant",
+                    customCategoryName: "",
+                    color: "#3B82F6",
+                    colorName: "Royal Blue",
+                    remark: "Universal RC Track Pass Band",
+                    initialStock: 0,
+                    initialReception: 0
+                  });
+                  setIsAddingSubcategoryBand(true);
+                  setIsAddingSlot(false);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md transition-all self-start sm:self-auto cursor-pointer"
+              >
+                <Layers className="w-4 h-4" />
+                Create Sub-Category Band
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsAddingSlot(true);
+                  setIsAddingSubcategoryBand(false);
+                  setEditingSubcategoryBand(null);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#ff5a1f] hover:bg-[#e04812] text-white text-xs font-bold shadow-md transition-all self-start sm:self-auto"
+              >
+                <Plus className="w-4 h-4" />
+                Add New Slot
+              </button>
+            </div>
           </div>
+
+          {/* Create or Edit Sub-Category Band Inline Form */}
+          {(isAddingSubcategoryBand || editingSubcategoryBand) && (
+            <div className="p-6 bg-purple-50/70 border border-purple-200 rounded-2xl animate-in fade-in duration-200 shadow-xs space-y-5">
+              <div className="flex items-center justify-between pb-3 border-b border-purple-100">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center shadow-xs">
+                    <Layers className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">
+                      {editingSubcategoryBand ? "Edit Universal Sub-Category Band" : "Create Universal Sub-Category Band"}
+                    </h3>
+                    <p className="text-[11px] text-gray-500">
+                      Universal wristband colour applied to this ticket category (Visitor, Participant, VIP, etc.) across all operating slots.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingSubcategoryBand(false);
+                    setEditingSubcategoryBand(null);
+                  }}
+                  className="p-1 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-white"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={editingSubcategoryBand ? handleUpdateSubcategoryBand : handleCreateSubcategoryBand} className="space-y-5">
+                {/* 1. Category / Ticket Type Selection */}
+                <div>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-2">
+                    Select Ticket Sub-Category *
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {[
+                      { id: "Participant", name: "Participant", desc: "Full RC Track Pass" },
+                      { id: "Visitor", name: "Visitor", desc: "Companion / Lounge Pass" },
+                      { id: "VIP Participant", name: "VIP Participant", desc: "Track + Podium Session" },
+                      { id: "VIP Visitor", name: "VIP Visitor", desc: "VIP Simulator Pass" },
+                      { id: "Staff / Marshal", name: "Staff / Marshal", desc: "Track Operations" },
+                      { id: "Custom", name: "+ Custom Category", desc: "Enter own name" }
+                    ].map(cat => {
+                      const isSel = subcatForm.categoryName === cat.id;
+                      return (
+                        <button
+                          key={cat.id}
+                          type="button"
+                          onClick={() => setSubcatForm(prev => ({ ...prev, categoryName: cat.id }))}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all text-left cursor-pointer ${
+                            isSel
+                              ? "bg-purple-600 text-white border-purple-600 shadow-sm ring-2 ring-purple-600/20"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-purple-300 hover:bg-purple-50/50"
+                          }`}
+                        >
+                          <div>{cat.name}</div>
+                          <div className={`text-[10px] font-normal mt-0.5 ${isSel ? "text-purple-100" : "text-gray-400"}`}>
+                            {cat.desc}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {subcatForm.categoryName === "Custom" && (
+                    <div className="mt-3">
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Custom Ticket Category Name *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={subcatForm.customCategoryName}
+                        onChange={(e) => setSubcatForm(prev => ({ ...prev, customCategoryName: e.target.value }))}
+                        placeholder="e.g. Weekend Special, RC Pro Member, Season Pass"
+                        className="w-full sm:w-80 bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 font-semibold focus:outline-none focus:ring-2 focus:ring-purple-600"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* 2. Color Selection & Paint Box */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5 flex items-center gap-1.5">
+                      <Palette className="w-3.5 h-3.5 text-purple-600" />
+                      Band Colour (Hex) *
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <input
+                          type="color"
+                          value={subcatForm.color}
+                          onChange={(e) => setSubcatForm(prev => ({ ...prev, color: e.target.value.toUpperCase() }))}
+                          className="w-10 h-10 rounded-xl cursor-pointer border border-gray-300 bg-white p-0.5"
+                          title="Pick custom colour"
+                        />
+                      </div>
+                      <input
+                        type="text"
+                        required
+                        value={subcatForm.color}
+                        onChange={(e) => setSubcatForm(prev => ({ ...prev, color: e.target.value.toUpperCase() }))}
+                        placeholder="#3B82F6"
+                        className="w-32 bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 font-mono font-bold uppercase focus:outline-none focus:ring-2 focus:ring-purple-600"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
+                      Band Colour Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={subcatForm.colorName}
+                      onChange={(e) => setSubcatForm(prev => ({ ...prev, colorName: e.target.value }))}
+                      placeholder="e.g. Royal Blue, Emerald Green"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 font-semibold focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
+                      Remark / Description
+                    </label>
+                    <input
+                      type="text"
+                      value={subcatForm.remark}
+                      onChange={(e) => setSubcatForm(prev => ({ ...prev, remark: e.target.value }))}
+                      placeholder="e.g. Universal Day Pass Band"
+                      className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                    />
+                  </div>
+                </div>
+
+                {/* Quick Preset Palette Swatches */}
+                <div>
+                  <span className="block text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider">
+                    Quick Preset Palette:
+                  </span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { hex: "#3B82F6", name: "Royal Blue" },
+                      { hex: "#10B981", name: "Emerald Green" },
+                      { hex: "#8B5CF6", name: "Neon Purple" },
+                      { hex: "#F59E0B", name: "Amber Gold" },
+                      { hex: "#EF4444", name: "Crimson Red" },
+                      { hex: "#EC4899", name: "Hot Pink" },
+                      { hex: "#F97316", name: "Vibrant Orange" },
+                      { hex: "#06B6D4", name: "Cyan / Neon Blue" },
+                      { hex: "#14B8A6", name: "Teal" },
+                      { hex: "#84CC16", name: "Lime Green" },
+                      { hex: "#6366F1", name: "Indigo" },
+                      { hex: "#F4F4F5", name: "White / Silver" },
+                      { hex: "#18181B", name: "Midnight Black" },
+                      { hex: "#FFD700", name: "Pure Gold VIP" }
+                    ].map(p => (
+                      <button
+                        key={p.hex}
+                        type="button"
+                        onClick={() => setSubcatForm(prev => ({ ...prev, color: p.hex, colorName: p.name }))}
+                        className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+                          subcatForm.color.toUpperCase() === p.hex.toUpperCase()
+                            ? "border-purple-600 ring-2 ring-purple-600/30 bg-purple-50 text-purple-900 font-bold"
+                            : "border-gray-200 bg-white hover:border-gray-300 text-gray-700"
+                        }`}
+                      >
+                        <span className="w-3 h-3 rounded-full border border-black/10 shrink-0" style={{ backgroundColor: p.hex }} />
+                        <span>{p.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Initial Stock Allocation (only shown when creating a new band) */}
+                {!editingSubcategoryBand && (
+                  <div className="p-4 rounded-xl bg-white border border-purple-100 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Package className="w-4 h-4 text-purple-600" />
+                      <span className="text-xs font-bold text-gray-900 uppercase tracking-wider">
+                        Initial Stock in Wristband Inventory (Optional)
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-gray-500">
+                      When created, this colour is automatically registered in your Persistent Inventory Management so warehouse and reception stock can be tracked.
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                          Main Warehouse Stock (Initial Qty)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={subcatForm.initialStock}
+                          onChange={(e) => setSubcatForm(prev => ({ ...prev, initialStock: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold text-gray-600 mb-1">
+                          Reception Desk Stock (Initial Qty)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={subcatForm.initialReception}
+                          onChange={(e) => setSubcatForm(prev => ({ ...prev, initialReception: Math.max(0, parseInt(e.target.value, 10) || 0) }))}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-sm font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-purple-600"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Live Preview Pill */}
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-white border border-gray-200">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">Preview Badge:</span>
+                  <div 
+                    className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold shadow-xs"
+                    style={{
+                      backgroundColor: `${subcatForm.color}15`,
+                      borderColor: subcatForm.color,
+                      color: "#1F2937"
+                    }}
+                  >
+                    <span 
+                      className="w-3.5 h-3.5 rounded-full border shrink-0 shadow-inner"
+                      style={{ backgroundColor: subcatForm.color }}
+                    />
+                    <span className="uppercase tracking-wider font-extrabold">{subcatForm.colorName || "Custom Band"}</span>
+                    <span className="font-mono text-[11px] text-gray-500 font-semibold">({subcatForm.color})</span>
+                  </div>
+                  <span className="text-xs text-purple-700 font-bold">
+                    → Applies to {subcatForm.categoryName === "Custom" ? (subcatForm.customCategoryName || "Custom") : subcatForm.categoryName} across all operating slots
+                  </span>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingSubcategoryBand(false);
+                      setEditingSubcategoryBand(null);
+                    }}
+                    className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingSubcat}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingSubcat ? "Saving..." : (editingSubcategoryBand ? "Update Sub-Category Band" : "Save Sub-Category Band")}
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
 
           {/* Add New Slot Modal / Inline Form */}
           {isAddingSlot && (
@@ -1809,6 +2255,244 @@ export default function SlotsManagementPage() {
               </tbody>
             </table>
           </div>
+
+          {/* SECTION 2: UNIVERSAL SUB-CATEGORY WRISTBANDS */}
+          <div className="pt-8 border-t border-gray-100 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-800">
+                    Universal Park-Wide
+                  </span>
+                  <span className="text-xs text-gray-400 font-medium">
+                    {subcategoryBands.length} category band{subcategoryBands.length !== 1 ? 's' : ''}
+                  </span>
+                </div>
+                <h3 className="text-lg font-black font-heading text-gray-900 mt-1 flex items-center gap-2">
+                  <Layers className="w-5 h-5 text-purple-600" />
+                  Universal Sub-Category Wristbands
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5 max-w-2xl">
+                  Wristbands assigned to specific ticket types (Visitor, Participant, VIP Participant, VIP Visitor, etc.). These bands are universal across all time slots and are automatically tracked in Persistent Wristband Inventory.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingSubcategoryBand(null);
+                  setSubcatForm({
+                    categoryName: "Participant",
+                    customCategoryName: "",
+                    color: "#3B82F6",
+                    colorName: "Royal Blue",
+                    remark: "Universal RC Track Pass Band",
+                    initialStock: 0,
+                    initialReception: 0
+                  });
+                  setIsAddingSubcategoryBand(true);
+                  setIsAddingSlot(false);
+                }}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-md transition-all self-start sm:self-auto cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                Add Sub-Category Band
+              </button>
+            </div>
+
+            {/* Sub-Category Bands Table */}
+            {isLoadingSubcategories ? (
+              <div className="py-12 text-center text-gray-400 text-xs font-medium flex items-center justify-center gap-2">
+                <RefreshCw className="w-4 h-4 animate-spin text-purple-600" />
+                Loading sub-category bands...
+              </div>
+            ) : subcategoryBands.length === 0 ? (
+              <div className="py-12 text-center border-2 border-dashed border-gray-200 rounded-2xl p-6 space-y-3 bg-purple-50/20">
+                <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-600 flex items-center justify-center mx-auto">
+                  <Layers className="w-5 h-5" />
+                </div>
+                <h4 className="text-sm font-bold text-gray-900">No Sub-Category Bands Configured Yet</h4>
+                <p className="text-xs text-gray-500 max-w-md mx-auto">
+                  Create universal wristband colours for your ticket categories (Visitor, Participant, VIP, etc.) that apply across all time slots.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAddingSubcategoryBand(true);
+                    setIsAddingSlot(false);
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  Create First Sub-Category Band
+                </button>
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-gray-100">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-gray-50/80 text-[11px] font-black uppercase text-gray-500 tracking-wider border-b border-gray-100">
+                      <th className="py-3 px-4">#</th>
+                      <th className="py-3 px-4">Ticket Sub-Category</th>
+                      <th className="py-3 px-4">Wristband Band Colour</th>
+                      <th className="py-3 px-4">Scope / Validity</th>
+                      <th className="py-3 px-4">Type / Remark</th>
+                      <th className="py-3 px-4 text-center">Live Inventory Stock</th>
+                      <th className="py-3 px-4 text-center">Status</th>
+                      <th className="py-3 px-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100 text-xs font-medium">
+                    {subcategoryBands.map((item, idx) => {
+                      const badge = getWristbandBadgeStyle(item.color_hex);
+                      const isItemActive = item.active === 1;
+
+                      // Badge styling for ticket category
+                      const catUpper = item.category_name.toUpperCase();
+                      const catBadgeClass = catUpper.includes("VIP")
+                        ? "bg-purple-100 text-purple-800 border-purple-200"
+                        : catUpper.includes("VISITOR")
+                        ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                        : catUpper.includes("PARTICIPANT")
+                        ? "bg-blue-100 text-blue-800 border-blue-200"
+                        : "bg-slate-100 text-slate-800 border-slate-200";
+
+                      return (
+                        <tr key={item.id} className="hover:bg-purple-50/20 transition-colors">
+                          <td className="py-3.5 px-4 font-mono text-gray-400">
+                            #{idx + 1}
+                          </td>
+
+                          <td className="py-3.5 px-4 font-bold text-gray-900">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-black border ${catBadgeClass}`}>
+                              <Layers className="w-3 h-3" />
+                              {item.category_name}
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <div 
+                              className="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-bold shadow-xs"
+                              style={{
+                                backgroundColor: badge.backgroundColor,
+                                borderColor: badge.borderColor,
+                                color: badge.color
+                              }}
+                            >
+                              <span 
+                                className="w-3.5 h-3.5 rounded-full border shrink-0 shadow-inner"
+                                style={{ 
+                                  backgroundColor: item.color_hex,
+                                  borderColor: badge.dotBorderColor
+                                }}
+                              />
+                              <span className="tracking-wide uppercase font-bold">
+                                {item.color_name}
+                              </span>
+                              <span className="text-[10px] font-mono opacity-80">
+                                ({item.color_hex})
+                              </span>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              🌐 Universal (All Slots)
+                            </span>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-gray-600">
+                            {item.remark ? (
+                              <span className="inline-block max-w-xs truncate text-[11px]" title={item.remark}>
+                                {item.remark}
+                              </span>
+                            ) : (
+                              <span className="text-gray-400 italic text-[11px]">-</span>
+                            )}
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex items-center gap-2">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-gray-100 text-gray-800 text-[11px] font-mono font-bold border border-gray-200" title="Warehouse Stock">
+                                🏬 {item.warehouse_stock ?? 0}
+                              </span>
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800 text-[11px] font-mono font-bold border border-emerald-200" title="Reception Desk Stock">
+                                🛎️ {item.reception_stock ?? 0}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setActiveTab('color_inventory');
+                                  loadColorInventory();
+                                }}
+                                className="text-[10px] font-bold text-purple-600 hover:text-purple-800 underline ml-1 cursor-pointer"
+                                title="Manage in Wristband Inventory"
+                              >
+                                Manage Stock
+                              </button>
+                            </div>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleSubcategoryStatus(item)}
+                              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold transition-all cursor-pointer ${
+                                isItemActive
+                                  ? 'bg-green-50 hover:bg-green-100 text-green-700 border border-green-200'
+                                  : 'bg-gray-100 hover:bg-gray-200 text-gray-500 border border-gray-200'
+                              }`}
+                            >
+                              <Power className="w-3 h-3" />
+                              {isItemActive ? 'Active' : 'Disabled'}
+                            </button>
+                          </td>
+
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingSubcategoryBand(item);
+                                  setIsAddingSubcategoryBand(false);
+                                  setIsAddingSlot(false);
+                                  setSubcatForm({
+                                    categoryName: ["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal"].includes(item.category_name)
+                                      ? item.category_name
+                                      : "Custom",
+                                    customCategoryName: ["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal"].includes(item.category_name)
+                                      ? ""
+                                      : item.category_name,
+                                    color: item.color_hex,
+                                    colorName: item.color_name,
+                                    remark: item.remark || "",
+                                    initialStock: 0,
+                                    initialReception: 0
+                                  });
+                                }}
+                                className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-purple-600 hover:border-purple-300 transition-all cursor-pointer"
+                                title="Edit sub-category band"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteSubcategoryBand(item.id, item.category_name)}
+                                className="p-1.5 rounded-lg border border-gray-200 text-gray-600 hover:text-red-600 hover:border-red-300 transition-all cursor-pointer"
+                                title="Delete sub-category band"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1867,9 +2551,47 @@ export default function SlotsManagementPage() {
                 <Check className="w-4 h-4" />
               </div>
               <div>
-                <strong className="font-bold text-gray-900">Safe Sync Guarantee:</strong> Syncing reads all slot colours, identifies missing ones, and sets their initial stock to <code className="bg-white px-1.5 py-0.5 rounded border border-gray-300 font-mono font-bold text-emerald-700">0</code>. Existing stock quantities are never wiped, reset, or duplicated.
+                <strong className="font-bold text-gray-900">Safe Sync Guarantee:</strong> Syncing reads all hourly slot colours and universal sub-category colours, identifies missing ones, and sets their initial stock to <code className="bg-white px-1.5 py-0.5 rounded border border-gray-300 font-mono font-bold text-emerald-700">0</code>. Existing stock quantities are never wiped, reset, or duplicated.
               </div>
             </div>
+          </div>
+
+          {/* Quick Filter: All / Slots / Subcategories */}
+          <div className="flex flex-wrap items-center gap-2 pt-1 pb-1">
+            <span className="text-xs font-bold text-gray-500 mr-1">Filter Inventory:</span>
+            <button
+              type="button"
+              onClick={() => setColorInvFilter('all')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                colorInvFilter === 'all'
+                  ? 'bg-gray-900 text-white shadow-xs'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              All Colours ({colorInventory.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setColorInvFilter('slots')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                colorInvFilter === 'slots'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-blue-50 text-blue-700 hover:bg-blue-100'
+              }`}
+            >
+              Hourly Slot Colours ({colorInventory.filter(c => c.slot_labels && c.slot_labels.length > 0).length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setColorInvFilter('subcategories')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                colorInvFilter === 'subcategories'
+                  ? 'bg-purple-600 text-white shadow-xs'
+                  : 'bg-purple-50 text-purple-700 hover:bg-purple-100'
+              }`}
+            >
+              Universal Sub-Category Bands ({colorInventory.filter(c => c.subcategory_labels && c.subcategory_labels.length > 0).length})
+            </button>
           </div>
 
           {/* Table of Color Records */}
@@ -1885,13 +2607,13 @@ export default function SlotsManagementPage() {
               </div>
               <h3 className="text-base font-bold text-gray-900">No Inventory Records in PostgreSQL Yet</h3>
               <p className="text-xs text-gray-500 max-w-md mx-auto">
-                Click &ldquo;Sync Inventory&rdquo; above to read the wristband colours from your operating time slots and initialize persistent inventory records with quantity 0.
+                Click &ldquo;Sync Inventory&rdquo; above to read the wristband colours from your operating time slots and universal sub-category bands to initialize persistent inventory records.
               </p>
               <button
                 type="button"
                 onClick={handleSyncInventory}
                 disabled={isSyncingInventory}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black shadow-md transition-all cursor-pointer"
               >
                 <Sparkles className="w-4 h-4" />
                 {isSyncingInventory ? "Syncing..." : "Sync Inventory Now"}
@@ -1905,15 +2627,21 @@ export default function SlotsManagementPage() {
                     <th className="py-3 px-4">#</th>
                     <th className="py-3 px-4">Wristband Colour</th>
                     <th className="py-3 px-4">Colour Code (HEX)</th>
-                    <th className="py-3 px-4">Configured Slot(s)</th>
-                    <th className="py-3 px-4 text-center">Slot Status</th>
+                    <th className="py-3 px-4">Configured Slot / Sub-Category</th>
+                    <th className="py-3 px-4 text-center">Usage Status</th>
                     <th className="py-3 px-4 text-right">Main Stock (Warehouse)</th>
                     <th className="py-3 px-4 text-right">Reception Desk (Given Out)</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 text-xs font-medium">
-                  {colorInventory.map((item, idx) => {
+                  {colorInventory
+                    .filter(item => {
+                      if (colorInvFilter === 'slots') return item.slot_labels && item.slot_labels.length > 0;
+                      if (colorInvFilter === 'subcategories') return item.subcategory_labels && item.subcategory_labels.length > 0;
+                      return true;
+                    })
+                    .map((item, idx) => {
                     const badge = getWristbandBadgeStyle(item.color_hex);
                     return (
                       <tr key={item.id} className="hover:bg-gray-50/80 transition-colors">
@@ -1945,22 +2673,47 @@ export default function SlotsManagementPage() {
                           {item.color_hex}
                         </td>
                         <td className="py-3.5 px-4">
-                          {item.slot_labels && item.slot_labels.length > 0 ? (
-                            <div className="flex flex-wrap items-center gap-1">
-                              {item.slot_labels.map(lbl => (
-                                <span key={lbl} className="inline-flex items-center px-2 py-0.5 rounded-md bg-gray-100 text-gray-800 text-[11px] font-bold border border-gray-200">
-                                  {lbl}
-                                </span>
-                              ))}
-                            </div>
-                          ) : (
-                            <span className="text-gray-400 italic text-[11px]">No active slots assigned</span>
-                          )}
+                          <div className="flex flex-col gap-1.5">
+                            {/* Slot Labels */}
+                            {item.slot_labels && item.slot_labels.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {item.slot_labels.map(lbl => (
+                                  <span key={lbl} className="inline-flex items-center px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 text-[11px] font-bold border border-blue-200">
+                                    Slot: {lbl}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Subcategory Labels */}
+                            {item.subcategory_labels && item.subcategory_labels.length > 0 && (
+                              <div className="flex flex-wrap items-center gap-1">
+                                {item.subcategory_labels.map(sub => (
+                                  <span key={sub} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-50 text-purple-800 text-[11px] font-black border border-purple-200">
+                                    <Layers className="w-2.5 h-2.5" />
+                                    Sub-Cat: {sub}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+
+                            {(!item.slot_labels || item.slot_labels.length === 0) && (!item.subcategory_labels || item.subcategory_labels.length === 0) && (
+                              <span className="text-gray-400 italic text-[11px]">Unassigned</span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-center">
-                          {item.is_active_in_slots ? (
+                          {item.is_active_in_slots && item.is_active_in_subcategories ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              <Check className="w-3 h-3" /> In Use
+                              <Check className="w-3 h-3" /> Slot + Sub-Cat
+                            </span>
+                          ) : item.is_active_in_subcategories ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                              <Layers className="w-3 h-3" /> Universal Sub-Cat
+                            </span>
+                          ) : item.is_active_in_slots ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                              <Check className="w-3 h-3" /> Slot Active
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">

@@ -296,6 +296,7 @@ export async function quickLookupBandAction(code: string): Promise<{
 export async function previewHandoverRangeAction(params: {
   color_name?: string;
   color_hex?: string;
+  category?: string;
   amount: number;
 }): Promise<{
   success: boolean;
@@ -312,5 +313,38 @@ export async function previewHandoverRangeAction(params: {
   } catch (err: any) {
     console.error("[previewHandoverRangeAction Error]", err);
     return { success: false, totalAvailable: 0, count: 0, bandCodes: [], error: err.message || "Preview failed" };
+  }
+}
+
+export async function handoverWristbandsAction(params: {
+  color_name?: string;
+  color_hex?: string;
+  category?: string;
+  amount: number;
+  notes?: string;
+}): Promise<{
+  success: boolean;
+  movedCount: number;
+  startCode?: string;
+  endCode?: string;
+  bandCodes: string[];
+  error?: string;
+}> {
+  try {
+    const session = await getStaffSession("bands:manage_stock");
+    const staffName = session.username || "Staff";
+    const { handoverWristbandsToReception } = await import("@/lib/band-inventory-db");
+    const res = await handoverWristbandsToReception({
+      ...params,
+      staff_name: staffName,
+    });
+    if (res.success) {
+      revalidatePath("/admin/bands");
+      revalidatePath("/admin/bookings");
+    }
+    return res;
+  } catch (err: any) {
+    console.error("[handoverWristbandsAction Error]", err);
+    return { success: false, movedCount: 0, bandCodes: [], error: err.message || "Handover failed" };
   }
 }

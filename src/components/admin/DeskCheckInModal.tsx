@@ -309,7 +309,8 @@ export default function DeskCheckInModal({
 
       const res = await updateBookingWristbandNumberAction(session.id, combinedCodes, {
         color_hex: bandColor.hex,
-        color_name: bandColor.name
+        color_name: bandColor.name,
+        category: session.ticket_name
       });
 
       if (!res.success) {
@@ -1480,15 +1481,22 @@ export default function DeskCheckInModal({
                                       {/* Wristband Number in Check-In session */}
                                       {!isCanceled && (
                                         editingBandId === session.id ? (
-                                          <div className="inline-flex flex-col gap-1 bg-white border border-blue-400 rounded-lg p-1.5 shadow-xs">
-                                            <div className="flex items-center justify-between text-[9px] font-bold text-gray-500 uppercase tracking-wide border-b border-gray-100 pb-0.5">
-                                              <span>Assign Bands ({bandInputs.length}):</span>
+                                          <div className="inline-flex flex-col gap-1 bg-white border border-blue-400 rounded-lg p-2 shadow-sm min-w-[220px]">
+                                            <div className="flex items-center justify-between text-[9px] font-bold text-gray-700 uppercase tracking-wide border-b border-gray-100 pb-1">
+                                              <div className="flex items-center gap-1.5">
+                                                <span
+                                                  className="w-2.5 h-2.5 rounded-full border border-gray-300 shrink-0"
+                                                  style={{ backgroundColor: getSlotWristbandColor(session.time_slot, session.slot_color, session.slot_color_name).hex }}
+                                                />
+                                                <span className="font-extrabold text-gray-900">{session.ticket_name}</span>
+                                                <span className="text-gray-400 font-mono">({bandInputs.length})</span>
+                                              </div>
                                               <div className="flex items-center gap-1">
                                                 <button
                                                   type="button"
                                                   onClick={() => handleSaveWristband(session)}
                                                   disabled={isSavingBand}
-                                                  className="text-white bg-green-600 hover:bg-green-700 px-1.5 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5"
+                                                  className="text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded text-[9px] font-bold flex items-center gap-0.5"
                                                   title="Save"
                                                 >
                                                   <CheckCircle2 className="w-3 h-3" />

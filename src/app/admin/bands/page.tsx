@@ -35,14 +35,19 @@ import {
 } from "lucide-react";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { 
+  BAND_SUBCATEGORIES,
+  normalizeBandCategory,
+} from "@/lib/band-types";
+import type { 
   BandItem, 
   BandTransaction, 
   BandInventorySummary, 
   BandColorBreakdown,
+  BandSubcategoryBreakdown,
   BandCategory, 
   BandStatus, 
   BandTransactionType 
-} from "@/lib/band-inventory-db";
+} from "@/lib/band-types";
 import {
   getBandInventorySummaryAction,
   getBandItemsAction,
@@ -58,14 +63,17 @@ import {
   bulkDeleteBandItemsAction,
   deleteAllBandInventoryAction,
   quickLookupBandAction,
-  previewHandoverRangeAction
+  previewHandoverRangeAction,
+  handoverWristbandsAction
 } from "@/app/actions/band-inventory";
 import { 
   syncColorInventoryAction, 
   stockOutColorToReceptionAction,
   returnColorFromReceptionAction,
-  setColorReceptionAction
+  setColorReceptionAction,
+  getSubcategoryBandsAction
 } from "@/app/actions/color-inventory";
+import type { SubcategoryBandItem } from "@/lib/color-inventory-db";
 import { hasUserPermission } from "@/lib/permissions";
 
 export default function BandInventoryPage() {
@@ -89,6 +97,7 @@ export default function BandInventoryPage() {
   const [locationFilter, setLocationFilter] = useState("all");
   const [colorFilter, setColorFilter] = useState("all");
   const [categoryFilter, setCategoryFilter] = useState("all");
+  const [configuredSubcategories, setConfiguredSubcategories] = useState<SubcategoryBandItem[]>([]);
   const [pageSize, setPageSize] = useState<number>(50);
   const [currentPage, setCurrentPage] = useState<number>(1);
 
@@ -105,7 +114,7 @@ export default function BandInventoryPage() {
   // Form States: Single Stock In
   const [newBandCode, setNewBandCode] = useState("");
   const [selectedColor, setSelectedColor] = useState(WRISTBAND_PALETTE[0]);
-  const [selectedCategory, setSelectedCategory] = useState<BandCategory>("Standard");
+  const [selectedCategory, setSelectedCategory] = useState<BandCategory>("Participant");
   const [newBandNotes, setNewBandNotes] = useState("");
   const [isSubmittingStockIn, setIsSubmittingStockIn] = useState(false);
 
@@ -141,6 +150,7 @@ export default function BandInventoryPage() {
   // Quick Stock Out to Reception Modal from Color Cards
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
   const [colorStockOutAmount, setColorStockOutAmount] = useState(10);
+  const [handoverCategoryFilter, setHandoverCategoryFilter] = useState<string>("all");
   const [isSubmittingColorStockOut, setIsSubmittingColorStockOut] = useState(false);
   const [stockOutPreview, setStockOutPreview] = useState<{
     isLoading: boolean;
@@ -165,6 +175,7 @@ export default function BandInventoryPage() {
         const res = await previewHandoverRangeAction({
           color_name: selectedColorForAction.color_name,
           color_hex: selectedColorForAction.color_hex,
+          category: handoverCategoryFilter === "all" ? undefined : handoverCategoryFilter,
           amount: colorStockOutAmount
         });
 
@@ -200,7 +211,7 @@ export default function BandInventoryPage() {
       isMounted = false;
       clearTimeout(timer);
     };
-  }, [isStockOutModalForColorOpen, selectedColorForAction, colorStockOutAmount]);
+  }, [isStockOutModalForColorOpen, selectedColorForAction, colorStockOutAmount, handoverCategoryFilter]);
 
   // Return from Reception / Adjust Reception Modal from Color Cards
   const [isReturnModalForColorOpen, setIsReturnModalForColorOpen] = useState(false);
@@ -252,7 +263,7 @@ export default function BandInventoryPage() {
       const itemsLimit = pageSize === -1 ? 50000 : pageSize;
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
-      const [summaryRes, itemsRes, txRes] = await Promise.all([
+      const [summaryRes, itemsRes, txRes, subcatRes] = await Promise.all([
         getBandInventorySummaryAction(),
         getBandItemsAction({
           search: searchQuery,
@@ -268,6 +279,7 @@ export default function BandInventoryPage() {
           type: movementTypeFilter,
           limit: 100,
         }),
+        getSubcategoryBandsAction(),
       ]);
 
       if (summaryRes.success && summaryRes.data) {
@@ -280,6 +292,9 @@ export default function BandInventoryPage() {
       if (txRes.success && txRes.data) {
         setTransactions(txRes.data.transactions);
         setTotalTransactionsCount(txRes.data.totalCount);
+      }
+      if (subcatRes.success && subcatRes.data) {
+        setConfiguredSubcategories(subcatRes.data);
       }
     } catch (err: any) {
       console.error("Failed to load inventory data:", err);
@@ -639,6 +654,32 @@ export default function BandInventoryPage() {
 
     setIsSubmittingColorStockOut(true);
     try {
+      if (handoverCategoryFilter !== "all") {
+        const res = await handoverWristbandsAction({
+          color_name: selectedColorForAction.color_name,
+          color_hex: selectedColorForAction.color_hex,
+          category: handoverCategoryFilter,
+          amount: colorStockOutAmount,
+          notes: `Handover of ${colorStockOutAmount} ${selectedColorForAction.color_name} (${handoverCategoryFilter}) bands to Reception`
+        });
+        if (res.success) {
+          const rangeText = res.startCode && res.endCode
+            ? ` (Wristbands: ${res.startCode}${res.startCode !== res.endCode ? ` to ${res.endCode}` : ''})`
+            : '';
+          setFeedback({
+            type: "success",
+            message: `Handover Recorded: ${res.movedCount} '${selectedColorForAction.color_name} - ${handoverCategoryFilter}' bands transferred to Reception Desk!${rangeText}`
+          });
+          setIsStockOutModalForColorOpen(false);
+          setColorStockOutAmount(10);
+          await loadData();
+          return;
+        } else {
+          setFeedback({ type: "error", message: res.error || "Failed to handover bands." });
+          return;
+        }
+      }
+
       const res = await stockOutColorToReceptionAction({
         id: selectedColorForAction.color_inventory_id,
         amount: colorStockOutAmount
@@ -1230,6 +1271,47 @@ export default function BandInventoryPage() {
                       </div>
                     </div>
 
+                    {/* Subcategories Breakdown if any exist */}
+                    {color.subcategories && color.subcategories.length > 0 && (
+                      <div className="mt-2.5 pt-2 border-t border-gray-100 flex flex-wrap gap-1">
+                        {color.subcategories.map((sub) => {
+                          const norm = normalizeBandCategory(sub.category);
+                          let icon = "🎫";
+                          let pillStyle = "bg-gray-50 border-gray-200 text-gray-700";
+                          if (norm === "Participant") {
+                            icon = "🏎️";
+                            pillStyle = "bg-blue-50/80 border-blue-200 text-blue-900";
+                          } else if (norm === "Visitor") {
+                            icon = "☕";
+                            pillStyle = "bg-emerald-50/80 border-emerald-200 text-emerald-900";
+                          } else if (norm === "VIP Participant") {
+                            icon = "👑";
+                            pillStyle = "bg-purple-50/80 border-purple-200 text-purple-900";
+                          } else if (norm === "VIP Visitor") {
+                            icon = "⭐";
+                            pillStyle = "bg-amber-50/80 border-amber-200 text-amber-900";
+                          } else if (norm === "Staff / Marshal") {
+                            icon = "🛡️";
+                            pillStyle = "bg-pink-50/80 border-pink-200 text-pink-900";
+                          }
+
+                          return (
+                            <span
+                              key={sub.category}
+                              className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md border ${pillStyle}`}
+                              title={`${sub.category}: ${sub.available} in warehouse, ${sub.in_reception} in reception, ${sub.issued} issued`}
+                            >
+                              <span>{icon} {sub.category}:</span>
+                              <strong className="font-mono text-gray-900">{sub.available} avail</strong>
+                              {sub.in_reception > 0 && (
+                                <span className="font-mono text-amber-800 font-bold">({sub.in_reception} rec)</span>
+                              )}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+
                     <div className="mt-2.5 pt-2 border-t border-gray-50 flex items-center justify-between text-[11px] text-gray-400 group-hover:text-[#ff5a1f] font-medium transition-colors">
                       <span className="flex items-center gap-1 font-semibold">
                         {canManageStock ? (
@@ -1321,11 +1403,19 @@ export default function BandInventoryPage() {
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
               >
-                <option value="all">All Categories</option>
-                <option value="Standard">Standard</option>
-                <option value="VIP">VIP</option>
-                <option value="Child">Child</option>
-                <option value="Staff / Marshal">Staff / Marshal</option>
+                <option value="all">All Subcategories</option>
+                <option value="Participant">🏎️ Participant</option>
+                <option value="Visitor">☕ Visitor</option>
+                <option value="VIP Participant">👑 VIP Participant</option>
+                <option value="VIP Visitor">⭐ VIP Visitor</option>
+                <option value="Staff / Marshal">🛡️ Staff / Marshal</option>
+                <option value="Standard">🎫 Standard</option>
+                <option value="Child">🧒 Child</option>
+                {configuredSubcategories
+                  .filter(c => !["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal", "Standard", "Child"].includes(c.category_name))
+                  .map(c => (
+                    <option key={c.id} value={c.category_name}>🏷️ {c.category_name}</option>
+                  ))}
               </select>
 
               {/* Per Page Selector */}
@@ -1462,8 +1552,50 @@ export default function BandInventoryPage() {
                         </td>
 
                         {/* Category */}
-                        <td className="py-3 px-4 text-gray-700 font-medium">
-                          {item.category}
+                        <td className="py-3 px-4">
+                          {(() => {
+                            const norm = normalizeBandCategory(item.category);
+                            if (norm === "Participant") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                  🏎️ Participant
+                                </span>
+                              );
+                            }
+                            if (norm === "Visitor") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                                  ☕ Visitor
+                                </span>
+                              );
+                            }
+                            if (norm === "VIP Participant") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
+                                  👑 VIP Participant
+                                </span>
+                              );
+                            }
+                            if (norm === "VIP Visitor") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                                  ⭐ VIP Visitor
+                                </span>
+                              );
+                            }
+                            if (norm === "Staff / Marshal") {
+                              return (
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-pink-50 text-pink-700 border border-pink-200">
+                                  🛡️ Staff / Marshal
+                                </span>
+                              );
+                            }
+                            return (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-gray-700 border border-gray-200">
+                                {item.category || "Standard"}
+                              </span>
+                            );
+                          })()}
                         </td>
 
                         {/* Location */}
@@ -2086,20 +2218,38 @@ export default function BandInventoryPage() {
                 </div>
               </div>
 
-              {/* Category */}
+              {/* Category / Subcategory */}
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Category
+                  Wristband Subcategory (Pass Type)
                 </label>
                 <select
                   value={selectedCategory}
-                  onChange={(e) => setSelectedCategory(e.target.value as BandCategory)}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  onChange={(e) => {
+                    const newCat = e.target.value as BandCategory;
+                    setSelectedCategory(newCat);
+                    if (isBulkMode) {
+                      const colorPart = selectedColor.name.split("/")[0].trim().slice(0, 3).toUpperCase();
+                      const catMeta = BAND_SUBCATEGORIES.find(s => s.id === newCat);
+                      const catCode = catMeta ? catMeta.codePrefix : "BND";
+                      // If user is typing pre-printed codes, keep whatever format they prefer
+                      setBulkPrefix(`BND-${colorPart}-${catCode}`);
+                    }
+                  }}
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 >
-                  <option value="Standard">Standard Arena Participant</option>
-                  <option value="VIP">VIP Participant / Simulator Access</option>
-                  <option value="Child">Child / Junior Racer</option>
-                  <option value="Staff / Marshal">Staff / Track Marshal</option>
+                  <option value="Participant">🏎️ Participant (Full RC Zone Pass)</option>
+                  <option value="Visitor">☕ Visitor (Companion / Lounge)</option>
+                  <option value="VIP Participant">👑 VIP Participant (RC + Simulator)</option>
+                  <option value="VIP Visitor">⭐ VIP Visitor (Simulator Pass)</option>
+                  <option value="Staff / Marshal">🛡️ Staff / Track Marshal</option>
+                  <option value="Standard">🎫 Standard (General Entry)</option>
+                  <option value="Child">🧒 Child / Junior Racer</option>
+                  {configuredSubcategories
+                    .filter(c => !["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal", "Standard", "Child"].includes(c.category_name))
+                    .map(c => (
+                      <option key={c.id} value={c.category_name}>🏷️ {c.category_name} (Universal Band)</option>
+                    ))}
                 </select>
               </div>
 
@@ -2424,7 +2574,7 @@ export default function BandInventoryPage() {
             </p>
 
             {/* Quick Metrics Bar */}
-            <div className="grid grid-cols-5 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-6 text-center text-xs">
+            <div className="grid grid-cols-5 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-4 text-center text-xs">
               <div>
                 <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
                 <span className="font-mono font-bold text-gray-900">{selectedColorForAction.total}</span>
@@ -2446,6 +2596,33 @@ export default function BandInventoryPage() {
                 <span className="font-mono font-bold text-red-600">{selectedColorForAction.damaged + selectedColorForAction.lost}</span>
               </div>
             </div>
+
+            {/* Subcategories Breakdown in Quick Hub */}
+            {selectedColorForAction.subcategories && selectedColorForAction.subcategories.length > 0 && (
+              <div className="mb-5 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block mb-2">
+                  Pass Subcategory Breakdown:
+                </span>
+                <div className="space-y-1.5">
+                  {selectedColorForAction.subcategories.map((sub) => {
+                    const norm = normalizeBandCategory(sub.category);
+                    return (
+                      <div key={sub.category} className="flex items-center justify-between text-xs bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
+                        <span className="font-bold text-gray-800 flex items-center gap-1.5">
+                          <span>{norm === "Participant" ? "🏎️" : norm === "Visitor" ? "☕" : norm === "VIP Participant" ? "👑" : norm === "VIP Visitor" ? "⭐" : "🎫"}</span>
+                          <span>{sub.category}</span>
+                        </span>
+                        <div className="flex items-center gap-3 font-mono text-[11px]">
+                          <span className="text-emerald-700 font-bold">{sub.available} wh</span>
+                          <span className="text-amber-700 font-bold">{sub.in_reception} rec</span>
+                          <span className="text-blue-700 font-bold">{sub.issued} iss</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {/* Action Cards Grid */}
             <div className="space-y-3">
@@ -2671,17 +2848,20 @@ export default function BandInventoryPage() {
 
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                  Category
+                  Subcategory (Pass Type)
                 </label>
                 <select
                   value={editCategory}
                   onChange={(e) => setEditCategory(e.target.value as BandCategory)}
-                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                  className="w-full border border-gray-300 rounded-xl px-3 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 >
-                  <option value="Standard">Standard</option>
-                  <option value="VIP">VIP</option>
-                  <option value="Child">Child</option>
-                  <option value="Staff / Marshal">Staff / Marshal</option>
+                  <option value="Participant">🏎️ Participant</option>
+                  <option value="Visitor">☕ Visitor</option>
+                  <option value="VIP Participant">👑 VIP Participant</option>
+                  <option value="VIP Visitor">⭐ VIP Visitor</option>
+                  <option value="Staff / Marshal">🛡️ Staff / Marshal</option>
+                  <option value="Standard">🎫 Standard</option>
+                  <option value="Child">🧒 Child</option>
                 </select>
               </div>
 
@@ -2885,6 +3065,27 @@ export default function BandInventoryPage() {
                     {selectedColorForAction.in_reception || 0}
                   </span>
                 </div>
+              </div>
+
+              {/* Subcategory Filter for Handover */}
+              <div>
+                <label className="block text-xs font-bold uppercase text-gray-700 mb-1.5 flex items-center justify-between">
+                  <span>Pass Subcategory:</span>
+                  <span className="text-[10px] font-semibold text-amber-700 font-sans normal-case">Target specific ticket type</span>
+                </label>
+                <select
+                  value={handoverCategoryFilter}
+                  onChange={(e) => setHandoverCategoryFilter(e.target.value)}
+                  className="w-full bg-white border border-gray-300 rounded-xl px-3 py-2 text-xs font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="all">📦 All Subcategories (Any Available)</option>
+                  <option value="Participant">🏎️ Participant Bands Only</option>
+                  <option value="Visitor">☕ Visitor Bands Only</option>
+                  <option value="VIP Participant">👑 VIP Participant Bands Only</option>
+                  <option value="VIP Visitor">⭐ VIP Visitor Bands Only</option>
+                  <option value="Staff / Marshal">🛡️ Staff / Marshal Bands Only</option>
+                  <option value="Standard">🎫 Standard Bands Only</option>
+                </select>
               </div>
 
               <div>

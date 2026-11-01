@@ -10,14 +10,29 @@ export interface WristbandColorInventoryItem {
   in_reception?: number;
   slot_labels: string[]; // labels of currently assigned slots (e.g. ["11AM-12PM", "9"])
   is_active_in_slots: boolean;
+  subcategory_labels?: string[]; // categories assigned (e.g. ["Participant", "VIP Visitor"])
+  is_active_in_subcategories?: boolean;
   created_at?: string;
   updated_at?: string;
+}
+
+export interface SubcategoryBandItem {
+  id: number;
+  category_name: string;
+  color_hex: string;
+  color_name: string;
+  remark?: string | null;
+  active: number;
+  created_at?: string;
+  updated_at?: string;
+  warehouse_stock?: number;
+  reception_stock?: number;
 }
 
 let colorInventorySchemaInitialized = false;
 
 /**
- * Ensures the wristband_color_inventory table exists in PostgreSQL and SQLite fallback
+ * Ensures the wristband_color_inventory and subcategory_bands tables exist in PostgreSQL and SQLite fallback
  */
 export async function ensureColorInventorySchema(): Promise<void> {
   // 1. PostgreSQL Schema
@@ -37,6 +52,19 @@ export async function ensureColorInventorySchema(): Promise<void> {
 
         CREATE INDEX IF NOT EXISTS idx_wci_color_hex ON wristband_color_inventory(color_hex);
         CREATE INDEX IF NOT EXISTS idx_wci_color_name ON wristband_color_inventory(color_name);
+
+        CREATE TABLE IF NOT EXISTS subcategory_bands (
+          id SERIAL PRIMARY KEY,
+          category_name VARCHAR(100) NOT NULL,
+          color_hex VARCHAR(50) NOT NULL,
+          color_name VARCHAR(100) NOT NULL,
+          remark TEXT,
+          active INTEGER NOT NULL DEFAULT 1,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_subcat_bands_color ON subcategory_bands(color_hex);
       `);
 
       // Add in_reception column if table already existed without it
@@ -62,6 +90,17 @@ export async function ensureColorInventorySchema(): Promise<void> {
         color_name TEXT NOT NULL,
         quantity INTEGER NOT NULL DEFAULT 0,
         in_reception INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS subcategory_bands (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        category_name TEXT NOT NULL,
+        color_hex TEXT NOT NULL,
+        color_name TEXT NOT NULL,
+        remark TEXT,
+        active INTEGER NOT NULL DEFAULT 1,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
       );
@@ -113,7 +152,46 @@ export function getDistinctSlotColors(): Array<{ hex: string; name: string; slot
 }
 
 /**
- * Get all inventory records with live slot mapping
+ * Returns distinct colors defined in active universal subcategory bands
+ */
+export function getDistinctSubcategoryColors(): Array<{ hex: string; name: string; subcatLabels: string[] }> {
+  initDB();
+  try {
+    const rows = db.prepare(`
+      SELECT category_name, color_hex, color_name 
+      FROM subcategory_bands 
+      WHERE active = 1 
+      ORDER BY id ASC
+    `).all() as any[];
+
+    const map = new Map<string, { hex: string; name: string; subcatLabels: string[] }>();
+
+    for (const row of rows) {
+      const hex = (row.color_hex || '').trim().toUpperCase();
+      if (!hex) continue;
+
+      if (!map.has(hex)) {
+        map.set(hex, {
+          hex,
+          name: row.color_name || hex,
+          subcatLabels: [row.category_name]
+        });
+      } else {
+        const entry = map.get(hex)!;
+        if (!entry.subcatLabels.includes(row.category_name)) {
+          entry.subcatLabels.push(row.category_name);
+        }
+      }
+    }
+
+    return Array.from(map.values());
+  } catch (err) {
+    return [];
+  }
+}
+
+/**
+ * Get all inventory records with live slot & subcategory mapping
  */
 export async function getColorInventory(): Promise<WristbandColorInventoryItem[]> {
   await ensureColorInventorySchema();
@@ -121,6 +199,10 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
   const slotColors = getDistinctSlotColors();
   const slotColorMap = new Map<string, { name: string; slotLabels: string[] }>();
   slotColors.forEach(sc => slotColorMap.set(sc.hex.toUpperCase(), sc));
+
+  const subcatColors = getDistinctSubcategoryColors();
+  const subcatColorMap = new Map<string, { name: string; subcatLabels: string[] }>();
+  subcatColors.forEach(sc => subcatColorMap.set(sc.hex.toUpperCase(), sc));
 
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
@@ -135,6 +217,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
       return res.rows.map(r => {
         const hex = (r.color_hex || '').trim().toUpperCase();
         const activeSlotInfo = slotColorMap.get(hex);
+        const activeSubcatInfo = subcatColorMap.get(hex);
         return {
           id: r.id,
           color_hex: hex,
@@ -143,6 +226,8 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
           in_reception: Number(r.in_reception || 0),
           slot_labels: activeSlotInfo ? activeSlotInfo.slotLabels : [],
           is_active_in_slots: Boolean(activeSlotInfo),
+          subcategory_labels: activeSubcatInfo ? activeSubcatInfo.subcatLabels : [],
+          is_active_in_subcategories: Boolean(activeSubcatInfo),
           created_at: r.created_at ? new Date(r.created_at).toISOString() : undefined,
           updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined
         };
@@ -163,6 +248,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
   return sqliteRows.map(r => {
     const hex = (r.color_hex || '').trim().toUpperCase();
     const activeSlotInfo = slotColorMap.get(hex);
+    const activeSubcatInfo = subcatColorMap.get(hex);
     return {
       id: r.id,
       color_hex: hex,
@@ -171,6 +257,8 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
       in_reception: Number(r.in_reception || 0),
       slot_labels: activeSlotInfo ? activeSlotInfo.slotLabels : [],
       is_active_in_slots: Boolean(activeSlotInfo),
+      subcategory_labels: activeSubcatInfo ? activeSubcatInfo.subcatLabels : [],
+      is_active_in_subcategories: Boolean(activeSubcatInfo),
       created_at: r.created_at,
       updated_at: r.updated_at
     };
@@ -196,13 +284,24 @@ export async function syncColorInventoryFromSlots(): Promise<{
   await ensureColorInventorySchema();
 
   const slotColors = getDistinctSlotColors();
-  if (slotColors.length === 0) {
+  const subcatColors = getDistinctSubcategoryColors();
+
+  const allRequiredColorsMap = new Map<string, { hex: string; name: string }>();
+  slotColors.forEach(sc => allRequiredColorsMap.set(sc.hex.toUpperCase(), { hex: sc.hex.toUpperCase(), name: sc.name }));
+  subcatColors.forEach(sbc => {
+    if (!allRequiredColorsMap.has(sbc.hex.toUpperCase())) {
+      allRequiredColorsMap.set(sbc.hex.toUpperCase(), { hex: sbc.hex.toUpperCase(), name: sbc.name });
+    }
+  });
+
+  const combinedColors = Array.from(allRequiredColorsMap.values());
+  if (combinedColors.length === 0) {
     return {
       success: true,
       addedCount: 0,
       addedColors: [],
       alreadyExistingCount: 0,
-      message: "No active slot colours found to synchronize."
+      message: "No active slot or sub-category colours found to synchronize."
     };
   }
 
@@ -220,7 +319,7 @@ export async function syncColorInventoryFromSlots(): Promise<{
         const existingRes = await client.query("SELECT UPPER(color_hex) as hex FROM wristband_color_inventory");
         const existingHexSet = new Set(existingRes.rows.map(r => r.hex));
 
-        for (const sc of slotColors) {
+        for (const sc of combinedColors) {
           const hex = sc.hex.toUpperCase();
           if (existingHexSet.has(hex)) {
             alreadyExistingCount++;
@@ -265,7 +364,7 @@ export async function syncColorInventoryFromSlots(): Promise<{
     VALUES (?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
 
-  for (const sc of slotColors) {
+  for (const sc of combinedColors) {
     const hex = sc.hex.toUpperCase();
     if (!sqliteHexSet.has(hex)) {
       insertSqlite.run(hex, sc.name);
@@ -905,3 +1004,304 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
     return { success: false, error: sqliteErr.message || "Failed to delete record" };
   }
 }
+
+/**
+ * =========================================================================
+ * UNIVERSAL SUB-CATEGORY BANDS MANAGEMENT
+ * =========================================================================
+ */
+
+/**
+ * Retrieve all universal subcategory bands with live stock counts from inventory
+ */
+export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
+  await ensureColorInventorySchema();
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      const res = await simulatorPool.query(`
+        SELECT 
+          sb.id,
+          sb.category_name,
+          UPPER(sb.color_hex) as color_hex,
+          sb.color_name,
+          sb.remark,
+          sb.active,
+          sb.created_at,
+          sb.updated_at,
+          COALESCE(wci.quantity, 0) as warehouse_stock,
+          COALESCE(wci.in_reception, 0) as reception_stock
+        FROM subcategory_bands sb
+        LEFT JOIN wristband_color_inventory wci 
+          ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
+        ORDER BY sb.id ASC
+      `);
+
+      return res.rows.map(r => ({
+        id: r.id,
+        category_name: r.category_name,
+        color_hex: r.color_hex,
+        color_name: r.color_name,
+        remark: r.remark,
+        active: Number(r.active ?? 1),
+        created_at: r.created_at ? new Date(r.created_at).toISOString() : undefined,
+        updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined,
+        warehouse_stock: Number(r.warehouse_stock || 0),
+        reception_stock: Number(r.reception_stock || 0)
+      }));
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG getSubcategoryBands error, falling back to SQLite:", pgErr);
+    }
+  }
+
+  // SQLite fallback
+  initDB();
+  const rows = db.prepare(`
+    SELECT 
+      sb.id,
+      sb.category_name,
+      UPPER(sb.color_hex) as color_hex,
+      sb.color_name,
+      sb.remark,
+      sb.active,
+      sb.created_at,
+      sb.updated_at,
+      COALESCE(wci.quantity, 0) as warehouse_stock,
+      COALESCE(wci.in_reception, 0) as reception_stock
+    FROM subcategory_bands sb
+    LEFT JOIN wristband_color_inventory wci 
+      ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
+    ORDER BY sb.id ASC
+  `).all() as any[];
+
+  return rows.map(r => ({
+    id: r.id,
+    category_name: r.category_name,
+    color_hex: r.color_hex,
+    color_name: r.color_name,
+    remark: r.remark,
+    active: Number(r.active ?? 1),
+    created_at: r.created_at,
+    updated_at: r.updated_at,
+    warehouse_stock: Number(r.warehouse_stock || 0),
+    reception_stock: Number(r.reception_stock || 0)
+  }));
+}
+
+/**
+ * Create a new universal subcategory band and register its colour in inventory
+ */
+export async function createSubcategoryBand(data: {
+  category_name: string;
+  color_hex: string;
+  color_name: string;
+  remark?: string;
+  initial_stock?: number;
+  initial_reception?: number;
+}): Promise<{ success: boolean; id?: number; error?: string }> {
+  await ensureColorInventorySchema();
+  const hex = (data.color_hex || "").trim().toUpperCase();
+  const name = (data.color_name || "").trim() || hex;
+  const category = (data.category_name || "").trim();
+  const remark = (data.remark || "").trim() || null;
+  const initialStock = Math.max(0, Number(data.initial_stock || 0));
+  const initialReception = Math.max(0, Number(data.initial_reception || 0));
+
+  if (!category) {
+    return { success: false, error: "Sub-category / ticket type name is required." };
+  }
+  if (!hex || !hex.startsWith("#")) {
+    return { success: false, error: "Valid hex colour code is required (e.g. #3B82F6)." };
+  }
+
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+  let createdId: number | undefined;
+
+  if (hasPg) {
+    try {
+      const client = await simulatorPool.connect();
+      try {
+        await client.query("BEGIN");
+
+        // 1. Insert into subcategory_bands
+        const insRes = await client.query(`
+          INSERT INTO subcategory_bands (category_name, color_hex, color_name, remark, active, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, 1, NOW(), NOW())
+          RETURNING id
+        `, [category, hex, name, remark]);
+
+        createdId = insRes.rows[0]?.id;
+
+        // 2. Ensure color exists in wristband_color_inventory with initial stock
+        await client.query(`
+          INSERT INTO wristband_color_inventory (color_hex, color_name, quantity, in_reception, created_at, updated_at)
+          VALUES ($1, $2, $3, $4, NOW(), NOW())
+          ON CONFLICT (color_hex) DO UPDATE 
+            SET color_name = EXCLUDED.color_name,
+                quantity = wristband_color_inventory.quantity + EXCLUDED.quantity,
+                in_reception = wristband_color_inventory.in_reception + EXCLUDED.in_reception,
+                updated_at = NOW()
+        `, [hex, name, initialStock, initialReception]);
+
+        await client.query("COMMIT");
+      } catch (txErr) {
+        await client.query("ROLLBACK");
+        throw txErr;
+      } finally {
+        client.release();
+      }
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG createSubcategoryBand error:", pgErr);
+    }
+  }
+
+  // SQLite fallback sync
+  try {
+    initDB();
+    const res = db.prepare(`
+      INSERT INTO subcategory_bands (category_name, color_hex, color_name, remark, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    `).run(category, hex, name, remark);
+
+    if (!createdId) {
+      createdId = Number(res.lastInsertRowid);
+    }
+
+    // Upsert into wristband_color_inventory
+    const existing = db.prepare("SELECT id, quantity, in_reception FROM wristband_color_inventory WHERE UPPER(color_hex) = ?").get(hex) as any;
+    if (existing) {
+      db.prepare(`
+        UPDATE wristband_color_inventory 
+        SET color_name = ?, quantity = quantity + ?, in_reception = in_reception + ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(name, initialStock, initialReception, existing.id);
+    } else {
+      db.prepare(`
+        INSERT INTO wristband_color_inventory (color_hex, color_name, quantity, in_reception, created_at, updated_at)
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(hex, name, initialStock, initialReception);
+    }
+
+    return { success: true, id: createdId };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to create subcategory band." };
+  }
+}
+
+/**
+ * Update an existing subcategory band
+ */
+export async function updateSubcategoryBand(
+  id: number,
+  data: {
+    category_name: string;
+    color_hex: string;
+    color_name: string;
+    remark?: string;
+    active?: number;
+  }
+): Promise<{ success: boolean; error?: string }> {
+  await ensureColorInventorySchema();
+  const hex = (data.color_hex || "").trim().toUpperCase();
+  const name = (data.color_name || "").trim() || hex;
+  const category = (data.category_name || "").trim();
+  const remark = (data.remark || "").trim() || null;
+  const active = data.active !== undefined ? Number(data.active) : 1;
+
+  if (!category) return { success: false, error: "Category name is required." };
+  if (!hex) return { success: false, error: "Colour code is required." };
+
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query(`
+        UPDATE subcategory_bands 
+        SET category_name = $1, color_hex = $2, color_name = $3, remark = $4, active = $5, updated_at = NOW()
+        WHERE id = $6
+      `, [category, hex, name, remark, active, id]);
+
+      // Ensure updated color exists in inventory
+      await simulatorPool.query(`
+        INSERT INTO wristband_color_inventory (color_hex, color_name, quantity, in_reception, created_at, updated_at)
+        VALUES ($1, $2, 0, 0, NOW(), NOW())
+        ON CONFLICT (color_hex) DO UPDATE SET color_name = EXCLUDED.color_name, updated_at = NOW()
+      `, [hex, name]);
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG updateSubcategoryBand error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare(`
+      UPDATE subcategory_bands 
+      SET category_name = ?, color_hex = ?, color_name = ?, remark = ?, active = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?
+    `).run(category, hex, name, remark, active, id);
+
+    // Ensure color exists in SQLite inventory
+    const existing = db.prepare("SELECT id FROM wristband_color_inventory WHERE UPPER(color_hex) = ?").get(hex);
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO wristband_color_inventory (color_hex, color_name, quantity, in_reception, created_at, updated_at)
+        VALUES (?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+      `).run(hex, name);
+    }
+
+    return { success: true };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to update subcategory band." };
+  }
+}
+
+/**
+ * Toggle active status of a subcategory band
+ */
+export async function toggleSubcategoryBandStatus(id: number, active: boolean): Promise<{ success: boolean; error?: string }> {
+  await ensureColorInventorySchema();
+  const val = active ? 1 : 0;
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query("UPDATE subcategory_bands SET active = $1, updated_at = NOW() WHERE id = $2", [val, id]);
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG toggleSubcategoryBandStatus error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare("UPDATE subcategory_bands SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(val, id);
+    return { success: true };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to toggle status." };
+  }
+}
+
+/**
+ * Delete a universal subcategory band
+ */
+export async function deleteSubcategoryBand(id: number): Promise<{ success: boolean; error?: string }> {
+  await ensureColorInventorySchema();
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      await simulatorPool.query("DELETE FROM subcategory_bands WHERE id = $1", [id]);
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG deleteSubcategoryBand error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+    db.prepare("DELETE FROM subcategory_bands WHERE id = ?").run(id);
+    return { success: true };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to delete subcategory band." };
+  }
+}
+

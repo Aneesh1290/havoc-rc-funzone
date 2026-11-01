@@ -430,6 +430,7 @@ export async function updateBookingWristbandNumberAction(
   options?: {
     color_hex?: string;
     color_name?: string;
+    category?: string;
     staff_name?: string;
   }
 ) {
@@ -441,6 +442,7 @@ export async function updateBookingWristbandNumberAction(
     // 2. Sync with Band Items & Reception Inventory
     const slotColorHex = options?.color_hex || prevBooking?.slot_color || "";
     const slotColorName = options?.color_name || prevBooking?.slot_color_name || "";
+    const targetCategory = options?.category || prevBooking?.ticket_name || "";
     const customerName = prevBooking?.customer_name || "Guest";
     const orderNum = prevBooking?.order_number || id;
     const staffName = options?.staff_name || "Reception Desk";
@@ -462,11 +464,12 @@ export async function updateBookingWristbandNumberAction(
         band_code: code,
         color_hex: slotColorHex,
         color_name: slotColorName,
+        expected_category: targetCategory,
         customer_name: customerName,
         booking_id: id,
         order_number: `#${orderNum}`,
         staff_name: staffName,
-        notes: `Issued to ${customerName} for ${prevBooking?.time_slot || 'Slot'}`
+        notes: `Issued to ${customerName} (${targetCategory || 'Pass'}) for ${prevBooking?.time_slot || 'Slot'}`
       });
 
       if (!issueCheck.success) {

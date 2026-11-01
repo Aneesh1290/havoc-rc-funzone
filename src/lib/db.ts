@@ -187,6 +187,17 @@ export function initDB() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS subcategory_bands (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category_name TEXT NOT NULL,
+      color_hex TEXT NOT NULL,
+      color_name TEXT NOT NULL,
+      remark TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   
   // Seed default site settings
@@ -1669,5 +1680,53 @@ export function setSiteSetting(key: string, value: string, description?: string)
     ON CONFLICT(key) DO UPDATE SET value = excluded.value, description = COALESCE(excluded.description, site_settings.description)
   `).run(key, value, description || null);
 }
+
+// Universal Sub-Category Bands Database Methods
+export interface SubcategoryBandRow {
+  id: number;
+  category_name: string;
+  color_hex: string;
+  color_name: string;
+  remark?: string | null;
+  active: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export function getSubcategoryBandsDB(activeOnly = false): SubcategoryBandRow[] {
+  initDB();
+  if (activeOnly) {
+    return db.prepare('SELECT * FROM subcategory_bands WHERE active = 1 ORDER BY id ASC').all() as SubcategoryBandRow[];
+  }
+  return db.prepare('SELECT * FROM subcategory_bands ORDER BY id ASC').all() as SubcategoryBandRow[];
+}
+
+export function createSubcategoryBandDB(categoryName: string, colorHex: string, colorName: string, remark?: string) {
+  initDB();
+  return db.prepare(`
+    INSERT INTO subcategory_bands (category_name, color_hex, color_name, remark, active)
+    VALUES (?, ?, ?, ?, 1)
+  `).run(categoryName.trim(), colorHex.trim().toUpperCase(), colorName.trim(), remark?.trim() || null);
+}
+
+export function updateSubcategoryBandDB(id: number, categoryName: string, colorHex: string, colorName: string, remark?: string) {
+  initDB();
+  return db.prepare(`
+    UPDATE subcategory_bands 
+    SET category_name = ?, color_hex = ?, color_name = ?, remark = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `).run(categoryName.trim(), colorHex.trim().toUpperCase(), colorName.trim(), remark?.trim() || null, id);
+}
+
+export function toggleSubcategoryBandStatusDB(id: number, active: boolean) {
+  initDB();
+  return db.prepare('UPDATE subcategory_bands SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(active ? 1 : 0, id);
+}
+
+export function deleteSubcategoryBandDB(id: number) {
+  initDB();
+  return db.prepare('DELETE FROM subcategory_bands WHERE id = ?').run(id);
+}
+
 
 

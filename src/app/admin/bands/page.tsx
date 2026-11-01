@@ -9,6 +9,7 @@ import {
   RotateCcw, 
   CheckCircle2, 
   AlertCircle, 
+  AlertTriangle,
   Clock, 
   User, 
   Receipt, 
@@ -1637,19 +1638,45 @@ export default function BandInventoryPage() {
               </div>
             </div>
 
+            {/* Low Stock Reorder Notification Banner */}
+            {generalSlotColors.some(c => c.total > 0 && c.available <= 250) && (
+              <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs animate-in fade-in">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                  <span className="text-red-900 font-semibold">
+                    <strong>Low Stock Alert:</strong> {generalSlotColors.filter(c => c.total > 0 && c.available <= 250).length} time slot color(s) have dropped to <strong>250 or below</strong> in stock. Please reorder stock soon.
+                  </span>
+                </div>
+                <span className="self-start sm:self-auto px-2 py-0.5 rounded-md bg-red-100 text-red-700 font-bold border border-red-300 text-[11px] font-mono shrink-0">
+                  ⚠️ Reorder Alert: ≤250 Left
+                </span>
+              </div>
+            )}
+
             {/* General Track Slot Wristbands Grid (Arranged chronologically by time slot) */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {generalSlotColors.map((color) => {
                 const badgeStyle = getWristbandBadgeStyle(color.color_hex);
+                const isLowStock = color.total > 0 && color.available <= 250;
                 return (
                   <div
                     key={color.color_name}
                     onClick={() => handleColorCardPress(color)}
                     role="button"
                     tabIndex={0}
-                    className="p-4 rounded-xl border border-gray-200 bg-white hover:border-[#ff5a1f] hover:shadow-md transition-all shadow-sm flex flex-col justify-between cursor-pointer group relative overflow-hidden"
+                    className={`p-4 rounded-xl border ${
+                      isLowStock 
+                        ? "border-red-300 bg-red-50/20 shadow-red-100/40" 
+                        : "border-gray-200 bg-white"
+                    } hover:border-[#ff5a1f] hover:shadow-md transition-all shadow-sm flex flex-col justify-between cursor-pointer group relative overflow-hidden`}
                   >
-                    <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-transparent via-[#ff5a1f]/0 to-transparent group-hover:via-[#ff5a1f] transition-all" />
+                    <div 
+                      className={`absolute top-0 right-0 left-0 h-1 ${
+                        isLowStock 
+                          ? "bg-gradient-to-r from-red-500 via-rose-500 to-red-500" 
+                          : "bg-gradient-to-r from-transparent via-[#ff5a1f]/0 to-transparent group-hover:via-[#ff5a1f]"
+                      } transition-all`} 
+                    />
 
                     <div>
                       <div className="flex items-start justify-between gap-2 mb-2">
@@ -1669,23 +1696,35 @@ export default function BandInventoryPage() {
                             </span>
                           )}
                         </div>
-                        <span
-                          className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
-                            color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
-                          }`}
-                          style={color.total > 0 ? badgeStyle : undefined}
-                        >
-                          {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
-                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isLowStock && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 border border-red-300 animate-pulse">
+                              <AlertTriangle className="w-3 h-3 text-red-600" />
+                              <span>REORDER</span>
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                              color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
+                            }`}
+                            style={color.total > 0 ? badgeStyle : undefined}
+                          >
+                            {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
+                          </span>
+                        </div>
                       </div>
 
                       {/* Stock Bar */}
                       {color.total > 0 ? (
-                        <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
+                        <div className={`w-full bg-gray-100 h-2.5 rounded-full overflow-hidden flex my-2 ${isLowStock ? "ring-1 ring-red-400/50" : ""}`}>
                           <div
-                            className="bg-emerald-500 h-full transition-all duration-300"
+                            className={`h-full transition-all duration-300 ${
+                              isLowStock 
+                                ? "bg-red-500 shadow-sm shadow-red-500/50 animate-pulse" 
+                                : "bg-emerald-500"
+                            }`}
                             style={{ width: `${(color.available / color.total) * 100}%` }}
-                            title={`Available: ${color.available}`}
+                            title={`In Stock: ${color.available}${isLowStock ? " (LOW STOCK - REORDER)" : ""}`}
                           />
                           <div
                             className="bg-amber-400 h-full transition-all duration-300"
@@ -1699,14 +1738,37 @@ export default function BandInventoryPage() {
                           />
                         </div>
                       ) : (
-                        <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2 rounded-full my-2.5" title="No bands in inventory yet" />
+                        <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2.5 rounded-full my-2" title="No bands in inventory yet" />
+                      )}
+
+                      {/* Low Stock Alert Message to Reorder */}
+                      {isLowStock && (
+                        <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 mb-2 rounded-lg bg-red-50 border border-red-200/90 text-red-800 text-[11px] font-bold animate-pulse">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                            <span className="truncate">
+                              {color.available === 0 ? "Out of Stock!" : `Low Stock: Only ${color.available} Left`}
+                            </span>
+                          </div>
+                          <span className="text-[10px] uppercase tracking-wider font-extrabold text-red-700 bg-red-100 border border-red-300 px-1.5 py-0.5 rounded shrink-0">
+                            ⚠️ Reorder Now
+                          </span>
+                        </div>
                       )}
                     </div>
 
                     <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-gray-100 text-center">
                       <div>
-                        <span className="block text-[10px] uppercase font-bold text-gray-400">In Stock</span>
-                        <span className={`font-mono font-bold text-xs ${color.available > 0 ? "text-emerald-700" : "text-gray-400"}`}>
+                        <span className={`block text-[10px] uppercase font-bold ${isLowStock ? "text-red-500 font-extrabold" : "text-gray-400"}`}>
+                          In Stock
+                        </span>
+                        <span className={`font-mono font-bold text-xs ${
+                          isLowStock 
+                            ? "text-red-600 font-black animate-pulse" 
+                            : color.available > 0 
+                            ? "text-emerald-700" 
+                            : "text-gray-400"
+                        }`}>
                           {color.available}
                         </span>
                       </div>
@@ -1792,18 +1854,44 @@ export default function BandInventoryPage() {
                   </div>
                 </div>
 
+                {/* Low Stock Reorder Banner for Sub-Categories */}
+                {subcategoryColors.some(c => c.total > 0 && c.available <= 250) && (
+                  <div className="mb-4 p-3 rounded-xl bg-red-50 border border-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs animate-in fade-in">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                      <span className="text-red-900 font-semibold">
+                        <strong>Low Stock Alert:</strong> {subcategoryColors.filter(c => c.total > 0 && c.available <= 250).length} sub-category pass(es) have dropped to <strong>250 or below</strong> in stock. Please reorder stock soon.
+                      </span>
+                    </div>
+                    <span className="self-start sm:self-auto px-2 py-0.5 rounded-md bg-red-100 text-red-700 font-bold border border-red-300 text-[11px] font-mono shrink-0">
+                      ⚠️ Reorder Alert: ≤250 Left
+                    </span>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                   {subcategoryColors.map((color) => {
                     const badgeStyle = getWristbandBadgeStyle(color.color_hex);
+                    const isSubLowStock = color.total > 0 && color.available <= 250;
                     return (
                       <div
                         key={color.color_name}
                         onClick={() => handleColorCardPress(color)}
                         role="button"
                         tabIndex={0}
-                        className="p-4 rounded-xl border border-purple-200 bg-white hover:border-purple-400 hover:shadow-md transition-all shadow-xs flex flex-col justify-between cursor-pointer group relative overflow-hidden"
+                        className={`p-4 rounded-xl border ${
+                          isSubLowStock 
+                            ? "border-red-300 bg-red-50/20 shadow-red-100/40" 
+                            : "border-purple-200 bg-white"
+                        } hover:border-purple-400 hover:shadow-md transition-all shadow-xs flex flex-col justify-between cursor-pointer group relative overflow-hidden`}
                       >
-                        <div className="absolute top-0 right-0 left-0 h-1 bg-gradient-to-r from-transparent via-purple-500/0 to-transparent group-hover:via-purple-500 transition-all" />
+                        <div 
+                          className={`absolute top-0 right-0 left-0 h-1 ${
+                            isSubLowStock 
+                              ? "bg-gradient-to-r from-red-500 via-rose-500 to-red-500" 
+                              : "bg-gradient-to-r from-transparent via-purple-500/0 to-transparent group-hover:via-purple-500"
+                          } transition-all`} 
+                        />
 
                         <div>
                           <div className="flex items-start justify-between gap-2 mb-2">
@@ -1820,23 +1908,35 @@ export default function BandInventoryPage() {
                                 <span>Sub-Category Pass</span>
                               </span>
                             </div>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
-                                color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
-                              }`}
-                              style={color.total > 0 ? badgeStyle : undefined}
-                            >
-                              {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
-                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {isSubLowStock && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-red-100 text-red-700 border border-red-300 animate-pulse">
+                                  <AlertTriangle className="w-3 h-3 text-red-600" />
+                                  <span>REORDER</span>
+                                </span>
+                              )}
+                              <span
+                                className={`text-[10px] font-bold px-2 py-0.5 rounded-md border shrink-0 ${
+                                  color.total === 0 ? "bg-gray-50 text-gray-500 border-dashed border-gray-300" : ""
+                                }`}
+                                style={color.total > 0 ? badgeStyle : undefined}
+                              >
+                                {color.total > 0 ? `${color.total} Total` : "No Stock Yet"}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Stock Bar */}
                           {color.total > 0 ? (
-                            <div className="w-full bg-gray-100 h-2 rounded-full overflow-hidden flex my-2.5">
+                            <div className={`w-full bg-gray-100 h-2.5 rounded-full overflow-hidden flex my-2 ${isSubLowStock ? "ring-1 ring-red-400/50" : ""}`}>
                               <div
-                                className="bg-emerald-500 h-full transition-all duration-300"
+                                className={`h-full transition-all duration-300 ${
+                                  isSubLowStock 
+                                    ? "bg-red-500 shadow-sm shadow-red-500/50 animate-pulse" 
+                                    : "bg-emerald-500"
+                                }`}
                                 style={{ width: `${(color.available / color.total) * 100}%` }}
-                                title={`Available: ${color.available}`}
+                                title={`In Stock: ${color.available}${isSubLowStock ? " (LOW STOCK - REORDER)" : ""}`}
                               />
                               <div
                                 className="bg-amber-400 h-full transition-all duration-300"
@@ -1850,14 +1950,37 @@ export default function BandInventoryPage() {
                               />
                             </div>
                           ) : (
-                            <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2 rounded-full my-2.5" title="No bands in inventory yet" />
+                            <div className="w-full bg-gray-100/80 border border-dashed border-gray-200 h-2.5 rounded-full my-2" title="No bands in inventory yet" />
+                          )}
+
+                          {/* Low Stock Alert Message to Reorder */}
+                          {isSubLowStock && (
+                            <div className="flex items-center justify-between gap-1.5 px-2.5 py-1 mb-2 rounded-lg bg-red-50 border border-red-200/90 text-red-800 text-[11px] font-bold animate-pulse">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <AlertTriangle className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                                <span className="truncate">
+                                  {color.available === 0 ? "Out of Stock!" : `Low Stock: Only ${color.available} Left`}
+                                </span>
+                              </div>
+                              <span className="text-[10px] uppercase tracking-wider font-extrabold text-red-700 bg-red-100 border border-red-300 px-1.5 py-0.5 rounded shrink-0">
+                                ⚠️ Reorder Now
+                              </span>
+                            </div>
                           )}
                         </div>
 
                         <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-gray-100 text-center">
                           <div>
-                            <span className="block text-[10px] uppercase font-bold text-gray-400">In Stock</span>
-                            <span className={`font-mono font-bold text-xs ${color.available > 0 ? "text-emerald-700" : "text-gray-400"}`}>
+                            <span className={`block text-[10px] uppercase font-bold ${isSubLowStock ? "text-red-500 font-extrabold" : "text-gray-400"}`}>
+                              In Stock
+                            </span>
+                            <span className={`font-mono font-bold text-xs ${
+                              isSubLowStock 
+                                ? "text-red-600 font-black animate-pulse" 
+                                : color.available > 0 
+                                ? "text-emerald-700" 
+                                : "text-gray-400"
+                            }`}>
                               {color.available}
                             </span>
                           </div>

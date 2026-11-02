@@ -2674,12 +2674,15 @@ export async function purgeOrResetColorStock(params: {
         deletedPoolCount += res.rowCount || 0;
       }
 
-      // 2. Purge unissued bands from band_items (ONLY status = 'available', NEVER issued/damaged!)
+      // 2. Purge unissued bands from band_items (ONLY unissued/available bands, NEVER issued/damaged!)
       if (params.actionType === "purge_unissued_bands" || params.actionType === "delete_everything") {
         const res = await simulatorPool.query(`
           DELETE FROM band_items
-          WHERE ((UPPER(color_hex) = $1 AND $1 != '') OR (UPPER(color_name) = UPPER($2) AND $2 != ''))
-            AND status = 'available'
+          WHERE ((UPPER(color_hex) = $1 AND $1 != '') 
+             OR (UPPER(color_name) = UPPER($2) AND $2 != '')
+             OR ($2 != '' AND UPPER(color_name) LIKE '%' || UPPER($2) || '%')
+             OR ($2 != '' AND UPPER($2) LIKE '%' || UPPER(color_name) || '%'))
+            AND (status = 'available' OR total_uses = 0)
         `, [hex, name]);
         purgedBandsCount += res.rowCount || 0;
       }
@@ -2733,9 +2736,12 @@ export async function purgeOrResetColorStock(params: {
     if (params.actionType === "purge_unissued_bands" || params.actionType === "delete_everything") {
       const res = db.prepare(`
         DELETE FROM band_items
-        WHERE ((UPPER(color_hex) = ? AND ? != '') OR (UPPER(color_name) = UPPER(?) AND ? != ''))
-          AND status = 'available'
-      `).run(hex, hex, name, name);
+        WHERE ((UPPER(color_hex) = ? AND ? != '') 
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+           OR (? != '' AND UPPER(color_name) LIKE '%' || UPPER(?) || '%')
+           OR (? != '' AND UPPER(?) LIKE '%' || UPPER(color_name) || '%'))
+          AND (status = 'available' OR total_uses = 0)
+      `).run(hex, hex, name, name, name, name, name, name);
       purgedBandsCount += res.changes || 0;
     }
 

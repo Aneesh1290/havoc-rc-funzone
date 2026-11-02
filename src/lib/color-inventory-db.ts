@@ -990,16 +990,38 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
   await ensureColorInventorySchema();
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
+  let targetHex = "";
+  let targetName = "";
+
   if (hasPg) {
     try {
-      const res = await simulatorPool.query("DELETE FROM wristband_color_inventory WHERE id = $1 RETURNING color_hex", [id]);
-      if (res.rows[0]?.color_hex) {
+      // 1. Fetch details before deletion so we can also purge unissued band_items
+      const findRes = await simulatorPool.query("SELECT color_hex, color_name FROM wristband_color_inventory WHERE id = $1", [id]);
+      if (findRes.rows.length > 0) {
+        targetHex = (findRes.rows[0].color_hex || "").trim().toUpperCase();
+        targetName = (findRes.rows[0].color_name || "").trim();
+      }
+
+      await simulatorPool.query("DELETE FROM wristband_color_inventory WHERE id = $1", [id]);
+
+      // 2. Also purge any unissued band_items for this color so phantom stock doesn't linger
+      if (targetHex || targetName) {
+        await simulatorPool.query(`
+          DELETE FROM band_items 
+          WHERE ((UPPER(color_hex) = $1 AND $1 != '') 
+             OR (UPPER(color_name) = UPPER($2) AND $2 != '')
+             OR ($2 != '' AND UPPER(color_name) LIKE '%' || UPPER($2) || '%')
+             OR ($2 != '' AND UPPER($2) LIKE '%' || UPPER(color_name) || '%'))
+            AND (status = 'available' OR total_uses = 0)
+        `, [targetHex, targetName]);
+      }
+
+      if (targetHex) {
         try {
           initDB();
-          db.prepare("DELETE FROM wristband_color_inventory WHERE color_hex = ?").run(res.rows[0].color_hex);
+          db.prepare("DELETE FROM wristband_color_inventory WHERE UPPER(color_hex) = ?").run(targetHex);
         } catch (e) {}
       }
-      return { success: true };
     } catch (pgErr: any) {
       console.warn("[Color Inventory] PG delete error:", pgErr);
     }
@@ -1007,7 +1029,27 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
 
   try {
     initDB();
+    if (!targetHex || !targetName) {
+      const row = db.prepare("SELECT color_hex, color_name FROM wristband_color_inventory WHERE id = ?").get(id) as any;
+      if (row) {
+        targetHex = (row.color_hex || "").trim().toUpperCase();
+        targetName = (row.color_name || "").trim();
+      }
+    }
+
     db.prepare("DELETE FROM wristband_color_inventory WHERE id = ?").run(id);
+
+    if (targetHex || targetName) {
+      db.prepare(`
+        DELETE FROM band_items 
+        WHERE ((UPPER(color_hex) = ? AND ? != '') 
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+           OR (? != '' AND UPPER(color_name) LIKE '%' || UPPER(?) || '%')
+           OR (? != '' AND UPPER(?) LIKE '%' || UPPER(color_name) || '%'))
+          AND (status = 'available' OR total_uses = 0)
+      `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
+    }
+
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete record" };
@@ -1518,9 +1560,29 @@ export async function deleteSubcategoryBand(id: number): Promise<{ success: bool
   await ensureColorInventorySchema();
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
+  let targetHex = "";
+  let targetName = "";
+
   if (hasPg) {
     try {
+      const findRes = await simulatorPool.query("SELECT color_hex, color_name FROM subcategory_bands WHERE id = $1", [id]);
+      if (findRes.rows.length > 0) {
+        targetHex = (findRes.rows[0].color_hex || "").trim().toUpperCase();
+        targetName = (findRes.rows[0].color_name || "").trim();
+      }
+
       await simulatorPool.query("DELETE FROM subcategory_bands WHERE id = $1", [id]);
+
+      if (targetHex || targetName) {
+        await simulatorPool.query(`
+          DELETE FROM band_items 
+          WHERE ((UPPER(color_hex) = $1 AND $1 != '') 
+             OR (UPPER(color_name) = UPPER($2) AND $2 != '')
+             OR ($2 != '' AND UPPER(color_name) LIKE '%' || UPPER($2) || '%')
+             OR ($2 != '' AND UPPER($2) LIKE '%' || UPPER(color_name) || '%'))
+            AND (status = 'available' OR total_uses = 0)
+        `, [targetHex, targetName]);
+      }
     } catch (pgErr) {
       console.warn("[Color Inventory] PG deleteSubcategoryBand error:", pgErr);
     }
@@ -1528,7 +1590,27 @@ export async function deleteSubcategoryBand(id: number): Promise<{ success: bool
 
   try {
     initDB();
+    if (!targetHex || !targetName) {
+      const row = db.prepare("SELECT color_hex, color_name FROM subcategory_bands WHERE id = ?").get(id) as any;
+      if (row) {
+        targetHex = (row.color_hex || "").trim().toUpperCase();
+        targetName = (row.color_name || "").trim();
+      }
+    }
+
     db.prepare("DELETE FROM subcategory_bands WHERE id = ?").run(id);
+
+    if (targetHex || targetName) {
+      db.prepare(`
+        DELETE FROM band_items 
+        WHERE ((UPPER(color_hex) = ? AND ? != '') 
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+           OR (? != '' AND UPPER(color_name) LIKE '%' || UPPER(?) || '%')
+           OR (? != '' AND UPPER(?) LIKE '%' || UPPER(color_name) || '%'))
+          AND (status = 'available' OR total_uses = 0)
+      `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
+    }
+
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete subcategory band." };

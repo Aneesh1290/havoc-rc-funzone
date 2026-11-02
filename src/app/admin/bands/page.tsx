@@ -2953,6 +2953,50 @@ export default function BandInventoryPage() {
             </div>
           </div>
 
+          {/* Color Filter Quick Purge Banner */}
+          {colorFilter !== "all" && totalItemsCount > 0 && canManageStock && (
+            <div className="bg-red-50 border-y border-red-200 px-4 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2 text-red-950 font-bold">
+                <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>
+                  Filter Active: Viewing <strong>{totalItemsCount}</strong> wristbands for <strong>&ldquo;{colorFilter}&rdquo;</strong>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!confirm(`Are you sure you want to permanently delete ALL ${totalItemsCount} wristbands for "${colorFilter}" from the catalog? This will delete unissued bands completely.`)) return;
+                  setIsDeletingBulk(true);
+                  try {
+                    const res = await purgeOrResetColorStockAction({
+                      colorName: colorFilter,
+                      actionType: "delete_everything"
+                    });
+                    if (res.success) {
+                      setFeedback({
+                        type: "success",
+                        message: `Successfully deleted all ${colorFilter} wristbands from inventory!`
+                      });
+                      setColorFilter("all");
+                      await loadData(true);
+                    } else {
+                      setFeedback({ type: "error", message: res.error || "Failed to delete bands." });
+                    }
+                  } catch (e: any) {
+                    setFeedback({ type: "error", message: e.message || "Failed to delete bands." });
+                  } finally {
+                    setIsDeletingBulk(false);
+                  }
+                }}
+                disabled={isDeletingBulk}
+                className="bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer disabled:opacity-50 self-start sm:self-auto"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete All &ldquo;{colorFilter}&rdquo; Wristbands ({totalItemsCount})</span>
+              </button>
+            </div>
+          )}
+
           {/* Bulk Selection Action Bar */}
           {selectedItemIds.length > 0 && (
             <div className="bg-orange-50 border-y border-orange-200 px-4 py-2.5 flex items-center justify-between gap-4 animate-in fade-in">

@@ -69,7 +69,8 @@ import {
   quickLookupBandAction,
   previewHandoverRangeAction,
   handoverWristbandsAction,
-  standardizeAllBandCategoriesAction
+  standardizeAllBandCategoriesAction,
+  purgeOrResetColorStockAction
 } from "@/app/actions/band-inventory";
 import { 
   syncColorInventoryAction, 
@@ -219,6 +220,13 @@ export default function BandInventoryPage() {
   const [renameFormColorName, setRenameFormColorName] = useState("");
   const [renameFormCategory, setRenameFormCategory] = useState("");
   const [isSubmittingRename, setIsSubmittingRename] = useState(false);
+
+  // Stock Reset & Purge Modal States
+  const [isPurgeModalOpen, setIsPurgeModalOpen] = useState(false);
+  const [purgeTargetColor, setPurgeTargetColor] = useState<BandColorBreakdown | null>(null);
+  const [purgeActionType, setPurgeActionType] = useState<"reset_to_zero" | "delete_pool" | "purge_unissued_bands" | "delete_everything">("reset_to_zero");
+  const [isSubmittingPurge, setIsSubmittingPurge] = useState(false);
+  const [isCleanInventoryModalOpen, setIsCleanInventoryModalOpen] = useState(false);
 
   // Quick Stock Out to Reception Modal from Color Cards
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
@@ -500,9 +508,7 @@ export default function BandInventoryPage() {
         nameUpper.includes("STAFF") || 
         nameUpper.includes("MARSHAL") || 
         nameUpper.includes("CHILD") ||
-        nameUpper.includes("SPECIAL") ||
-        nameUpper.includes("EXCAVATOR") ||
-        nameUpper.includes("ADDON");
+        nameUpper.includes("SPECIAL");
       return inConfigured || hasSpecialKeyword;
     };
 
@@ -526,9 +532,50 @@ export default function BandInventoryPage() {
       };
 
       if (isSubcategory(c, matchedConfig)) {
-        subcats.push(enrichedColor);
+        // Strict deduplication: check if already exists by matched subcategory id, hex, or resolved name
+        const existingIdx = subcats.findIndex(
+          s => (matchedConfig && s.matchedConfig && s.matchedConfig.id === matchedConfig.id) ||
+               (s.color_hex && s.color_hex.trim().toUpperCase() === resolvedColorHex) ||
+               (s.color_name && s.color_name.trim().toUpperCase() === resolvedColorName.trim().toUpperCase())
+        );
+
+        if (existingIdx >= 0) {
+          const target = subcats[existingIdx];
+          // If the new item has real issued bands (from band_items), prioritize its physical inventory
+          if (enrichedColor.issued > 0 || (enrichedColor.total > 0 && target.issued === 0)) {
+            subcats[existingIdx] = {
+              ...enrichedColor,
+              color_inventory_id: target.color_inventory_id || enrichedColor.color_inventory_id,
+              subcategories: enrichedColor.subcategories || target.subcategories,
+              matchedConfig: matchedConfig || target.matchedConfig,
+            };
+          } else {
+            // Keep target, but link color_inventory_id if missing
+            if (!target.color_inventory_id && enrichedColor.color_inventory_id) {
+              target.color_inventory_id = enrichedColor.color_inventory_id;
+            }
+          }
+        } else {
+          subcats.push(enrichedColor);
+        }
       } else {
-        general.push(enrichedColor);
+        // Deduplicate general slot colors
+        const existingGenIdx = general.findIndex(
+          g => (g.color_hex && g.color_hex.trim().toUpperCase() === resolvedColorHex) ||
+               (g.color_name && g.color_name.trim().toUpperCase() === resolvedColorName.trim().toUpperCase())
+        );
+
+        if (existingGenIdx >= 0) {
+          const target = general[existingGenIdx];
+          if (enrichedColor.issued > 0 || (enrichedColor.total > 0 && target.issued === 0)) {
+            general[existingGenIdx] = {
+              ...enrichedColor,
+              color_inventory_id: target.color_inventory_id || enrichedColor.color_inventory_id,
+            };
+          }
+        } else {
+          general.push(enrichedColor);
+        }
       }
     }
 
@@ -939,6 +986,37 @@ export default function BandInventoryPage() {
       setFeedback({ type: "error", message: err.message || "Failed to rename wristband." });
     } finally {
       setIsSubmittingRename(false);
+    }
+  };
+
+  const handleExecutePurge = async () => {
+    if (!purgeTargetColor) return;
+    setIsSubmittingPurge(true);
+    try {
+      const res = await purgeOrResetColorStockAction({
+        colorHex: purgeTargetColor.color_hex,
+        colorName: purgeTargetColor.color_name,
+        colorInventoryId: purgeTargetColor.color_inventory_id,
+        subcategoryId: (purgeTargetColor as any).matchedConfig?.id,
+        actionType: purgeActionType,
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: res.message || "Successfully purged / reset stock!",
+        });
+        setIsPurgeModalOpen(false);
+        setPurgeTargetColor(null);
+        setIsColorManageModalOpen(false);
+        await loadData(true);
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to execute stock purge." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to purge stock." });
+    } finally {
+      setIsSubmittingPurge(false);
     }
   };
 
@@ -1432,6 +1510,16 @@ export default function BandInventoryPage() {
               >
                 <Plus className="w-4 h-4" />
                 <span>+ Stock In</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsCleanInventoryModalOpen(true)}
+                className="bg-amber-500/25 hover:bg-amber-500/35 text-amber-200 border border-amber-500/40 px-3.5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Review, reset extra stock numbers, and purge duplicate or unwanted color inventory"
+              >
+                <Trash2 className="w-4 h-4 text-amber-300" />
+                <span>🧹 Clean Extra Stock</span>
               </button>
 
               <button
@@ -4264,6 +4352,36 @@ export default function BandInventoryPage() {
                 </div>
                 <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-600 group-hover:translate-x-1 transition-all" />
               </button>
+
+              {/* Option 4: Danger Zone - Reset / Purge Extra Inventory */}
+              {canManageStock && (
+                <div className="pt-2 border-t border-red-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPurgeTargetColor(selectedColorForAction);
+                      setPurgeActionType("reset_to_zero");
+                      setIsPurgeModalOpen(true);
+                    }}
+                    className="w-full text-left p-3.5 rounded-xl border border-red-200 bg-red-50/50 hover:bg-red-100/70 transition-all flex items-center justify-between group cursor-pointer shadow-2xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-red-500 text-white group-hover:scale-105 transition-transform">
+                        <Trash2 className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <strong className="block text-xs font-bold text-red-900 group-hover:text-red-800 transition-colors">
+                          Reset Stock / Purge Extra Inventory
+                        </strong>
+                        <span className="text-[11px] text-red-700">
+                          Reset phantom counts to 0, purge unissued bands, or delete this color pool safely
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-red-500 group-hover:translate-x-1 transition-all" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="mt-6 pt-4 border-t border-gray-100 flex items-center justify-end">
@@ -4274,6 +4392,301 @@ export default function BandInventoryPage() {
                   setSelectedColorForAction(null);
                 }}
                 className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: RESET & PURGE STOCK MODAL (PER COLOR)                             */}
+      {/* ========================================================================= */}
+      {isPurgeModalOpen && purgeTargetColor && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-7 shadow-2xl border border-red-200 relative my-auto">
+            <button
+              onClick={() => {
+                setIsPurgeModalOpen(false);
+                setPurgeTargetColor(null);
+              }}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <span className="p-2 rounded-lg bg-red-100 text-red-600">
+                <Trash2 className="w-5 h-5" />
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-red-600 bg-red-50 px-2.5 py-0.5 rounded-full border border-red-200">
+                Reset / Delete Inventory
+              </span>
+            </div>
+
+            <h3 className="text-lg font-extrabold text-gray-900 flex items-center gap-2">
+              <span
+                className="w-3.5 h-3.5 rounded-full border shrink-0"
+                style={{ backgroundColor: purgeTargetColor.color_hex }}
+              />
+              <span>{purgeTargetColor.color_name}</span>
+            </h3>
+
+            <p className="text-xs text-gray-600 mt-1 mb-4">
+              Choose how to clean up or reset this color's inventory.
+              <strong className="text-emerald-700 block mt-0.5">
+                🛡️ Safe: Active player bookings and issued bands ({purgeTargetColor.issued} issued) are NEVER deleted or affected.
+              </strong>
+            </p>
+
+            {/* Current Stock Snapshot */}
+            <div className="grid grid-cols-4 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-5 text-center text-xs">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-gray-400 block">Total</span>
+                <span className="font-mono font-bold text-gray-900">{purgeTargetColor.total}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-emerald-600 block">Warehouse</span>
+                <span className="font-mono font-bold text-emerald-700">{purgeTargetColor.available}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-amber-600 block">Reception</span>
+                <span className="font-mono font-bold text-amber-700">{purgeTargetColor.in_reception || 0}</span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-blue-600 block">Issued</span>
+                <span className="font-mono font-bold text-blue-700">{purgeTargetColor.issued}</span>
+              </div>
+            </div>
+
+            {/* Action Selection Radio Cards */}
+            <div className="space-y-2.5 mb-6">
+              <label 
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  purgeActionType === "reset_to_zero" 
+                    ? "border-amber-400 bg-amber-50/60 ring-2 ring-amber-400/20" 
+                    : "border-gray-200 hover:border-gray-300 bg-white"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="purgeAction"
+                  checked={purgeActionType === "reset_to_zero"}
+                  onChange={() => setPurgeActionType("reset_to_zero")}
+                  className="mt-0.5 text-amber-600 focus:ring-amber-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <strong className="block font-bold text-gray-900">
+                    Reset Stock Numbers to 0 (Keep Color in Rotation)
+                  </strong>
+                  <span className="text-gray-500">
+                    Resets warehouse stock and reception count to 0 in the color pool. Fixes script-added phantom stock numbers immediately.
+                  </span>
+                </div>
+              </label>
+
+              <label 
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  purgeActionType === "purge_unissued_bands" 
+                    ? "border-orange-400 bg-orange-50/60 ring-2 ring-orange-400/20" 
+                    : "border-gray-200 hover:border-gray-300 bg-white"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="purgeAction"
+                  checked={purgeActionType === "purge_unissued_bands"}
+                  onChange={() => setPurgeActionType("purge_unissued_bands")}
+                  className="mt-0.5 text-orange-600 focus:ring-orange-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <strong className="block font-bold text-gray-900">
+                    Purge Unissued Bands ({purgeTargetColor.available + (purgeTargetColor.in_reception || 0)} Bands)
+                  </strong>
+                  <span className="text-gray-500">
+                    Permanently deletes all unissued individual bands for this color from the catalog. Preserves all {purgeTargetColor.issued} issued bands.
+                  </span>
+                </div>
+              </label>
+
+              <label 
+                className={`flex items-start gap-3 p-3.5 rounded-xl border cursor-pointer transition-all ${
+                  purgeActionType === "delete_everything" 
+                    ? "border-red-400 bg-red-50/60 ring-2 ring-red-400/20" 
+                    : "border-gray-200 hover:border-gray-300 bg-white"
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="purgeAction"
+                  checked={purgeActionType === "delete_everything"}
+                  onChange={() => setPurgeActionType("delete_everything")}
+                  className="mt-0.5 text-red-600 focus:ring-red-500 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <strong className="block font-bold text-red-900">
+                    Completely Delete Color Pool &amp; Unissued Inventory
+                  </strong>
+                  <span className="text-red-700">
+                    Removes the color pool record completely and clears all unissued stock. Use this to delete extra or unwanted test colors like duplicate VIP passes or test entries.
+                  </span>
+                </div>
+              </label>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsPurgeModalOpen(false);
+                  setPurgeTargetColor(null);
+                }}
+                disabled={isSubmittingPurge}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePurge}
+                disabled={isSubmittingPurge}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-red-600 hover:bg-red-700 shadow-md transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                {isSubmittingPurge ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Confirm &amp; Execute</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: GLOBAL INVENTORY CLEANER & DUPLICATE STOCK PURGE                    */}
+      {/* ========================================================================= */}
+      {isCleanInventoryModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-6 sm:p-7 shadow-2xl border border-amber-200 relative my-auto">
+            <button
+              onClick={() => setIsCleanInventoryModalOpen(false)}
+              className="absolute right-5 top-5 p-1 rounded-xl text-gray-400 hover:text-gray-700"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center gap-2 mb-2">
+              <span className="p-2 rounded-lg bg-amber-100 text-amber-700">
+                <Trash2 className="w-5 h-5" />
+              </span>
+              <span className="text-xs font-bold uppercase tracking-wider text-amber-800 bg-amber-50 px-2.5 py-0.5 rounded-full border border-amber-200">
+                Inventory Cleaner &amp; Phantom Stock Purge
+              </span>
+            </div>
+
+            <h3 className="text-lg font-extrabold text-gray-900">
+              Clean Up Extra &amp; Duplicate Inventory
+            </h3>
+
+            <p className="text-xs text-gray-600 mt-1 mb-4">
+              Here you can inspect every wristband color pool and immediately reset or delete phantom numbers, extra series, or duplicate test entries. 
+              <span className="font-semibold text-emerald-700 ml-1">
+                Issued bands with player bookings are protected.
+              </span>
+            </p>
+
+            <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
+              {(summary?.colorBreakdown || []).map((col) => {
+                const isZeroIssued = col.issued === 0 && col.total > 0;
+                return (
+                  <div key={col.color_hex + col.color_name} className="p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-gray-50/80 transition-colors">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span
+                        className="w-4 h-4 rounded-full border shadow-2xs shrink-0"
+                        style={{ backgroundColor: col.color_hex }}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <strong className="text-xs font-bold text-gray-900 truncate">
+                            {col.color_name}
+                          </strong>
+                          <span className="text-[10px] font-mono text-gray-400">{col.color_hex}</span>
+                          {isZeroIssued && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                              ⚡ 0 Issued (Possible Test/Extra Stock)
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3 text-[11px] font-mono mt-0.5 text-gray-500">
+                          <span>Total: <strong className="text-gray-900">{col.total}</strong></span>
+                          <span>Warehouse: <strong className="text-emerald-700">{col.available}</strong></span>
+                          <span>Reception: <strong className="text-amber-700">{col.in_reception || 0}</strong></span>
+                          <span>Issued: <strong className="text-blue-700">{col.issued}</strong></span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurgeTargetColor(col);
+                          setPurgeActionType("reset_to_zero");
+                          setIsPurgeModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 transition-colors cursor-pointer"
+                        title="Reset warehouse & reception counts to 0"
+                      >
+                        Reset to 0
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurgeTargetColor(col);
+                          setPurgeActionType("purge_unissued_bands");
+                          setIsPurgeModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold rounded-lg border border-orange-300 bg-orange-50 hover:bg-orange-100 text-orange-800 transition-colors cursor-pointer"
+                        title="Delete unissued individual bands for this color"
+                      >
+                        Purge Unissued
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPurgeTargetColor(col);
+                          setPurgeActionType("delete_everything");
+                          setIsPurgeModalOpen(true);
+                        }}
+                        className="px-2.5 py-1 text-xs font-bold rounded-lg border border-red-300 bg-red-50 hover:bg-red-100 text-red-700 transition-colors cursor-pointer"
+                        title="Completely remove color pool and unissued stock"
+                      >
+                        Delete Pool
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mt-5 pt-4 border-t border-gray-100 flex items-center justify-between">
+              <span className="text-[11px] text-gray-500">
+                Total Colors Tracked: <strong>{summary?.colorBreakdown?.length || 0}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsCleanInventoryModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-100 cursor-pointer"
               >
                 Close
               </button>

@@ -21,6 +21,7 @@ import {
   getBandTransactions,
   previewHandoverRange,
   standardizeAllBandCategories,
+  purgeOrResetColorStock,
   BandItem,
   BandTransaction,
   BandInventorySummary,
@@ -371,5 +372,32 @@ export async function standardizeAllBandCategoriesAction(): Promise<{
   } catch (err: any) {
     console.error("[standardizeAllBandCategoriesAction Error]", err);
     return { success: false, updatedCount: 0, error: err.message || "Failed to standardize categories" };
+  }
+}
+
+export async function purgeOrResetColorStockAction(params: {
+  colorHex?: string;
+  colorName?: string;
+  colorInventoryId?: number;
+  subcategoryId?: number;
+  actionType: "reset_to_zero" | "delete_pool" | "purge_unissued_bands" | "delete_everything";
+}): Promise<{
+  success: boolean;
+  purgedBandsCount?: number;
+  resetInventoryCount?: number;
+  deletedPoolCount?: number;
+  deletedSubcatCount?: number;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    await getStaffSession("bands:manage_stock");
+    const result = await purgeOrResetColorStock(params);
+    revalidatePath("/admin/bands");
+    revalidatePath("/admin/slots");
+    return result;
+  } catch (err: any) {
+    console.error("[purgeOrResetColorStockAction Error]", err);
+    return { success: false, error: err.message || "Failed to purge/reset stock" };
   }
 }

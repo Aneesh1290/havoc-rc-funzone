@@ -246,12 +246,22 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       `);
 
       const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+      const nameToKeyMap = new Map<string, string>();
 
-      // 1. Merge actual Postgres inventory counts (matching by HEX first, then by name)
+      const normalizeColorKey = (name?: string) => (name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+      // 1. Merge actual Postgres inventory counts (matching by HEX first, then by normalized name)
       for (const r of colorRowsRes.rows) {
         const hex = (r.color_hex || "").trim().toUpperCase();
         const name = (r.color_name || "").trim();
-        const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+        const normKey = normalizeColorKey(name);
+        const key = hex || normKey;
+
+        let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+        if (!existing && normKey) {
+          const mappedKey = nameToKeyMap.get(normKey);
+          if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
+        }
 
         if (existing) {
           if (name && (!existing.color_name || existing.color_name === existing.color_hex)) {
@@ -265,7 +275,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           existing.lost = Number(r.lost || 0);
           existing.retired = Number(r.retired || 0);
         } else {
-          colorBreakdownMap.set(hex || name.toLowerCase(), {
+          colorBreakdownMap.set(key, {
             color_name: name || hex,
             color_hex: hex,
             total: Number(r.total || 0),
@@ -275,6 +285,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             lost: Number(r.lost || 0),
             retired: Number(r.retired || 0),
           });
+          if (normKey) nameToKeyMap.set(normKey, key);
+          if (hex) nameToKeyMap.set(hex, key);
         }
       }
 
@@ -284,14 +296,29 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         for (const sir of slotInvRes.rows) {
           const hex = (sir.color_hex || "").trim().toUpperCase();
           const name = (sir.color_name || "").trim();
+          const normKey = normalizeColorKey(name);
           const invId = sir.id;
           const poolQty = Number(sir.quantity || 0);
           const inRec = Number(sir.in_reception || 0);
 
-          const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+          let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+          if (!existing && normKey) {
+            const mappedKey = nameToKeyMap.get(normKey);
+            if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
+          }
+          if (!existing && normKey) {
+            // Fuzzy search by substring
+            for (const [k, item] of colorBreakdownMap.entries()) {
+              const iNorm = normalizeColorKey(item.color_name);
+              if (iNorm === normKey || (iNorm && normKey && (iNorm.includes(normKey) || normKey.includes(iNorm)))) {
+                existing = item;
+                break;
+              }
+            }
+          }
+
           if (existing) {
             existing.color_inventory_id = invId;
-            existing.in_reception = inRec;
             if (name && name !== hex) {
               existing.color_name = name;
             }
@@ -299,12 +326,16 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
               existing.total = poolQty + inRec;
               existing.available = poolQty;
-            } else if (existing.total > 0 && inRec > 0) {
-              // Individual items exist. If in_reception was recorded, warehouse available is remaining after reception
-              existing.available = Math.max(0, existing.available - inRec);
+              existing.in_reception = inRec;
+            } else if (existing.total > 0) {
+              // Physical band_items exist! Do NOT inflate existing.total with duplicate phantom poolQty!
+              if (!existing.in_reception || existing.in_reception === 0) {
+                existing.in_reception = inRec;
+              }
             }
           } else {
-            colorBreakdownMap.set(hex || name.toLowerCase(), {
+            const key = hex || normKey;
+            colorBreakdownMap.set(key, {
               color_inventory_id: invId,
               color_name: name || hex,
               color_hex: hex,
@@ -316,6 +347,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
               retired: 0,
               in_reception: inRec,
             });
+            if (normKey) nameToKeyMap.set(normKey, key);
+            if (hex) nameToKeyMap.set(hex, key);
           }
         }
       } catch (ignoreInv) {}
@@ -509,12 +542,22 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
   `).all() as any[];
 
   const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+  const nameToKeyMap = new Map<string, string>();
 
-  // 1. Merge actual SQLite inventory counts (matching by HEX first, then by name)
+  const normalizeColorKey = (name?: string) => (name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // 1. Merge actual SQLite inventory counts (matching by HEX first, then by normalized name)
   for (const r of colorRows) {
     const hex = (r.color_hex || "").trim().toUpperCase();
     const name = (r.color_name || "").trim();
-    const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+    const normKey = normalizeColorKey(name);
+    const key = hex || normKey;
+
+    let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+    if (!existing && normKey) {
+      const mappedKey = nameToKeyMap.get(normKey);
+      if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
+    }
 
     if (existing) {
       if (name && (!existing.color_name || existing.color_name === existing.color_hex)) {
@@ -528,7 +571,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       existing.lost = Number(r.lost || 0);
       existing.retired = Number(r.retired || 0);
     } else {
-      colorBreakdownMap.set(hex || name.toLowerCase(), {
+      colorBreakdownMap.set(key, {
         color_name: name || hex,
         color_hex: hex,
         total: Number(r.total || 0),
@@ -538,6 +581,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         lost: Number(r.lost || 0),
         retired: Number(r.retired || 0),
       });
+      if (normKey) nameToKeyMap.set(normKey, key);
+      if (hex) nameToKeyMap.set(hex, key);
     }
   }
 
@@ -547,14 +592,28 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     for (const sir of slotInvRows) {
       const hex = (sir.color_hex || "").trim().toUpperCase();
       const name = (sir.color_name || "").trim();
+      const normKey = normalizeColorKey(name);
       const invId = sir.id;
       const poolQty = Number(sir.quantity || 0);
       const inRec = Number(sir.in_reception || 0);
 
-      const existing = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
+      let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+      if (!existing && normKey) {
+        const mappedKey = nameToKeyMap.get(normKey);
+        if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
+      }
+      if (!existing && normKey) {
+        for (const [k, item] of colorBreakdownMap.entries()) {
+          const iNorm = normalizeColorKey(item.color_name);
+          if (iNorm === normKey || (iNorm && normKey && (iNorm.includes(normKey) || normKey.includes(iNorm)))) {
+            existing = item;
+            break;
+          }
+        }
+      }
+
       if (existing) {
         existing.color_inventory_id = invId;
-        existing.in_reception = inRec;
         if (name && name !== hex) {
           existing.color_name = name;
         }
@@ -562,12 +621,16 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
           existing.total = poolQty + inRec;
           existing.available = poolQty;
-        } else if (existing.total > 0 && inRec > 0) {
-          // Individual items exist. If in_reception was recorded, warehouse available is remaining after reception
-          existing.available = Math.max(0, existing.available - inRec);
+          existing.in_reception = inRec;
+        } else if (existing.total > 0) {
+          // Physical band_items exist! Do NOT inflate existing.total with duplicate phantom poolQty!
+          if (!existing.in_reception || existing.in_reception === 0) {
+            existing.in_reception = inRec;
+          }
         }
       } else {
-        colorBreakdownMap.set(hex || name.toLowerCase(), {
+        const key = hex || normKey;
+        colorBreakdownMap.set(key, {
           color_inventory_id: invId,
           color_name: name || hex,
           color_hex: hex,
@@ -579,6 +642,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           retired: 0,
           in_reception: inRec,
         });
+        if (normKey) nameToKeyMap.set(normKey, key);
+        if (hex) nameToKeyMap.set(hex, key);
       }
     }
   } catch (ignoreInv) {}
@@ -2556,5 +2621,148 @@ export async function standardizeAllBandCategories(): Promise<{ success: boolean
   }
 
   return { success: true, updatedCount };
+}
+
+/**
+ * Safely purges or resets phantom/extra color stock and unissued wristband items.
+ * Guaranteed NEVER to delete or corrupt issued/damaged wristband records so booking audit histories remain intact.
+ */
+export async function purgeOrResetColorStock(params: {
+  colorHex?: string;
+  colorName?: string;
+  colorInventoryId?: number;
+  subcategoryId?: number;
+  actionType: "reset_to_zero" | "delete_pool" | "purge_unissued_bands" | "delete_everything";
+}): Promise<{
+  success: boolean;
+  purgedBandsCount: number;
+  resetInventoryCount: number;
+  deletedPoolCount: number;
+  deletedSubcatCount: number;
+  message?: string;
+  error?: string;
+}> {
+  const hex = (params.colorHex || "").trim().toUpperCase();
+  const name = (params.colorName || "").trim();
+
+  let purgedBandsCount = 0;
+  let resetInventoryCount = 0;
+  let deletedPoolCount = 0;
+  let deletedSubcatCount = 0;
+
+  if (isPostgresActive()) {
+    try {
+      await ensurePgSchema();
+
+      // 1. Reset or delete from wristband_color_inventory
+      if (params.actionType === "reset_to_zero") {
+        const res = await simulatorPool.query(`
+          UPDATE wristband_color_inventory 
+          SET quantity = 0, in_reception = 0, updated_at = NOW()
+          WHERE (id = $1 AND $1 > 0)
+             OR (UPPER(color_hex) = $2 AND $2 != '')
+             OR (UPPER(color_name) = UPPER($3) AND $3 != '')
+        `, [params.colorInventoryId || -1, hex, name]);
+        resetInventoryCount += res.rowCount || 0;
+      } else if (params.actionType === "delete_pool" || params.actionType === "delete_everything") {
+        const res = await simulatorPool.query(`
+          DELETE FROM wristband_color_inventory
+          WHERE (id = $1 AND $1 > 0)
+             OR (UPPER(color_hex) = $2 AND $2 != '')
+             OR (UPPER(color_name) = UPPER($3) AND $3 != '')
+        `, [params.colorInventoryId || -1, hex, name]);
+        deletedPoolCount += res.rowCount || 0;
+      }
+
+      // 2. Purge unissued bands from band_items (ONLY status = 'available', NEVER issued/damaged!)
+      if (params.actionType === "purge_unissued_bands" || params.actionType === "delete_everything") {
+        const res = await simulatorPool.query(`
+          DELETE FROM band_items
+          WHERE ((UPPER(color_hex) = $1 AND $1 != '') OR (UPPER(color_name) = UPPER($2) AND $2 != ''))
+            AND status = 'available'
+        `, [hex, name]);
+        purgedBandsCount += res.rowCount || 0;
+      }
+
+      // 3. Delete from subcategory_bands if subcategoryId or delete_everything
+      if (params.subcategoryId || params.actionType === "delete_everything") {
+        const res = await simulatorPool.query(`
+          DELETE FROM subcategory_bands
+          WHERE (id = $1 AND $1 > 0)
+             OR (UPPER(color_hex) = $2 AND $2 != '')
+             OR (UPPER(color_name) = UPPER($3) AND $3 != '')
+        `, [params.subcategoryId || -1, hex, name]);
+        deletedSubcatCount += res.rowCount || 0;
+      }
+    } catch (pgErr) {
+      console.warn("[purgeOrResetColorStock PG Error]", pgErr);
+    }
+  }
+
+  // SQLite fallback
+  try {
+    initDB();
+
+    if (params.actionType === "reset_to_zero") {
+      const res = db.prepare(`
+        UPDATE wristband_color_inventory 
+        SET quantity = 0, in_reception = 0, updated_at = CURRENT_TIMESTAMP
+        WHERE (id = ? AND ? > 0)
+           OR (UPPER(color_hex) = ? AND ? != '')
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+      `).run(
+        params.colorInventoryId || -1, params.colorInventoryId || -1,
+        hex, hex,
+        name, name
+      );
+      resetInventoryCount += res.changes || 0;
+    } else if (params.actionType === "delete_pool" || params.actionType === "delete_everything") {
+      const res = db.prepare(`
+        DELETE FROM wristband_color_inventory
+        WHERE (id = ? AND ? > 0)
+           OR (UPPER(color_hex) = ? AND ? != '')
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+      `).run(
+        params.colorInventoryId || -1, params.colorInventoryId || -1,
+        hex, hex,
+        name, name
+      );
+      deletedPoolCount += res.changes || 0;
+    }
+
+    if (params.actionType === "purge_unissued_bands" || params.actionType === "delete_everything") {
+      const res = db.prepare(`
+        DELETE FROM band_items
+        WHERE ((UPPER(color_hex) = ? AND ? != '') OR (UPPER(color_name) = UPPER(?) AND ? != ''))
+          AND status = 'available'
+      `).run(hex, hex, name, name);
+      purgedBandsCount += res.changes || 0;
+    }
+
+    if (params.subcategoryId || params.actionType === "delete_everything") {
+      const res = db.prepare(`
+        DELETE FROM subcategory_bands
+        WHERE (id = ? AND ? > 0)
+           OR (UPPER(color_hex) = ? AND ? != '')
+           OR (UPPER(color_name) = UPPER(?) AND ? != '')
+      `).run(
+        params.subcategoryId || -1, params.subcategoryId || -1,
+        hex, hex,
+        name, name
+      );
+      deletedSubcatCount += res.changes || 0;
+    }
+  } catch (sqliteErr: any) {
+    console.warn("[purgeOrResetColorStock SQLite Error]", sqliteErr);
+  }
+
+  return {
+    success: true,
+    purgedBandsCount,
+    resetInventoryCount,
+    deletedPoolCount,
+    deletedSubcatCount,
+    message: `Operation complete. Reset: ${resetInventoryCount}, Purged Unissued Bands: ${purgedBandsCount}, Deleted Pools: ${deletedPoolCount}`
+  };
 }
 

@@ -32,6 +32,17 @@ function getDatabasePath(): string {
       return path.resolve(process.cwd(), 'havoc.db');
     }
   }
+
+  // Automatic check for common Render / Linux persistent disk mount points
+  const candidateDirs = ['/var/data', '/data', '/mnt/data'];
+  for (const dir of candidateDirs) {
+    try {
+      if (fs.existsSync(dir)) {
+        return path.join(dir, 'havoc.db');
+      }
+    } catch (_) {}
+  }
+
   return path.resolve(process.cwd(), 'havoc.db');
 }
 
@@ -282,7 +293,7 @@ export function initDB() {
     }
   } catch (migErr) {}
   try { db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_band_items_code_color ON band_items(band_code, color_name)'); } catch (e) {}
-  try { db.exec("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'"); } catch (e) {}
+  try { db.exec("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = ''"); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN permissions TEXT DEFAULT \'all\''); } catch (e) {}
   try { db.exec('ALTER TABLE admin_users ADD COLUMN must_change_password INTEGER DEFAULT 0'); } catch (e) {}
   try {
@@ -345,44 +356,7 @@ export function initDB() {
     console.error("Failed to seed default addons:", e);
   }
 
-  // Ensure ticket pricing is strictly synchronized with official rates:
-  // 1. Visitor: ₹300
-  // 2. Participant: ₹1000
-  // 3. VIP Visitor: ₹500
-  // 4. VIP Participant: ₹1500 (+ 30-min simulator perk)
-  // 5. RC Excavator & Dumpers: ₹500
-  try {
-    db.prepare(`UPDATE tickets SET price = 300 WHERE UPPER(name) = 'VISITOR'`).run();
-    db.prepare(`UPDATE tickets SET price = 1000 WHERE UPPER(name) = 'PARTICIPANT'`).run();
-    db.prepare(`UPDATE tickets SET price = 500 WHERE UPPER(name) IN ('VIP_VISITOR', 'VIP VISITOR')`).run();
-    db.prepare(`
-      UPDATE tickets 
-      SET price = 1500, 
-          has_simulator_perk = 1, 
-          perk_duration_mins = 30, 
-          perk_title = '30-Min Havoc Sim Podium Session' 
-      WHERE UPPER(name) IN ('VIP_PARTICIPANT', 'VIP PARTICIPANT')
-    `).run();
-    db.prepare(`
-      UPDATE tickets 
-      SET price = 500, active = 1 
-      WHERE (UPPER(name) LIKE '%EXCAVATOR%' OR UPPER(name) LIKE '%DUMPER%')
-    `).run();
-    db.prepare(`
-      UPDATE addons 
-      SET price = 500, active = 1 
-      WHERE UPPER(name) LIKE '%EXCAVATOR%' OR UPPER(name) LIKE '%DUMPER%'
-    `).run();
-    db.prepare(`
-      UPDATE tickets 
-      SET active = 0 
-      WHERE UPPER(name) = 'VVIP'
-    `).run();
-  } catch (e) {
-    console.error("Failed to sync ticket pricing:", e);
-  }
-
-  // Seed default tickets if table is empty
+  // Seed default tickets ONLY if table is completely empty (never overwrite user edits)
   const count = db.prepare('SELECT COUNT(*) as count FROM tickets').get() as { count: number };
   if (count.count === 0) {
     const insert = db.prepare('INSERT INTO tickets (name, price, capacity, active, has_simulator_perk, perk_duration_mins, perk_title) VALUES (?, ?, ?, ?, ?, ?, ?)');

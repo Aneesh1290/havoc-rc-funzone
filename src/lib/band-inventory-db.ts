@@ -69,7 +69,7 @@ async function ensurePgSchema() {
       END $$;
 
       ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
-      UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard';
+      UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = '';
       CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
       CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
       CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
@@ -144,9 +144,9 @@ export const TARGET_SLOT_BAND_COLORS: { code: string; name: string; hex: string;
 export async function ensureBandInventorySeeded(force: boolean = false) {
   initDB();
 
-  // Standardize any existing bands to 'Standard' category
+  // Standardize any existing bands with missing category to 'Standard'
   try {
-    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'").run();
+    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = ''").run();
   } catch (e) {}
 
   // Check persistent seeded flag in SQLite unless force is true

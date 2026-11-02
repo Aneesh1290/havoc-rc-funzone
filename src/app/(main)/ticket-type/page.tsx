@@ -81,9 +81,6 @@ export default async function TicketTypePage() {
                   </th>
                   <th className="w-[23%] py-5 px-6 text-center text-xl sm:text-2xl font-black font-sans border-r-[2.5px] border-black">
                     Price
-                    <span className="block text-xs sm:text-sm font-semibold text-black mt-0.5">
-                      (per hour, per person)
-                    </span>
                   </th>
                   <th className="w-[52%] py-5 px-8 text-center text-xl sm:text-2xl font-black font-sans">
                     Access &amp; Benefits
@@ -105,8 +102,13 @@ export default async function TicketTypePage() {
                       <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black capitalize">
                         {cleanName}
                       </td>
-                      <td className="py-8 px-6 text-center align-middle font-black text-2xl sm:text-3xl border-r-[2.5px] border-black whitespace-nowrap">
-                        ₹{ticket.price}+GST
+                      <td className="py-8 px-6 text-center align-middle border-r-[2.5px] border-black whitespace-nowrap">
+                        <div className="font-black text-2xl sm:text-3xl text-black">
+                          ₹{ticket.price}+GST
+                        </div>
+                        <div className="text-xs sm:text-sm font-semibold text-gray-700 mt-1">
+                          for 1 hour for one person
+                        </div>
                       </td>
                       <td className="py-8 px-8 align-middle">
                         {customBenefits && customBenefits.length > 0 ? (
@@ -117,17 +119,48 @@ export default async function TicketTypePage() {
                               </p>
                             )}
                             <ul className="space-y-2 text-base sm:text-lg font-bold text-black">
-                              {customBenefits.map((b, bIdx) => (
-                                <li key={bIdx} className="flex items-start gap-3">
-                                  <div className="shrink-0 w-6 h-6 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
-                                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
-                                      <polyline points="20 6 9 17 4 12" />
-                                    </svg>
-                                  </div>
-                                  <span>{b}</span>
-                                </li>
-                              ))}
+                              {(() => {
+                                const isParticipantType = ticket.name.toUpperCase().includes("PARTICIPANT");
+                                const rcAccessIndex = isParticipantType
+                                  ? customBenefits.findIndex(b => {
+                                      const lower = b.toLowerCase();
+                                      return lower.includes("15 rc") || lower.includes("rc activit") || lower.includes("full access");
+                                    })
+                                  : -1;
+                                const targetNoticeIndex = rcAccessIndex !== -1 ? rcAccessIndex : (isParticipantType ? 0 : -1);
+
+                                return customBenefits.map((b, bIdx) => {
+                                  const showExclusion = bIdx === targetNoticeIndex && Boolean(exclusionNotice);
+
+                                  return (
+                                    <li key={bIdx} className="space-y-1">
+                                      <div className="flex items-start gap-3">
+                                        <div className="shrink-0 w-6 h-6 rounded-full bg-[#0040c0] flex items-center justify-center text-white mt-0.5">
+                                          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <polyline points="20 6 9 17 4 12" />
+                                          </svg>
+                                        </div>
+                                        <div className="flex-1">
+                                          <span>{b}</span>
+                                          {showExclusion && (
+                                            <p className="text-sm font-semibold text-[#d00000] mt-1 leading-snug">
+                                              {exclusionNotice}
+                                            </p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </li>
+                                  );
+                                });
+                              })()}
                             </ul>
+
+                            {/* Note for Add-on package: Arena entry ticket is mandatory */}
+                            {Boolean(ticket.is_addon || ticket.name.toUpperCase().includes("EXCAVATOR")) && mandatoryPassNotice && (
+                              <p className="text-sm font-semibold text-[#d00000] ml-3 mt-1.5 leading-snug">
+                                {mandatoryPassNotice}
+                              </p>
+                            )}
                           </div>
                         ) : ticket.name.toUpperCase() === "VISITOR" ? (
                           <div className="flex items-start gap-4">

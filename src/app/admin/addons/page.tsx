@@ -38,7 +38,7 @@ export default function AdminAddonsPage() {
     name: "",
     price: 300,
     tagline: "",
-    benefits: "1-Hour arena session",
+    benefits: "",
     description: "",
     sortOrder: 1
   });
@@ -133,7 +133,7 @@ export default function AdminAddonsPage() {
         setErrorMsg(res.error || "Failed to create add-on");
       } else {
         setIsAdding(false);
-        setFormData({ name: "", price: 300, tagline: "", benefits: "1-Hour arena session", description: "", sortOrder: 1 });
+        setFormData({ name: "", price: 300, tagline: "", benefits: "", description: "", sortOrder: 1 });
         await loadAddons();
       }
     } catch (err: any) {
@@ -558,7 +558,7 @@ export default function AdminAddonsPage() {
                 </div>
                 <textarea 
                   rows={2}
-                  placeholder="e.g.&#10;1-Hour arena session"
+                  placeholder="e.g.&#10;Access to RC Excavator Quarry Zone"
                   value={formData.benefits}
                   onChange={(e) => setFormData({ ...formData, benefits: e.target.value })}
                   className="w-full p-3 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"
@@ -688,7 +688,7 @@ export default function AdminAddonsPage() {
                 </div>
                 <textarea 
                   rows={2}
-                  placeholder="e.g.&#10;1-Hour arena session"
+                  placeholder="e.g.&#10;Access to RC Excavator Quarry Zone"
                   value={editingAddon.benefits || ""}
                   onChange={(e) => setEditingAddon({ ...editingAddon, benefits: e.target.value })}
                   className="w-full p-3 text-xs border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]/20 focus:border-[#ff5a1f]"

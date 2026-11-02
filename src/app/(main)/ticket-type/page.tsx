@@ -93,9 +93,22 @@ export default async function TicketTypePage() {
                   const borderClass = isLast ? "" : "border-b-[2.5px] border-black";
                   const cleanName = ticket.name.replace(/_/g, " ");
                   const hasPerk = ticket.has_simulator_perk === 1;
+                  const isExcavatorOrAddon = Boolean(ticket.is_addon || ticket.name.toUpperCase().includes("EXCAVATOR") || ticket.name.toUpperCase().includes("DUMP"));
 
-                  // Render specific customized benefits or fallback
-                  const customBenefits = ticket.benefits?.split("\n").map(s => s.trim()).filter(Boolean);
+                  // Render specific customized benefits (filtering out any generic arena session from excavator add-on)
+                  const customBenefits = ticket.benefits
+                    ?.split("\n")
+                    .map(s => s.trim())
+                    .filter(Boolean)
+                    .filter(b => {
+                      if (isExcavatorOrAddon) {
+                        const lower = b.toLowerCase();
+                        if (lower.includes("arena session") || lower.includes("1-hour") || lower.includes("1 hour")) {
+                          return false;
+                        }
+                      }
+                      return true;
+                    });
 
                   return (
                     <tr key={ticket.id} className={borderClass}>
@@ -107,7 +120,7 @@ export default async function TicketTypePage() {
                           ₹{ticket.price}+GST
                         </div>
                         <div className="text-xs sm:text-sm font-semibold text-gray-700 mt-1">
-                          for 1 hour for one person
+                          {isExcavatorOrAddon ? "for one person (Add-on)" : "for 1 hour for one person"}
                         </div>
                       </td>
                       <td className="py-8 px-8 align-middle">
@@ -270,7 +283,7 @@ export default async function TicketTypePage() {
                                   </li>
                                 ))}
                               </ul>
-                            ) : (
+                            ) : !isExcavatorOrAddon ? (
                               <div className="flex items-center gap-3">
                                 <div className="shrink-0 w-7 h-7 rounded-full bg-[#0040c0] flex items-center justify-center text-white">
                                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round">
@@ -281,7 +294,7 @@ export default async function TicketTypePage() {
                                   • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
                                 </p>
                               </div>
-                            )}
+                            ) : null}
 
                             {/* Note for Add-on package: Arena entry ticket is mandatory */}
                             {Boolean(ticket.is_addon || ticket.name.toUpperCase().includes("EXCAVATOR")) && mandatoryPassNotice && (

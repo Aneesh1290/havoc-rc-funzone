@@ -305,8 +305,8 @@ export function initDB() {
   try { db.exec('ALTER TABLE tickets ADD COLUMN is_addon INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE addons ADD COLUMN benefits TEXT'); } catch (e) {}
   try {
-    db.prepare("UPDATE addons SET benefits = '1-Hour arena session' WHERE (benefits IS NULL OR benefits = '') AND UPPER(name) LIKE '%EXCAVATOR%'").run();
-    db.prepare("UPDATE tickets SET benefits = '1-Hour arena session' WHERE (benefits IS NULL OR benefits = '') AND is_addon = 1").run();
+    db.prepare("UPDATE addons SET benefits = '' WHERE UPPER(name) LIKE '%EXCAVATOR%' AND (benefits = '1-Hour arena session' OR benefits LIKE '%1-Hour arena session%')").run();
+    db.prepare("UPDATE tickets SET benefits = '' WHERE (UPPER(name) LIKE '%EXCAVATOR%' OR is_addon = 1) AND (benefits = '1-Hour arena session' OR benefits LIKE '%1-Hour arena session%')").run();
   } catch (e) {}
 
   // Seed default Add-on (RC Excavator Activity) if addons table is empty

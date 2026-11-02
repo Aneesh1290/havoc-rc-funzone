@@ -235,6 +235,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           color_name,
           color_hex,
           COUNT(*)::int as total,
+          SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse,
+          SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
           SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
           SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
           SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
@@ -256,6 +258,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         const name = (r.color_name || "").trim();
         const normKey = normalizeColorKey(name);
         const key = hex || normKey;
+        const inRec = Number(r.in_reception || 0);
+        const wh = Number(r.warehouse !== undefined && r.warehouse !== null ? r.warehouse : Math.max(0, Number(r.available || 0) - inRec));
 
         let existing = hex ? colorBreakdownMap.get(hex) : undefined;
         if (!existing && normKey) {
@@ -269,7 +273,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           }
           existing.color_hex = hex || existing.color_hex;
           existing.total = Number(r.total || 0);
-          existing.available = Number(r.available || 0);
+          existing.available = wh;
+          existing.in_reception = inRec;
           existing.issued = Number(r.issued || 0);
           existing.damaged = Number(r.damaged || 0);
           existing.lost = Number(r.lost || 0);
@@ -279,7 +284,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             color_name: name || hex,
             color_hex: hex,
             total: Number(r.total || 0),
-            available: Number(r.available || 0),
+            available: wh,
+            in_reception: inRec,
             issued: Number(r.issued || 0),
             damaged: Number(r.damaged || 0),
             lost: Number(r.lost || 0),
@@ -330,7 +336,10 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             } else if (existing.total > 0) {
               // Physical band_items exist! Do NOT inflate existing.total with duplicate phantom poolQty!
               if (!existing.in_reception || existing.in_reception === 0) {
-                existing.in_reception = inRec;
+                if (inRec > 0) {
+                  existing.in_reception = inRec;
+                  existing.available = Math.max(0, existing.available - inRec);
+                }
               }
             }
           } else {
@@ -531,6 +540,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       color_name,
       color_hex,
       COUNT(*) as total,
+      SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END) as warehouse,
+      SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END) as in_reception,
       SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END) as available,
       SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END) as issued,
       SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END) as damaged,
@@ -552,6 +563,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     const name = (r.color_name || "").trim();
     const normKey = normalizeColorKey(name);
     const key = hex || normKey;
+    const inRec = Number(r.in_reception || 0);
+    const wh = Number(r.warehouse !== undefined && r.warehouse !== null ? r.warehouse : Math.max(0, Number(r.available || 0) - inRec));
 
     let existing = hex ? colorBreakdownMap.get(hex) : undefined;
     if (!existing && normKey) {
@@ -565,7 +578,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       }
       existing.color_hex = hex || existing.color_hex;
       existing.total = Number(r.total || 0);
-      existing.available = Number(r.available || 0);
+      existing.available = wh;
+      existing.in_reception = inRec;
       existing.issued = Number(r.issued || 0);
       existing.damaged = Number(r.damaged || 0);
       existing.lost = Number(r.lost || 0);
@@ -575,7 +589,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         color_name: name || hex,
         color_hex: hex,
         total: Number(r.total || 0),
-        available: Number(r.available || 0),
+        available: wh,
+        in_reception: inRec,
         issued: Number(r.issued || 0),
         damaged: Number(r.damaged || 0),
         lost: Number(r.lost || 0),
@@ -625,7 +640,10 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         } else if (existing.total > 0) {
           // Physical band_items exist! Do NOT inflate existing.total with duplicate phantom poolQty!
           if (!existing.in_reception || existing.in_reception === 0) {
-            existing.in_reception = inRec;
+            if (inRec > 0) {
+              existing.in_reception = inRec;
+              existing.available = Math.max(0, existing.available - inRec);
+            }
           }
         }
       } else {

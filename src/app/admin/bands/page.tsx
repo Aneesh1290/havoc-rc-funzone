@@ -533,11 +533,16 @@ export default function BandInventoryPage() {
       };
 
       if (isSubcategory(c, matchedConfig)) {
-        // Strict deduplication: check if already exists by matched subcategory id, hex, or resolved name
+        // Strict deduplication: check if already exists by matched subcategory id, hex, or normalized name
+        const cleanResolvedName = (resolvedColorName || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
         const existingIdx = subcats.findIndex(
-          s => (matchedConfig && s.matchedConfig && s.matchedConfig.id === matchedConfig.id) ||
-               (s.color_hex && s.color_hex.trim().toUpperCase() === resolvedColorHex) ||
-               (s.color_name && s.color_name.trim().toUpperCase() === resolvedColorName.trim().toUpperCase())
+          s => {
+            if (matchedConfig && s.matchedConfig && s.matchedConfig.id === matchedConfig.id) return true;
+            if (s.color_hex && resolvedColorHex && s.color_hex.trim().toUpperCase() === resolvedColorHex.trim().toUpperCase()) return true;
+            const cleanSName = (s.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            if (cleanSName && cleanResolvedName && (cleanSName === cleanResolvedName || cleanSName.includes(cleanResolvedName) || cleanResolvedName.includes(cleanSName))) return true;
+            return false;
+          }
         );
 
         if (existingIdx >= 0) {
@@ -561,9 +566,13 @@ export default function BandInventoryPage() {
         }
       } else {
         // Deduplicate general slot colors
+        const cleanGenName = (resolvedColorName || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
         const existingGenIdx = general.findIndex(
-          g => (g.color_hex && g.color_hex.trim().toUpperCase() === resolvedColorHex) ||
-               (g.color_name && g.color_name.trim().toUpperCase() === resolvedColorName.trim().toUpperCase())
+          g => {
+            if (g.color_hex && resolvedColorHex && g.color_hex.trim().toUpperCase() === resolvedColorHex.trim().toUpperCase()) return true;
+            const cleanGName = (g.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+            return cleanGName && cleanGenName && cleanGName === cleanGenName;
+          }
         );
 
         if (existingGenIdx >= 0) {
@@ -580,17 +589,21 @@ export default function BandInventoryPage() {
       }
     }
 
-    // Ensure every configured subcategory appears even if 0 bands exist
+    // Ensure every configured subcategory appears even if 0 bands exist, without duplicate cards
     for (const sc of configuredSubcategories) {
       const scHex = (sc.color_hex || "").trim().toUpperCase();
-      const scName = (sc.color_name || "").trim().toUpperCase();
-      const exists = subcats.some(
-        s => (s.matchedConfig && s.matchedConfig.id === sc.id) ||
-             (s.color_hex && s.color_hex.trim().toUpperCase() === scHex) ||
-             (s.color_name && s.color_name.trim().toUpperCase() === scName)
+      const scCleanName = (sc.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      const existingSub = subcats.find(
+        s => {
+          if (s.matchedConfig && s.matchedConfig.id === sc.id) return true;
+          if (s.color_hex && scHex && s.color_hex.trim().toUpperCase() === scHex) return true;
+          const cleanSName = (s.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          if (cleanSName && scCleanName && (cleanSName === scCleanName || cleanSName.includes(scCleanName) || scCleanName.includes(cleanSName))) return true;
+          return false;
+        }
       );
 
-      if (!exists) {
+      if (!existingSub) {
         subcats.push({
           color_name: sc.color_name,
           color_hex: sc.color_hex,
@@ -604,6 +617,15 @@ export default function BandInventoryPage() {
           slotInfo: getSlotInfoForColor(sc.color_hex, sc.color_name, timeSlots),
           matchedConfig: sc
         });
+      } else {
+        // Link canonical subcategory config to prevent duplicate cards
+        if (!existingSub.matchedConfig) {
+          existingSub.matchedConfig = sc;
+        }
+        existingSub.color_name = sc.color_name;
+        if (sc.color_hex && !existingSub.color_hex) {
+          existingSub.color_hex = sc.color_hex;
+        }
       }
     }
 
@@ -1945,10 +1967,15 @@ export default function BandInventoryPage() {
                                 : "bg-emerald-500"
                             }`}
                             style={{ width: `${(color.available / color.total) * 100}%` }}
-                            title={`In Stock: ${color.available}${isLowStock ? " (LOW STOCK - REORDER)" : ""}`}
+                            title={`Warehouse Stock: ${color.available}${isLowStock ? " (LOW STOCK - REORDER)" : ""}`}
                           />
                           <div
                             className="bg-amber-400 h-full transition-all duration-300"
+                            style={{ width: `${((color.in_reception || 0) / color.total) * 100}%` }}
+                            title={`At Reception: ${color.in_reception || 0}`}
+                          />
+                          <div
+                            className="bg-blue-400 h-full transition-all duration-300"
                             style={{ width: `${(color.issued / color.total) * 100}%` }}
                             title={`Issued: ${color.issued}`}
                           />

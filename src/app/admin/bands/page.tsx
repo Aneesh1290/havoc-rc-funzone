@@ -227,6 +227,7 @@ export default function BandInventoryPage() {
   const [purgeActionType, setPurgeActionType] = useState<"reset_to_zero" | "delete_pool" | "purge_unissued_bands" | "delete_everything">("reset_to_zero");
   const [isSubmittingPurge, setIsSubmittingPurge] = useState(false);
   const [isCleanInventoryModalOpen, setIsCleanInventoryModalOpen] = useState(false);
+  const [customColorToPurge, setCustomColorToPurge] = useState("");
 
   // Quick Stock Out to Reception Modal from Color Cards
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
@@ -618,6 +619,22 @@ export default function BandInventoryPage() {
     subcats.sort((a, b) => a.color_name.localeCompare(b.color_name));
 
     return { generalSlotColors: general, subcategoryColors: subcats };
+  }, [summary?.colorBreakdown, configuredSubcategories, timeSlots]);
+
+  // Dynamic list of all band colors from database items, configured subcategories, and palette
+  const availableFilterColors = useMemo(() => {
+    const colorSet = new Set<string>();
+    (summary?.colorBreakdown || []).forEach(c => {
+      if (c.color_name && c.color_name.trim()) colorSet.add(c.color_name.trim());
+    });
+    configuredSubcategories.forEach(sc => {
+      if (sc.color_name && sc.color_name.trim()) colorSet.add(sc.color_name.trim());
+    });
+    timeSlots.forEach(ts => {
+      if (ts.color_name && ts.color_name.trim()) colorSet.add(ts.color_name.trim());
+    });
+    WRISTBAND_PALETTE.forEach(p => colorSet.add(p.name));
+    return Array.from(colorSet).sort((a, b) => a.localeCompare(b));
   }, [summary?.colorBreakdown, configuredSubcategories, timeSlots]);
 
   useEffect(() => {
@@ -2879,10 +2896,10 @@ export default function BandInventoryPage() {
                 onChange={(e) => setColorFilter(e.target.value)}
                 className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
               >
-                <option value="all">All Band Colors</option>
-                {WRISTBAND_PALETTE.map((c) => (
-                  <option key={c.name} value={c.name}>
-                    {c.name}
+                <option value="all">All Band Colors ({availableFilterColors.length})</option>
+                {availableFilterColors.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
                   </option>
                 ))}
               </select>
@@ -4646,6 +4663,54 @@ export default function BandInventoryPage() {
                 Issued bands with player bookings are protected.
               </span>
             </p>
+
+            {/* Quick Purge by Color Name input */}
+            <div className="mb-4 p-3.5 bg-red-50/70 border border-red-200 rounded-xl flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+              <div className="text-xs">
+                <strong className="block text-red-950 font-bold">Purge Specific Color by Name:</strong>
+                <span className="text-red-700">Type any color name (e.g. Crystal Blue) to wipe its 300 unissued bands &amp; reset stock to 0:</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={customColorToPurge}
+                  onChange={(e) => setCustomColorToPurge(e.target.value)}
+                  placeholder="e.g. Crystal Blue"
+                  className="px-3 py-1.5 text-xs font-bold border border-red-300 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-red-500 w-44"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const name = customColorToPurge.trim();
+                    if (!name) return;
+                    if (!confirm(`Are you sure you want to permanently delete ALL unissued bands and reset stock for "${name}"?`)) return;
+                    setIsSubmittingPurge(true);
+                    try {
+                      const res = await purgeOrResetColorStockAction({
+                        colorName: name,
+                        actionType: "delete_everything"
+                      });
+                      if (res.success) {
+                        setFeedback({ type: "success", message: `Successfully purged all inventory for "${name}"!` });
+                        setCustomColorToPurge("");
+                        setIsCleanInventoryModalOpen(false);
+                        await loadData(true);
+                      } else {
+                        setFeedback({ type: "error", message: res.error || "Failed to purge color." });
+                      }
+                    } catch (err: any) {
+                      setFeedback({ type: "error", message: err.message || "Failed to purge color." });
+                    } finally {
+                      setIsSubmittingPurge(false);
+                    }
+                  }}
+                  disabled={!customColorToPurge.trim() || isSubmittingPurge}
+                  className="px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg shadow-sm disabled:opacity-50 cursor-pointer whitespace-nowrap"
+                >
+                  {isSubmittingPurge ? "Purging..." : "Purge Color"}
+                </button>
+              </div>
+            </div>
 
             <div className="max-h-[60vh] overflow-y-auto border border-gray-200 rounded-xl divide-y divide-gray-100">
               {(summary?.colorBreakdown || []).map((col) => {

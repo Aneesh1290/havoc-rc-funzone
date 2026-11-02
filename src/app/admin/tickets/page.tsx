@@ -7,7 +7,8 @@ import {
   toggleTicketStatusAction, 
   updateTicketAction, 
   createTicketAction, 
-  deleteTicketAction 
+  deleteTicketAction,
+  syncOfficialTicketPricingAction 
 } from "@/app/actions/tickets";
 import type { TicketRow } from "@/lib/db";
 
@@ -28,12 +29,28 @@ export default function TicketsPage() {
   });
   const [deleteConfirmTicket, setDeleteConfirmTicket] = useState<TicketRow | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadTickets = async () => {
     setIsLoading(true);
     const data = await fetchTicketsAction();
     setTickets(data);
     setIsLoading(false);
+  };
+
+  const handleSyncPricing = async () => {
+    if (!confirm("This will synchronize all ticket types to the official pricing (Visitor ₹300, Participant ₹1000, VIP Visitor ₹500, VIP Participant ₹1500 + 30-min Sim, Excavator ₹500, VVIP disabled). Continue?")) return;
+    setIsSyncing(true);
+    const res = await syncOfficialTicketPricingAction();
+    setIsSyncing(false);
+    if (res.success && res.tickets) {
+      setTickets(res.tickets);
+      setSyncMsg("Official ticket pricing synchronized successfully!");
+      setTimeout(() => setSyncMsg(null), 5000);
+    } else {
+      setErrorMsg(res.error || "Failed to sync pricing");
+    }
   };
 
   useEffect(() => {
@@ -126,23 +143,46 @@ export default function TicketsPage() {
         </div>
       )}
 
+      {syncMsg && (
+        <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm font-semibold flex items-center justify-between shadow-sm">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-emerald-600" />
+            <span>{syncMsg}</span>
+          </div>
+          <button onClick={() => setSyncMsg(null)} className="text-emerald-500 hover:text-emerald-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-heading font-black text-gray-900">Ticket Types &amp; Passes</h1>
           <p className="text-gray-500 mt-1">
-            Configure pass pricing, capacity, and VIP simulator perks (e.g. 30-min or 1-hour free simulator).
+            Configure pass pricing, capacity, and VIP simulator perks (e.g. 30-min Havoc Sim Podium Session).
           </p>
         </div>
-        <button 
-          onClick={() => {
-            setErrorMsg(null);
-            setIsAddingTicket(true);
-          }}
-          className="bg-[#0d1b2a] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm text-sm"
-        >
-          <Plus className="w-4 h-4" />
-          <span>Add New Pass / Ticket</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSyncPricing}
+            disabled={isSyncing}
+            className="border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm text-sm disabled:opacity-50"
+            title="Enforce official ticket price schedule"
+          >
+            <Sparkles className="w-4 h-4 text-orange-600" />
+            <span>{isSyncing ? "Syncing..." : "Sync Official Rates"}</span>
+          </button>
+          <button 
+            onClick={() => {
+              setErrorMsg(null);
+              setIsAddingTicket(true);
+            }}
+            className="bg-[#0d1b2a] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm text-sm"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add New Pass / Ticket</span>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">

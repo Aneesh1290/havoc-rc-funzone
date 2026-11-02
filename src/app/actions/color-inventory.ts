@@ -16,6 +16,7 @@ import {
   updateSubcategoryBand,
   toggleSubcategoryBandStatus,
   deleteSubcategoryBand,
+  renameWristbandColor,
   WristbandColorInventoryItem,
   SubcategoryBandItem,
 } from "@/lib/color-inventory-db";
@@ -305,6 +306,25 @@ export async function deleteSubcategoryBandAction(id: number): Promise<{
   } catch (err: any) {
     console.error("[deleteSubcategoryBandAction Error]", err);
     return { success: false, error: err.message || "Failed to delete subcategory band" };
+  }
+}
+
+export async function renameWristbandColorAction(params: {
+  oldColorName: string;
+  newColorName: string;
+  colorHex: string;
+  newColorHex?: string;
+  categoryName?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    await requireAdminSession("bands:manage_stock");
+    const result = await renameWristbandColor(params);
+    revalidatePath("/admin/slots");
+    revalidatePath("/admin/bands");
+    return result;
+  } catch (err: any) {
+    console.error("[renameWristbandColorAction Error]", err);
+    return { success: false, error: err.message || "Failed to rename wristband color" };
   }
 }
 

@@ -7,6 +7,7 @@ import {
   updateTicket,
   createTicket,
   deleteTicket,
+  syncOfficialTicketPricing,
   TicketRow,
   getBookedQuantities,
   addBooking,
@@ -660,9 +661,22 @@ export async function deleteTicketAction(id: number) {
     deleteTicket(id);
     revalidatePath('/admin/tickets');
     revalidatePath('/tickets');
+    revalidatePath('/ticket-type');
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message || "Failed to delete ticket" };
+  }
+}
+
+export async function syncOfficialTicketPricingAction() {
+  try {
+    const updated = syncOfficialTicketPricing();
+    revalidatePath('/admin/tickets');
+    revalidatePath('/tickets');
+    revalidatePath('/ticket-type');
+    return { success: true, tickets: updated };
+  } catch (error: any) {
+    return { success: false, error: error.message || "Failed to sync ticket pricing" };
   }
 }
 

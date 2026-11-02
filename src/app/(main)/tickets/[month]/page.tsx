@@ -75,14 +75,13 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     PARTICIPANT: {
       title: "Participant Pass",
-      tagline: "Full play access to 15 RC activities for 1 hour (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).",
+      tagline: "Full play access to 15 RC activities for 1 hour.",
       price: "₹1,000 + GST",
       badge: "Full RC Access",
       badgeColor: "bg-blue-50 text-blue-700 border-blue-200",
       accessType: "play",
       benefits: [
         "1 Hour unlimited play access across 15 RC activities",
-        "Excavator Activity is not included in the package. It can be purchased separately as an add-on.",
         "Includes RC Race & Drift tracks, Train World, and more"
       ]
     },
@@ -102,14 +101,13 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     VIP_PARTICIPANT: {
       title: "VIP Participant Pass",
-      tagline: "15 RC activities + Upgraded Hobby Grade Cars + 30-Min Havoc Sim Podium session (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).",
+      tagline: "15 RC activities + Upgraded Hobby Grade Cars + 30-Min Havoc Sim Podium session.",
       price: "₹1,500 + GST",
       badge: "All-Inclusive + Sim Podium",
       badgeColor: "bg-orange-50 text-[#ff5a1f] border-orange-200",
       accessType: "vip",
       benefits: [
         "Full access to 15 RC activities for 1 hour",
-        "Excavator Activity is not included in the package. It can be purchased separately as an add-on.",
         "Upgraded hobby-grade RC Cars for Drift, Off-Road, Mini-Z tracks & FPV RC cars",
         "BONUS: Free 30-min session on any 1 simulator in the Havoc Sim Podium (Airbus, Boeing, GT, F1, etc.)"
       ]
@@ -619,21 +617,37 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   </p>
 
                   <ul className="text-xs text-gray-700 space-y-1.5 pt-1">
-                    {selectedTicket?.benefits ? (
-                      selectedTicket.benefits.split("\n").filter(Boolean).map((line, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
-                          <span>{line}</span>
-                        </li>
-                      ))
-                    ) : (
-                      TICKET_BENEFITS[type.toUpperCase()]?.benefits.map((b, idx) => (
-                        <li key={idx} className="flex items-start gap-2">
-                          <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
-                          <span>{b}</span>
-                        </li>
-                      ))
-                    )}
+                    {(() => {
+                      const isParticipantType = type.toUpperCase().includes("PARTICIPANT");
+                      const rawList = selectedTicket?.benefits 
+                        ? selectedTicket.benefits.split("\n").map(s => s.trim()).filter(Boolean)
+                        : (TICKET_BENEFITS[type.toUpperCase()]?.benefits || []);
+                      const filteredList = rawList.filter(b => !b.toLowerCase().includes("excavator activity is not included"));
+                      const rcIndex = isParticipantType
+                        ? filteredList.findIndex(b => {
+                            const lower = b.toLowerCase();
+                            return lower.includes("15 rc") || lower.includes("rc activit") || lower.includes("full access");
+                          })
+                        : -1;
+                      const targetIdx = rcIndex !== -1 ? rcIndex : (isParticipantType ? 0 : -1);
+
+                      return filteredList.map((line, idx) => {
+                        const showExcl = isParticipantType && idx === targetIdx && Boolean(exclusionNotice);
+                        return (
+                          <li key={idx} className="space-y-0.5">
+                            <div className="flex items-start gap-2">
+                              <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
+                              <span>{line}</span>
+                            </div>
+                            {showExcl && (
+                              <p className="text-[11px] font-semibold text-[#d00000] ml-5 leading-snug">
+                                {exclusionNotice}
+                              </p>
+                            )}
+                          </li>
+                        );
+                      });
+                    })()}
                     {TICKET_BENEFITS[type.toUpperCase()]?.restrictions?.map((r, idx) => (
                       <li key={idx} className="flex items-start gap-2 text-amber-700 font-medium bg-amber-50 p-2 rounded-lg border border-amber-200/60 mt-1">
                         <span className="shrink-0 font-bold">⚠️</span>
@@ -1209,28 +1223,28 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">3.</span>
               <div>
                 <strong>Visitor Ticket:</strong> Allows 1 hour entry only as a companion. Visitors are not permitted to play any activities.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹300 + GST per hour per person</span>
+                <span className="text-[#ff5a1f] font-bold">₹300 + GST for 1 hour for one person</span>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">4.</span>
               <div>
                 <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}).<br/>
-                <span className="text-[#ff5a1f] font-bold">₹1000 + GST per hour per person</span>
+                <span className="text-[#ff5a1f] font-bold">₹1000 + GST for 1 hour for one person</span>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">5.</span>
               <div>
                 <strong>VIP Visitor Ticket:</strong> Grants 1 hour access to selected experiences – RC Flight Simulator, Car Race Sim Beginner, HO & N Scale Model Railway Activities.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹500 + GST per hour per person</span>
+                <span className="text-[#ff5a1f] font-bold">₹500 + GST for 1 hour for one person</span>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="font-bold text-[#ff5a1f] min-w-[24px]">6.</span>
               <div>
                 <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹1500 + GST per hour per person</span>
+                <span className="text-[#ff5a1f] font-bold">₹1500 + GST for 1 hour for one person</span>
               </div>
             </li>
             <li className="flex gap-4">
@@ -1349,9 +1363,14 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                         <span className={`text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border ${badgeColor}`}>
                           {badge}
                         </span>
-                        <span className="text-base font-black text-[#ff5a1f]">
-                          {priceStr}
-                        </span>
+                        <div className="text-right">
+                          <span className="text-base font-black text-[#ff5a1f]">
+                            {priceStr}
+                          </span>
+                          <span className="block text-[10px] sm:text-[11px] font-semibold text-gray-500 mt-0.5">
+                            for 1 hour for one person
+                          </span>
+                        </div>
                       </div>
 
                       <h4 className="text-lg font-black font-heading text-[#0d1b2a] mb-1">
@@ -1366,12 +1385,34 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                           Access &amp; Benefits:
                         </span>
                         <ul className="space-y-1.5 text-xs text-gray-700">
-                          {benefitsList.map((b, idx) => (
-                            <li key={idx} className="flex items-start gap-2">
-                              <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
-                              <span>{b}</span>
-                            </li>
-                          ))}
+                          {(() => {
+                            const isParticipantType = t.name.toUpperCase().includes("PARTICIPANT");
+                            const filteredBenefits = benefitsList.filter(b => !b.toLowerCase().includes("excavator activity is not included"));
+                            const rcAccessIndex = isParticipantType
+                              ? filteredBenefits.findIndex(b => {
+                                  const lower = b.toLowerCase();
+                                  return lower.includes("15 rc") || lower.includes("rc activit") || lower.includes("full access");
+                                })
+                              : -1;
+                            const targetNoticeIndex = rcAccessIndex !== -1 ? rcAccessIndex : (isParticipantType ? 0 : -1);
+
+                            return filteredBenefits.map((b, idx) => {
+                              const showExclusion = isParticipantType && idx === targetNoticeIndex && Boolean(exclusionNotice);
+                              return (
+                                <li key={idx} className="space-y-0.5">
+                                  <div className="flex items-start gap-2">
+                                    <Check className="w-3.5 h-3.5 text-green-600 shrink-0 mt-0.5" />
+                                    <span className="leading-snug">{b}</span>
+                                  </div>
+                                  {showExclusion && (
+                                    <p className="text-[11px] font-semibold text-[#d00000] ml-5 leading-snug">
+                                      {exclusionNotice}
+                                    </p>
+                                  )}
+                                </li>
+                              );
+                            });
+                          })()}
                           {restrictionsList.map((r, idx) => (
                             <li key={idx} className="flex items-start gap-2 text-red-600 font-semibold bg-red-50 p-2 rounded-lg border border-red-200/50 mt-1">
                               <span className="shrink-0">🚫</span>

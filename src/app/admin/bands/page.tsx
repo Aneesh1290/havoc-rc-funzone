@@ -76,7 +76,8 @@ import {
   stockOutColorToReceptionAction,
   returnColorFromReceptionAction,
   setColorReceptionAction,
-  getSubcategoryBandsAction
+  getSubcategoryBandsAction,
+  renameWristbandColorAction
 } from "@/app/actions/color-inventory";
 import type { SubcategoryBandItem } from "@/lib/color-inventory-db";
 import { hasUserPermission } from "@/lib/permissions";
@@ -214,6 +215,10 @@ export default function BandInventoryPage() {
   // Color Quick Action Modal (when pressing color card in summary)
   const [selectedColorForAction, setSelectedColorForAction] = useState<BandColorBreakdown | null>(null);
   const [isColorManageModalOpen, setIsColorManageModalOpen] = useState(false);
+  const [isRenamingColor, setIsRenamingColor] = useState(false);
+  const [renameFormColorName, setRenameFormColorName] = useState("");
+  const [renameFormCategory, setRenameFormCategory] = useState("");
+  const [isSubmittingRename, setIsSubmittingRename] = useState(false);
 
   // Quick Stock Out to Reception Modal from Color Cards
   const [isStockOutModalForColorOpen, setIsStockOutModalForColorOpen] = useState(false);
@@ -410,7 +415,6 @@ export default function BandInventoryPage() {
         getSubcategoryBandsAction(),
         fetchCouponBandInventoryAction(),
         fetchTimeSlotsAction().catch(() => []),
-        standardizeAllBandCategoriesAction().catch(() => ({ success: false, updatedCount: 0 })),
       ]);
 
       if (summaryRes.success && summaryRes.data) {
@@ -452,32 +456,106 @@ export default function BandInventoryPage() {
   const { generalSlotColors, subcategoryColors } = useMemo(() => {
     const rawBreakdown = summary?.colorBreakdown || [];
 
-    const isSubcategory = (c: BandColorBreakdown) => {
+    const subcatConfigByHex = new Map<string, SubcategoryBandItem>();
+    const subcatConfigByName = new Map<string, SubcategoryBandItem>();
+    for (const sub of configuredSubcategories) {
+      if (sub.color_hex) subcatConfigByHex.set(sub.color_hex.trim().toUpperCase(), sub);
+      if (sub.color_name) subcatConfigByName.set(sub.color_name.trim().toUpperCase(), sub);
+    }
+
+    const slotColorByHex = new Map<string, { color_name?: string }>();
+    for (const ts of timeSlots) {
+      if (ts.color) {
+        slotColorByHex.set(ts.color.trim().toUpperCase(), { color_name: ts.color_name || undefined });
+      }
+    }
+
+    const findMatchedSubcat = (hex?: string, name?: string): SubcategoryBandItem | undefined => {
+      const hUpper = (hex || "").trim().toUpperCase();
+      const nUpper = (name || "").trim().toUpperCase();
+      if (hUpper && subcatConfigByHex.has(hUpper)) return subcatConfigByHex.get(hUpper);
+      if (nUpper && subcatConfigByName.has(nUpper)) return subcatConfigByName.get(nUpper);
+
+      // Fuzzy matching: handles "Pink" matching "VISITOR PINK", "Crystal Blue" matching "CRYSTAL BLUE EXCAVATOR"
+      return configuredSubcategories.find(sc => {
+        const scHex = (sc.color_hex || "").trim().toUpperCase();
+        const scName = (sc.color_name || "").trim().toUpperCase();
+        if (scHex && hUpper && scHex === hUpper) return true;
+        if (scName && nUpper && (scName.includes(nUpper) || nUpper.includes(scName))) return true;
+        const cleanSc = scName.replace(/[^A-Z0-9]/g, '');
+        const cleanN = nUpper.replace(/[^A-Z0-9]/g, '');
+        if (cleanSc && cleanN && (cleanSc.includes(cleanN) || cleanN.includes(cleanSc))) return true;
+        return false;
+      });
+    };
+
+    const isSubcategory = (c: BandColorBreakdown, matched?: SubcategoryBandItem) => {
+      if (matched) return true;
       const nameUpper = (c.color_name || "").toUpperCase();
       const hexUpper = (c.color_hex || "").toUpperCase();
-      const inConfigured = configuredSubcategories.some(
-        sub => (sub.color_hex && sub.color_hex.toUpperCase() === hexUpper) ||
-               (sub.color_name && sub.color_name.toUpperCase() === nameUpper)
-      );
+      const inConfigured = subcatConfigByHex.has(hexUpper) || subcatConfigByName.has(nameUpper);
       const hasSpecialKeyword = 
         nameUpper.includes("VIP") || 
         nameUpper.includes("VISITOR") || 
         nameUpper.includes("STAFF") || 
         nameUpper.includes("MARSHAL") || 
         nameUpper.includes("CHILD") ||
-        nameUpper.includes("SPECIAL");
+        nameUpper.includes("SPECIAL") ||
+        nameUpper.includes("EXCAVATOR") ||
+        nameUpper.includes("ADDON");
       return inConfigured || hasSpecialKeyword;
     };
 
-    const general: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor> })[] = [];
-    const subcats: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor> })[] = [];
+    const general: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor>; matchedConfig?: SubcategoryBandItem })[] = [];
+    const subcats: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor>; matchedConfig?: SubcategoryBandItem })[] = [];
 
     for (const c of rawBreakdown) {
-      const slotInfo = getSlotInfoForColor(c.color_hex, c.color_name, timeSlots);
-      if (isSubcategory(c)) {
-        subcats.push({ ...c, slotInfo });
+      const hexUpper = (c.color_hex || "").trim().toUpperCase();
+      const matchedConfig = findMatchedSubcat(c.color_hex, c.color_name);
+      const matchedSlot = slotColorByHex.get(hexUpper);
+
+      const resolvedColorName = matchedConfig?.color_name || matchedSlot?.color_name || c.color_name;
+      const resolvedColorHex = matchedConfig?.color_hex || c.color_hex;
+
+      const enrichedColor = {
+        ...c,
+        color_name: resolvedColorName,
+        color_hex: resolvedColorHex,
+        slotInfo: getSlotInfoForColor(resolvedColorHex, resolvedColorName, timeSlots),
+        matchedConfig
+      };
+
+      if (isSubcategory(c, matchedConfig)) {
+        subcats.push(enrichedColor);
       } else {
-        general.push({ ...c, slotInfo });
+        general.push(enrichedColor);
+      }
+    }
+
+    // Ensure every configured subcategory appears even if 0 bands exist
+    for (const sc of configuredSubcategories) {
+      const scHex = (sc.color_hex || "").trim().toUpperCase();
+      const scName = (sc.color_name || "").trim().toUpperCase();
+      const exists = subcats.some(
+        s => (s.matchedConfig && s.matchedConfig.id === sc.id) ||
+             (s.color_hex && s.color_hex.trim().toUpperCase() === scHex) ||
+             (s.color_name && s.color_name.trim().toUpperCase() === scName)
+      );
+
+      if (!exists) {
+        subcats.push({
+          color_name: sc.color_name,
+          color_hex: sc.color_hex,
+          total: (sc.warehouse_stock || 0) + (sc.reception_stock || 0),
+          available: sc.warehouse_stock || 0,
+          issued: 0,
+          damaged: 0,
+          lost: 0,
+          retired: 0,
+          in_reception: sc.reception_stock || 0,
+          slotInfo: getSlotInfoForColor(sc.color_hex, sc.color_name, timeSlots),
+          matchedConfig: sc
+        });
       }
     }
 
@@ -821,9 +899,47 @@ export default function BandInventoryPage() {
     }
   };
 
-  const handleColorCardPress = (color: BandColorBreakdown) => {
+  const handleColorCardPress = (color: BandColorBreakdown & { matchedConfig?: SubcategoryBandItem }) => {
     setSelectedColorForAction(color);
+    setIsRenamingColor(false);
+    setRenameFormColorName(color.color_name || "");
+    setRenameFormCategory(color.matchedConfig?.category_name || (color.subcategories?.[0]?.category) || "Standard");
     setIsColorManageModalOpen(true);
+  };
+
+  const handleRenameSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedColorForAction) return;
+    if (!renameFormColorName.trim()) {
+      setFeedback({ type: "error", message: "Please provide a valid colour name." });
+      return;
+    }
+
+    setIsSubmittingRename(true);
+    try {
+      const res = await renameWristbandColorAction({
+        oldColorName: selectedColorForAction.color_name,
+        newColorName: renameFormColorName.trim(),
+        colorHex: selectedColorForAction.color_hex,
+        categoryName: renameFormCategory.trim() || undefined
+      });
+
+      if (res.success) {
+        setFeedback({
+          type: "success",
+          message: `Successfully renamed "${selectedColorForAction.color_name}" to "${renameFormColorName.trim()}" across all inventory!`
+        });
+        setIsRenamingColor(false);
+        setIsColorManageModalOpen(false);
+        await loadData(true);
+      } else {
+        setFeedback({ type: "error", message: res.error || "Failed to rename wristband." });
+      }
+    } catch (err: any) {
+      setFeedback({ type: "error", message: err.message || "Failed to rename wristband." });
+    } finally {
+      setIsSubmittingRename(false);
+    }
   };
 
   const handleQuickStockOutSubmit = async (e: React.FormEvent) => {
@@ -1903,10 +2019,26 @@ export default function BandInventoryPage() {
                               <span className="font-bold text-sm text-gray-900 group-hover:text-purple-700 transition-colors">
                                 {color.color_name}
                               </span>
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                                <Sparkles className="w-3 h-3 text-purple-500" />
-                                <span>Sub-Category Pass</span>
-                              </span>
+                              {(() => {
+                                const cat = (color as any).matchedConfig?.category_name || (color.subcategories?.[0]?.category) || "Sub-Category Pass";
+                                const catUpper = cat.toUpperCase();
+                                const badgeClass = catUpper.includes("VIP")
+                                  ? "bg-purple-100 text-purple-800 border-purple-200"
+                                  : catUpper.includes("VISITOR")
+                                  ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                                  : catUpper.includes("PARTICIPANT")
+                                  ? "bg-blue-100 text-blue-800 border-blue-200"
+                                  : catUpper.includes("ADDON")
+                                  ? "bg-amber-100 text-amber-800 border-amber-200"
+                                  : "bg-slate-100 text-slate-800 border-slate-200";
+
+                                return (
+                                  <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black border ${badgeClass}`}>
+                                    <Sparkles className="w-3 h-3" />
+                                    <span>{cat}</span>
+                                  </span>
+                                );
+                              })()}
                             </div>
                             <div className="flex items-center gap-1.5 shrink-0">
                               {isSubLowStock && (
@@ -1936,10 +2068,15 @@ export default function BandInventoryPage() {
                                     : "bg-emerald-500"
                                 }`}
                                 style={{ width: `${(color.available / color.total) * 100}%` }}
-                                title={`In Stock: ${color.available}${isSubLowStock ? " (LOW STOCK - REORDER)" : ""}`}
+                                title={`Warehouse Stock: ${color.available}${isSubLowStock ? " (LOW STOCK - REORDER)" : ""}`}
                               />
                               <div
                                 className="bg-amber-400 h-full transition-all duration-300"
+                                style={{ width: `${((color.in_reception || 0) / color.total) * 100}%` }}
+                                title={`At Reception: ${color.in_reception || 0}`}
+                              />
+                              <div
+                                className="bg-blue-400 h-full transition-all duration-300"
                                 style={{ width: `${(color.issued / color.total) * 100}%` }}
                                 title={`Issued: ${color.issued}`}
                               />
@@ -1972,7 +2109,7 @@ export default function BandInventoryPage() {
                         <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-gray-100 text-center">
                           <div>
                             <span className={`block text-[10px] uppercase font-bold ${isSubLowStock ? "text-red-500 font-extrabold" : "text-gray-400"}`}>
-                              In Stock
+                              Warehouse
                             </span>
                             <span className={`font-mono font-bold text-xs ${
                               isSubLowStock 
@@ -3843,23 +3980,77 @@ export default function BandInventoryPage() {
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2 mb-1">
-              <span
-                className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs"
-                style={{ backgroundColor: selectedColorForAction.color_hex }}
-              />
-              <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff5a1f] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
-                Color Stock Quick Hub
-              </span>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <span
+                  className="w-3.5 h-3.5 rounded-full border border-black/10 shadow-xs"
+                  style={{ backgroundColor: selectedColorForAction.color_hex }}
+                />
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#ff5a1f] bg-orange-50 px-2.5 py-0.5 rounded-full border border-orange-200">
+                  Color Stock Quick Hub
+                </span>
+              </div>
+              {canManageStock && (
+                <button
+                  type="button"
+                  onClick={() => setIsRenamingColor(!isRenamingColor)}
+                  className="text-xs px-2.5 py-1 bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 rounded-lg font-bold flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <span>✏️ Rename / Edit Details</span>
+                </button>
+              )}
             </div>
             <h2 className="text-xl font-extrabold text-gray-900 flex items-center gap-2">
               <span>{selectedColorForAction.color_name} Wristbands</span>
             </h2>
-            <p className="text-xs text-gray-500 mb-5">
+            <p className="text-xs text-gray-500 mb-4">
               {canManageStock
                 ? "Manage stock levels, batch generate a new band series, or view and edit individual items."
                 : "View wristband stock levels and filter the catalog to inspect wristbands."}
             </p>
+
+            {/* Inline Rename Form */}
+            {isRenamingColor && (
+              <form onSubmit={handleRenameSubmit} className="mb-4 p-3.5 bg-purple-50/70 border border-purple-200 rounded-xl space-y-3 animate-in fade-in">
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase mb-1">Wristband Colour Name</label>
+                  <input
+                    type="text"
+                    value={renameFormColorName}
+                    onChange={(e) => setRenameFormColorName(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-bold border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    placeholder="e.g. Royal Blue"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-gray-700 uppercase mb-1">Pass Category (Subcategory / Type)</label>
+                  <input
+                    type="text"
+                    value={renameFormCategory}
+                    onChange={(e) => setRenameFormCategory(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs font-semibold border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    placeholder="e.g. VIP Participant, Visitor, Child, etc."
+                  />
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsRenamingColor(false)}
+                    className="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 font-semibold cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmittingRename}
+                    className="px-3 py-1 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-lg shadow-sm disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSubmittingRename ? "Saving..." : "Save & Sync Everywhere"}
+                  </button>
+                </div>
+              </form>
+            )}
 
             {/* Quick Metrics Bar */}
             <div className="grid grid-cols-5 gap-2 p-3 rounded-xl bg-gray-50 border border-gray-200 mb-4 text-center text-xs">

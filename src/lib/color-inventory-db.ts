@@ -1039,8 +1039,30 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
           sb.active,
           sb.created_at,
           sb.updated_at,
-          COALESCE(wci.quantity, 0) as warehouse_stock,
-          COALESCE(wci.in_reception, 0) as reception_stock
+          COALESCE(
+            (
+              SELECT SUM(CASE WHEN bi.status = 'available' AND (bi.location = 'warehouse' OR bi.location IS NULL) THEN 1 ELSE 0 END)
+              FROM band_items bi
+              WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
+                 OR UPPER(bi.color_name) = UPPER(sb.color_name)
+                 OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
+                 OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
+            ),
+            wci.quantity,
+            0
+          ) as warehouse_stock,
+          COALESCE(
+            (
+              SELECT SUM(CASE WHEN bi.status = 'available' AND bi.location = 'reception' THEN 1 ELSE 0 END)
+              FROM band_items bi
+              WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
+                 OR UPPER(bi.color_name) = UPPER(sb.color_name)
+                 OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
+                 OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
+            ),
+            wci.in_reception,
+            0
+          ) as reception_stock
         FROM subcategory_bands sb
         LEFT JOIN wristband_color_inventory wci 
           ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
@@ -1076,8 +1098,30 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
       sb.active,
       sb.created_at,
       sb.updated_at,
-      COALESCE(wci.quantity, 0) as warehouse_stock,
-      COALESCE(wci.in_reception, 0) as reception_stock
+      COALESCE(
+        (
+          SELECT SUM(CASE WHEN bi.status = 'available' AND (bi.location = 'warehouse' OR bi.location IS NULL) THEN 1 ELSE 0 END)
+          FROM band_items bi
+          WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
+             OR UPPER(bi.color_name) = UPPER(sb.color_name)
+             OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
+             OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
+        ),
+        wci.quantity,
+        0
+      ) as warehouse_stock,
+      COALESCE(
+        (
+          SELECT SUM(CASE WHEN bi.status = 'available' AND bi.location = 'reception' THEN 1 ELSE 0 END)
+          FROM band_items bi
+          WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
+             OR UPPER(bi.color_name) = UPPER(sb.color_name)
+             OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
+             OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
+        ),
+        wci.in_reception,
+        0
+      ) as reception_stock
     FROM subcategory_bands sb
     LEFT JOIN wristband_color_inventory wci 
       ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
@@ -1223,13 +1267,28 @@ export async function updateSubcategoryBand(
 
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
+  let prevSub: { category_name?: string; color_hex?: string; color_name?: string } | undefined;
+
   if (hasPg) {
     try {
+      const prevRes = await simulatorPool.query("SELECT category_name, color_hex, color_name FROM subcategory_bands WHERE id = $1", [id]);
+      prevSub = prevRes.rows[0];
+
       await simulatorPool.query(`
         UPDATE subcategory_bands 
         SET category_name = $1, color_hex = $2, color_name = $3, remark = $4, active = $5, updated_at = NOW()
         WHERE id = $6
       `, [category, hex, name, remark, active, id]);
+
+      const oldHex = (prevSub?.color_hex || hex).toUpperCase();
+      const oldName = prevSub?.color_name || name;
+
+      // Update wristband_color_inventory
+      await simulatorPool.query(`
+        UPDATE wristband_color_inventory
+        SET color_name = $1, color_hex = $2, updated_at = NOW()
+        WHERE UPPER(color_hex) = $3 OR UPPER(color_hex) = $2 OR (color_name = $4 AND $4 != '')
+      `, [name, hex, oldHex, oldName]);
 
       // Ensure updated color exists in inventory
       await simulatorPool.query(`
@@ -1237,6 +1296,20 @@ export async function updateSubcategoryBand(
         VALUES ($1, $2, 0, 0, NOW(), NOW())
         ON CONFLICT (color_hex) DO UPDATE SET color_name = EXCLUDED.color_name, updated_at = NOW()
       `, [hex, name]);
+
+      // Propagate rename to all existing band_items!
+      await simulatorPool.query(`
+        UPDATE band_items 
+        SET color_name = $1, color_hex = $2, category = $3, updated_at = NOW()
+        WHERE UPPER(color_hex) = $4 OR UPPER(color_hex) = $2 OR (color_name = $5 AND $5 != '')
+      `, [name, hex, category, oldHex, oldName]);
+
+      // Propagate rename to transactions
+      await simulatorPool.query(`
+        UPDATE band_transactions 
+        SET color_name = $1, color_hex = $2
+        WHERE UPPER(color_hex) = $3 OR UPPER(color_hex) = $2 OR (color_name = $4 AND $4 != '')
+      `, [name, hex, oldHex, oldName]);
     } catch (pgErr) {
       console.warn("[Color Inventory] PG updateSubcategoryBand error:", pgErr);
     }
@@ -1244,24 +1317,172 @@ export async function updateSubcategoryBand(
 
   try {
     initDB();
+    if (!prevSub) {
+      prevSub = db.prepare("SELECT category_name, color_hex, color_name FROM subcategory_bands WHERE id = ?").get(id) as any;
+    }
+
     db.prepare(`
       UPDATE subcategory_bands 
       SET category_name = ?, color_hex = ?, color_name = ?, remark = ?, active = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(category, hex, name, remark, active, id);
 
-    // Ensure color exists in SQLite inventory
-    const existing = db.prepare("SELECT id FROM wristband_color_inventory WHERE UPPER(color_hex) = ?").get(hex);
-    if (!existing) {
+    const oldHex = (prevSub?.color_hex || hex).toUpperCase();
+    const oldName = prevSub?.color_name || name;
+
+    // Update wristband_color_inventory in SQLite
+    const updatedInv = db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET color_name = ?, color_hex = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+    `).run(name, hex, oldHex, hex, oldName, oldName);
+
+    if (updatedInv.changes === 0) {
       db.prepare(`
         INSERT INTO wristband_color_inventory (color_hex, color_name, quantity, in_reception, created_at, updated_at)
         VALUES (?, ?, 0, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       `).run(hex, name);
     }
 
+    // Propagate rename to band_items in SQLite
+    db.prepare(`
+      UPDATE band_items 
+      SET color_name = ?, color_hex = ?, category = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+    `).run(name, hex, category, oldHex, hex, oldName, oldName);
+
+    // Propagate rename to band_transactions in SQLite
+    db.prepare(`
+      UPDATE band_transactions 
+      SET color_name = ?, color_hex = ?
+      WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+    `).run(name, hex, oldHex, hex, oldName, oldName);
+
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to update subcategory band." };
+  }
+}
+
+/**
+ * Universal color and subcategory renamer across all inventory tables
+ */
+export async function renameWristbandColor(params: {
+  oldColorName: string;
+  newColorName: string;
+  colorHex: string;
+  newColorHex?: string;
+  categoryName?: string;
+}): Promise<{ success: boolean; error?: string }> {
+  await ensureColorInventorySchema();
+  const oldName = params.oldColorName.trim();
+  const newName = params.newColorName.trim();
+  const oldHex = params.colorHex.trim().toUpperCase();
+  const newHex = (params.newColorHex || params.colorHex).trim().toUpperCase();
+  const category = params.categoryName?.trim();
+
+  if (!newName) return { success: false, error: "New colour name cannot be empty." };
+
+  const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
+
+  if (hasPg) {
+    try {
+      if (category) {
+        await simulatorPool.query(`
+          UPDATE subcategory_bands 
+          SET color_name = $1, color_hex = $2, category_name = $3, updated_at = NOW()
+          WHERE UPPER(color_hex) = $4 OR (color_name = $5 AND $5 != '')
+        `, [newName, newHex, category, oldHex, oldName]);
+      } else {
+        await simulatorPool.query(`
+          UPDATE subcategory_bands 
+          SET color_name = $1, color_hex = $2, updated_at = NOW()
+          WHERE UPPER(color_hex) = $3 OR (color_name = $4 AND $4 != '')
+        `, [newName, newHex, oldHex, oldName]);
+      }
+
+      await simulatorPool.query(`
+        UPDATE wristband_color_inventory 
+        SET color_name = $1, color_hex = $2, updated_at = NOW()
+        WHERE UPPER(color_hex) = $3 OR (color_name = $4 AND $4 != '')
+      `, [newName, newHex, oldHex, oldName]);
+
+      if (category) {
+        await simulatorPool.query(`
+          UPDATE band_items 
+          SET color_name = $1, color_hex = $2, category = $3, updated_at = NOW()
+          WHERE UPPER(color_hex) = $4 OR UPPER(color_hex) = $2 OR (color_name = $5 AND $5 != '')
+        `, [newName, newHex, category, oldHex, oldName]);
+      } else {
+        await simulatorPool.query(`
+          UPDATE band_items 
+          SET color_name = $1, color_hex = $2, updated_at = NOW()
+          WHERE UPPER(color_hex) = $4 OR UPPER(color_hex) = $2 OR (color_name = $5 AND $5 != '')
+        `, [newName, newHex, oldHex, oldName]);
+      }
+
+      await simulatorPool.query(`
+        UPDATE band_transactions 
+        SET color_name = $1, color_hex = $2
+        WHERE UPPER(color_hex) = $3 OR UPPER(color_hex) = $2 OR (color_name = $4 AND $4 != '')
+      `, [newName, newHex, oldHex, oldName]);
+    } catch (pgErr) {
+      console.warn("[Color Inventory] PG renameWristbandColor error:", pgErr);
+    }
+  }
+
+  try {
+    initDB();
+
+    if (category) {
+      db.prepare(`
+        UPDATE subcategory_bands 
+        SET color_name = ?, color_hex = ?, category_name = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+      `).run(newName, newHex, category, oldHex, oldName, oldName);
+    } else {
+      db.prepare(`
+        UPDATE subcategory_bands 
+        SET color_name = ?, color_hex = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+      `).run(newName, newHex, oldHex, oldName, oldName);
+    }
+
+    db.prepare(`
+      UPDATE wristband_color_inventory 
+      SET color_name = ?, color_hex = ?, updated_at = CURRENT_TIMESTAMP
+      WHERE UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+    `).run(newName, newHex, oldHex, oldName, oldName);
+
+    if (category) {
+      db.prepare(`
+        UPDATE band_items 
+        SET color_name = ?, color_hex = ?, category = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+      `).run(newName, newHex, category, oldHex, newHex, oldName, oldName);
+    } else {
+      db.prepare(`
+        UPDATE band_items 
+        SET color_name = ?, color_hex = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+      `).run(newName, newHex, oldHex, newHex, oldName, oldName);
+    }
+
+    db.prepare(`
+      UPDATE band_transactions 
+      SET color_name = ?, color_hex = ?
+      WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
+    `).run(newName, newHex, oldHex, newHex, oldName, oldName);
+
+    db.prepare(`
+      UPDATE time_slots 
+      SET color_name = ?, color = ?
+      WHERE UPPER(color) = ? OR (color_name = ? AND ? != '')
+    `).run(newName, newHex, oldHex, oldName, oldName);
+
+    return { success: true };
+  } catch (sqliteErr: any) {
+    return { success: false, error: sqliteErr.message || "Failed to rename wristband color." };
   }
 }
 

@@ -94,6 +94,7 @@ export default async function TicketTypePage() {
                   const cleanName = ticket.name.replace(/_/g, " ");
                   const hasPerk = ticket.has_simulator_perk === 1;
                   const isExcavatorOrAddon = Boolean(ticket.is_addon || ticket.name.toUpperCase().includes("EXCAVATOR") || ticket.name.toUpperCase().includes("DUMP"));
+                  const isVipParticipant = ticket.name.toUpperCase().replace(/\s+/g, "_").includes("VIP_PARTICIPANT");
 
                   // Render specific customized benefits (filtering out any generic arena session from excavator add-on)
                   const customBenefits = ticket.benefits
@@ -120,7 +121,11 @@ export default async function TicketTypePage() {
                           ₹{ticket.price}+GST
                         </div>
                         <div className="text-xs sm:text-sm font-semibold text-gray-700 mt-1">
-                          {isExcavatorOrAddon ? "for one person (Add-on)" : "for 1 hour for one person"}
+                          {isExcavatorOrAddon 
+                            ? "for one person (Add-on)" 
+                            : isVipParticipant 
+                              ? "for 2 hour for one person" 
+                              : "for 1 hour for one person"}
                         </div>
                       </td>
                       <td className="py-8 px-8 align-middle">
@@ -291,7 +296,7 @@ export default async function TicketTypePage() {
                                   </svg>
                                 </div>
                                 <p className="text-base sm:text-lg font-bold text-black">
-                                  • {hasPerk ? `Includes ${ticket.perk_duration_mins || 30} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : '1-Hour arena session'}
+                                  • {hasPerk ? `Includes ${ticket.perk_duration_mins || 60} mins session at Havoc Sim Podium (${ticket.perk_title || 'VIP Simulator'})` : isVipParticipant ? '2-Hour arena session' : '1-Hour arena session'}
                                 </p>
                               </div>
                             ) : null}

@@ -197,7 +197,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     try {
       await ensurePgSchema();
       try {
-        await simulatorPool.query("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'");
+        await simulatorPool.query("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = ''");
       } catch (_) {}
       const countsRes = await simulatorPool.query(`
         SELECT
@@ -292,6 +292,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           if (existing) {
             existing.color_inventory_id = invId;
             existing.in_reception = inRec;
+            if (name && name !== hex) {
+              existing.color_name = name;
+            }
             // If individual band items haven't been generated yet, reflect the color pool's stock
             if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
               existing.total = poolQty + inRec;
@@ -316,6 +319,49 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           }
         }
       } catch (ignoreInv) {}
+
+      // Incorporate configured subcategories to ensure the latest color_name and category is reflected
+      try {
+        const subcatConfigs = await simulatorPool.query("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''");
+        for (const sc of subcatConfigs.rows) {
+          const hex = (sc.color_hex || "").trim().toUpperCase();
+          const scName = (sc.color_name || "").trim();
+          const scCat = (sc.category_name || "").trim();
+
+          let target = hex ? colorBreakdownMap.get(hex) : undefined;
+          if (!target) {
+            for (const item of colorBreakdownMap.values()) {
+              const itemUpper = (item.color_name || "").trim().toUpperCase();
+              const scUpper = scName.toUpperCase();
+              if (itemUpper === scUpper || itemUpper.includes(scUpper) || scUpper.includes(itemUpper)) {
+                target = item;
+                break;
+              }
+            }
+          }
+          if (target) {
+            if (scName) target.color_name = scName;
+            if (hex) target.color_hex = hex;
+            if (scCat) {
+              if (!target.subcategories || target.subcategories.length === 0) {
+                target.subcategories = [{
+                  category: scCat,
+                  total: target.total,
+                  available: target.available,
+                  issued: target.issued,
+                  damaged: target.damaged,
+                  lost: target.lost,
+                  retired: target.retired,
+                  in_reception: target.in_reception || 0,
+                  warehouse: target.available
+                }];
+              } else {
+                target.subcategories[0].category = scCat;
+              }
+            }
+          }
+        }
+      } catch (_) {}
 
       // Subcategories breakdown grouped by (color_name, color_hex, category)
       try {
@@ -414,7 +460,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
   // SQLite fallback
   try {
     initDB();
-    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category != 'Standard'").run();
+    db.prepare("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = ''").run();
   } catch (_) {}
   const counts = db.prepare(`
     SELECT
@@ -509,6 +555,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       if (existing) {
         existing.color_inventory_id = invId;
         existing.in_reception = inRec;
+        if (name && name !== hex) {
+          existing.color_name = name;
+        }
         // If individual band items haven't been generated yet, reflect the color pool's stock
         if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
           existing.total = poolQty + inRec;
@@ -533,6 +582,49 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       }
     }
   } catch (ignoreInv) {}
+
+  // Incorporate configured subcategories to ensure the latest color_name and category is reflected
+  try {
+    const subcatConfigs = db.prepare("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''").all() as any[];
+    for (const sc of subcatConfigs) {
+      const hex = (sc.color_hex || "").trim().toUpperCase();
+      const scName = (sc.color_name || "").trim();
+      const scCat = (sc.category_name || "").trim();
+
+      let target = hex ? colorBreakdownMap.get(hex) : undefined;
+      if (!target) {
+        for (const item of colorBreakdownMap.values()) {
+          const itemUpper = (item.color_name || "").trim().toUpperCase();
+          const scUpper = scName.toUpperCase();
+          if (itemUpper === scUpper || itemUpper.includes(scUpper) || scUpper.includes(itemUpper)) {
+            target = item;
+            break;
+          }
+        }
+      }
+      if (target) {
+        if (scName) target.color_name = scName;
+        if (hex) target.color_hex = hex;
+        if (scCat) {
+          if (!target.subcategories || target.subcategories.length === 0) {
+            target.subcategories = [{
+              category: scCat,
+              total: target.total,
+              available: target.available,
+              issued: target.issued,
+              damaged: target.damaged,
+              lost: target.lost,
+              retired: target.retired,
+              in_reception: target.in_reception || 0,
+              warehouse: target.available
+            }];
+          } else {
+            target.subcategories[0].category = scCat;
+          }
+        }
+      }
+    }
+  } catch (_) {}
 
   // Subcategories breakdown grouped by (color_name, color_hex, category) in SQLite
   try {

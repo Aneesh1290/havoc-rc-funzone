@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import Link from "next/link";
 import { 
   CreditCard, 
   KeyRound, 
@@ -19,7 +20,8 @@ import {
   MessageSquare,
   Sparkles,
   ExternalLink,
-  Send
+  Send,
+  FileText
 } from "lucide-react";
 import { changePasswordAction } from "@/app/login/actions";
 import { 
@@ -640,7 +642,33 @@ export default function SettingsPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* 3. SECURITY / PASSWORD MANAGEMENT                                         */}
+        {/* 3. TICKET GUIDELINES & RULES SHORTCUT                                     */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <span className="p-3 rounded-2xl bg-orange-50 text-[#ff5a1f] border border-orange-200">
+                <FileText className="w-6 h-6" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Important Guidelines &amp; Rules</h3>
+                <p className="text-xs text-gray-500">
+                  Edit the public Important Guidelines, pass prices, companion rules, and age limits displayed on <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-700">/tickets</code>.
+                </p>
+              </div>
+            </div>
+            <Link
+              href="/admin/tickets"
+              className="px-4 py-2.5 bg-orange-50 hover:bg-orange-100 text-orange-800 border border-orange-200 rounded-xl text-xs font-bold flex items-center gap-2 self-start sm:self-auto transition-colors cursor-pointer shadow-2xs"
+            >
+              <span>Open Guidelines Editor</span>
+              <ExternalLink className="w-3.5 h-3.5 text-[#ff5a1f]" />
+            </Link>
+          </div>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 4. SECURITY / PASSWORD MANAGEMENT                                         */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
           <div className="flex items-center gap-2 mb-2">

@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import TicketGuidelinesSection from '@/components/tickets/TicketGuidelinesSection';
 
 interface MonthData {
   month: string;
@@ -105,85 +106,8 @@ export default function TicketsPage() {
           )}
         </div>
         
-        {/* Important Guidelines Section */}
-        <div className="mt-20 w-full max-w-5xl bg-white/60 backdrop-blur-xl rounded-3xl p-8 md:p-12 shadow-[0_8px_32px_rgba(0,0,0,0.1)] border border-white/50 z-10 relative">
-          <h2 className="text-2xl font-black font-heading text-[#0d1b2a] mb-8 flex items-center gap-3">
-            <span className="text-[#ff5a1f]">⚠️</span> Important Guidelines:
-          </h2>
-          
-          <ul className="space-y-6 text-gray-800 text-sm md:text-base font-bold leading-relaxed">
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">1.</span>
-              <div>
-                Children under 14 years must be accompanied by a parent or guardian holding a valid Visitor, Participant, VIP Visitor, or VIP Participant ticket. Parents/guardians are solely responsible for the safety and supervision of their children and must not leave them unattended at any time during the entire allotted time. <span className="text-red-600 ml-1">❌ Children under 3 years of age are not allowed inside the Funzone.</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">2.</span>
-              <div>
-                <span className="text-red-600 mr-1">❌</span> Food, eatables, and drinks are not allowed inside the Fun Zone area during the activity time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">3.</span>
-              <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">Visitor Ticket:</span> Allows 1 hour entry only as a companion. Visitors are not permitted to play any activities.<br/>
-                <span className="text-[#ff5a1f]">₹300 + GST per hour per person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">4.</span>
-              <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">Participant Ticket:</span> Grants 1 hour full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.).<br/>
-                <span className="text-[#ff5a1f]">₹1000 + GST per hour per person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">5.</span>
-              <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">VIP Visitor Ticket:</span> Grants 1 hour access to selected experiences – RC Flight Simulator, Car Race Sim Beginner, HO & N Scale Model Railway Activities.<br/>
-                <span className="text-[#ff5a1f]">₹500 + GST per hour per person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">6.</span>
-              <div>
-                <span className="underline decoration-2 underline-offset-4 text-[#0d1b2a]">VIP Participant Ticket:</span> Grants 2 hours full access to 15 RC Activities (Excavator Activity is not included in the package. It can be purchased separately as an add-on.), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 60 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
-                <span className="text-[#ff5a1f]">₹2000 + GST for 2 hour for one person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">7.</span>
-              <div>
-                <span className="text-red-600 mr-1">🚫</span> Entry will not be allowed to any person without a valid booking/ticket.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">8.</span>
-              <div>
-                <span className="mr-1 text-xl">⏰</span> Please arrive at least 20 minutes before your slot start time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">9.</span>
-              <div>
-                <span className="text-red-600 mr-1">❌</span> Late arrivals will not receive additional play/visit time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">10.</span>
-              <div>
-                <span className="text-red-600 mr-1">❌</span> No refunds, cancellations, or rescheduling once tickets are booked. Tickets are non-transferable and cannot be shared with other candidates during the allotted time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="min-w-[24px] text-[#ff5a1f]">11.</span>
-              <div>
-                <span className="text-[#ff5a1f] mr-1 text-lg">❗</span> Please note that limited parking is available below the Fun Zone premises. Participants and visitors are requested to plan their visit accordingly. BMTC Shantinagar Public Parking is also available approximately a 5-minute walk from the Fun Zone.
-              </div>
-            </li>
-          </ul>
-        </div>
+        {/* Important Guidelines Section (Dynamic & Editable by Admin) */}
+        <TicketGuidelinesSection />
 
       </div>
     </div>

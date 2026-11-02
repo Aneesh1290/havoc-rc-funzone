@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Ticket, X, Trash2, Plus, Sparkles, Clock, Edit2 } from "lucide-react";
+import { Ticket, X, Trash2, Plus, Sparkles, Clock, Edit2, FileText, ArrowRight } from "lucide-react";
+import TicketGuidelinesEditor from "@/components/admin/TicketGuidelinesEditor";
 import { 
   fetchTicketsAction, 
   toggleTicketStatusAction, 
@@ -31,6 +32,7 @@ export default function TicketsPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [activeTab, setActiveTab] = useState<"tickets" | "guidelines">("tickets");
 
   const loadTickets = async () => {
     setIsLoading(true);
@@ -157,132 +159,193 @@ export default function TicketsPage() {
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-3xl font-heading font-black text-gray-900">Ticket Types &amp; Passes</h1>
+          <h1 className="text-3xl font-heading font-black text-gray-900">Ticket Passes &amp; Guidelines</h1>
           <p className="text-gray-500 mt-1">
-            Configure pass pricing, capacity, and VIP simulator perks (e.g. 30-min Havoc Sim Podium Session).
+            Configure pass pricing, capacity, VIP simulator perks, and edit the public Important Guidelines.
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleSyncPricing}
-            disabled={isSyncing}
-            className="border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm text-sm disabled:opacity-50"
-            title="Enforce official ticket price schedule"
-          >
-            <Sparkles className="w-4 h-4 text-orange-600" />
-            <span>{isSyncing ? "Syncing..." : "Sync Official Rates"}</span>
-          </button>
-          <button 
-            onClick={() => {
-              setErrorMsg(null);
-              setIsAddingTicket(true);
-            }}
-            className="bg-[#0d1b2a] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm text-sm"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Add New Pass / Ticket</span>
-          </button>
-        </div>
+        {activeTab === "tickets" && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleSyncPricing}
+              disabled={isSyncing}
+              className="border border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100 px-4 py-2.5 rounded-xl font-bold transition-colors flex items-center gap-2 shadow-sm text-sm disabled:opacity-50 cursor-pointer"
+              title="Enforce official ticket price schedule"
+            >
+              <Sparkles className="w-4 h-4 text-orange-600" />
+              <span>{isSyncing ? "Syncing..." : "Sync Official Rates"}</span>
+            </button>
+            <button 
+              onClick={() => {
+                setErrorMsg(null);
+                setIsAddingTicket(true);
+              }}
+              className="bg-[#0d1b2a] text-white px-5 py-2.5 rounded-xl font-bold hover:bg-gray-800 transition-colors flex items-center gap-2 shadow-sm text-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>Add New Pass / Ticket</span>
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-gray-100 text-gray-400 text-xs uppercase tracking-wider font-bold bg-gray-50/50">
-                <th className="py-3.5 px-4">Ticket / Pass Name</th>
-                <th className="py-3.5 px-4">Price</th>
-                <th className="py-3.5 px-4">Capacity (per slot)</th>
-                <th className="py-3.5 px-4">Simulator Perk</th>
-                <th className="py-3.5 px-4 text-center">Status</th>
-                <th className="py-3.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100 text-sm">
-              {tickets.map((ticket) => {
-                const hasPerk = Boolean(ticket.has_simulator_perk);
-                const duration = ticket.perk_duration_mins || 30;
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-gray-200 gap-6">
+        <button
+          type="button"
+          onClick={() => setActiveTab("tickets")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "tickets"
+              ? "border-[#ff5a1f] text-[#ff5a1f]"
+              : "border-transparent text-gray-500 hover:text-gray-900"
+          }`}
+        >
+          <Ticket className="w-4 h-4" />
+          <span>Ticket Passes &amp; Rates ({tickets.length})</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("guidelines")}
+          className={`pb-3 font-bold text-sm flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
+            activeTab === "guidelines"
+              ? "border-[#ff5a1f] text-[#ff5a1f]"
+              : "border-transparent text-gray-500 hover:text-gray-900"
+          }`}
+        >
+          <FileText className="w-4 h-4" />
+          <span>⚠️ Important Guidelines (Website Section)</span>
+        </button>
+      </div>
 
-                return (
-                  <tr key={ticket.id} className={`hover:bg-gray-50/60 transition-colors ${ticket.active === 0 ? 'opacity-60' : ''}`}>
-                    <td className="py-4 px-4 font-bold text-gray-900">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                          hasPerk 
-                            ? 'bg-orange-50 text-[#ff5a1f] border border-[#ff5a1f]/20' 
-                            : ticket.active === 1 
-                              ? 'bg-blue-50 text-blue-600' 
-                              : 'bg-gray-100 text-gray-400'
-                        }`}>
-                          {hasPerk ? <Sparkles className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
-                        </div>
-                        <div>
-                          <div className="font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
-                            <span>{ticket.name.replace(/_/g, ' ')}</span>
-                            {hasPerk && (
-                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-orange-100 text-[#ff5a1f] border border-[#ff5a1f]/30">
-                                VIP SIM PERK
-                              </span>
-                            )}
-                          </div>
-                          {ticket.perk_title && (
-                            <div className="text-[11px] text-gray-500 font-medium">
-                              {ticket.perk_title}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4 font-bold text-gray-900">₹{ticket.price}</td>
-                    <td className="py-4 px-4 text-gray-600 font-medium">{ticket.capacity} / slot</td>
-                    <td className="py-4 px-4">
-                      {hasPerk ? (
-                        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{duration} Mins Free Sim</span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-400 text-xs italic">No Simulator Perk</span>
-                      )}
-                    </td>
-                    <td className="py-4 px-4 text-center">
-                      <button
-                        onClick={() => toggleStatus(ticket.id, ticket.active === 1)}
-                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
-                          ticket.active === 1
-                            ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
-                            : "bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"
-                        }`}
-                      >
-                        <span className={`w-2 h-2 rounded-full ${ticket.active === 1 ? "bg-emerald-500" : "bg-gray-400"}`}></span>
-                        {ticket.active === 1 ? 'Active' : 'Disabled'}
-                      </button>
-                    </td>
-                    <td className="py-4 px-4 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-2">
-                        <button 
-                          onClick={() => setEditingTicket(ticket)}
-                          className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="Edit ticket"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button 
-                          onClick={() => setDeleteConfirmTicket(ticket)}
-                          className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                          title="Delete ticket"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
+      {activeTab === "guidelines" ? (
+        <TicketGuidelinesEditor />
+      ) : (
+        <>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 relative overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-gray-100 text-gray-400 text-xs uppercase tracking-wider font-bold bg-gray-50/50">
+                    <th className="py-3.5 px-4">Ticket / Pass Name</th>
+                    <th className="py-3.5 px-4">Price</th>
+                    <th className="py-3.5 px-4">Capacity (per slot)</th>
+                    <th className="py-3.5 px-4">Simulator Perk</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
+                    <th className="py-3.5 px-4 text-right">Actions</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                </thead>
+                <tbody className="divide-y divide-gray-100 text-sm">
+                  {tickets.map((ticket) => {
+                    const hasPerk = Boolean(ticket.has_simulator_perk);
+                    const duration = ticket.perk_duration_mins || 30;
+
+                    return (
+                      <tr key={ticket.id} className={`hover:bg-gray-50/60 transition-colors ${ticket.active === 0 ? 'opacity-60' : ''}`}>
+                        <td className="py-4 px-4 font-bold text-gray-900">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              hasPerk 
+                                ? 'bg-orange-50 text-[#ff5a1f] border border-[#ff5a1f]/20' 
+                                : ticket.active === 1 
+                                  ? 'bg-blue-50 text-blue-600' 
+                                  : 'bg-gray-100 text-gray-400'
+                            }`}>
+                              {hasPerk ? <Sparkles className="w-4 h-4" /> : <Ticket className="w-4 h-4" />}
+                            </div>
+                            <div>
+                              <div className="font-extrabold text-gray-900 tracking-tight flex items-center gap-2">
+                                <span>{ticket.name.replace(/_/g, ' ')}</span>
+                                {hasPerk && (
+                                  <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-orange-100 text-[#ff5a1f] border border-[#ff5a1f]/30">
+                                    VIP SIM PERK
+                                  </span>
+                                )}
+                              </div>
+                              {ticket.perk_title && (
+                                <div className="text-[11px] text-gray-500 font-medium">
+                                  {ticket.perk_title}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-4 px-4 font-bold text-gray-900">₹{ticket.price}</td>
+                        <td className="py-4 px-4 text-gray-600 font-medium">{ticket.capacity} / slot</td>
+                        <td className="py-4 px-4">
+                          {hasPerk ? (
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-50 text-amber-900 border border-amber-200">
+                              <Clock className="w-3.5 h-3.5 text-amber-600" />
+                              <span>{duration} Mins Free Sim</span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400 text-xs italic">No Simulator Perk</span>
+                          )}
+                        </td>
+                        <td className="py-4 px-4 text-center">
+                          <button
+                            onClick={() => toggleStatus(ticket.id, ticket.active === 1)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all ${
+                              ticket.active === 1
+                                ? "bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100"
+                                : "bg-gray-100 text-gray-500 border border-gray-200 hover:bg-gray-200"
+                            }`}
+                          >
+                            <span className={`w-2 h-2 rounded-full ${ticket.active === 1 ? "bg-emerald-500" : "bg-gray-400"}`}></span>
+                            {ticket.active === 1 ? 'Active' : 'Disabled'}
+                          </button>
+                        </td>
+                        <td className="py-4 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-2">
+                            <button 
+                              onClick={() => setEditingTicket(ticket)}
+                              className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Edit ticket"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                            <button 
+                              onClick={() => setDeleteConfirmTicket(ticket)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                              title="Delete ticket"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Quick link banner to Guidelines */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-orange-50 via-amber-50 to-white border border-orange-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-orange-100 text-[#ff5a1f] shrink-0">
+                <FileText className="w-4 h-4" />
+              </span>
+              <div>
+                <span className="font-bold text-gray-900 block sm:inline">
+                  Need to edit the 11 Important Guidelines &amp; rules shown on the tickets page?
+                </span>
+                <span className="text-gray-500 sm:ml-1">
+                  You can change terms, entry age, rules, and prices.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab("guidelines")}
+              className="px-3.5 py-1.5 rounded-xl bg-white border border-orange-300 text-orange-900 font-bold hover:bg-orange-100 transition-all flex items-center gap-1.5 self-start sm:self-auto cursor-pointer shadow-2xs"
+            >
+              <span>Edit Guidelines</span>
+              <ArrowRight className="w-3.5 h-3.5 text-[#ff5a1f]" />
+            </button>
+          </div>
+        </>
+      )}
 
       {/* Edit Ticket Modal */}
       {editingTicket && (

@@ -90,6 +90,11 @@ import { sendBookingConfirmationWhatsApp } from "@/lib/whatsapp";
 import { checkSessionAction } from "@/app/login/actions";
 import { hasUserPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
+import { 
+  DEFAULT_TICKET_GUIDELINES, 
+  type TicketGuidelinesConfig, 
+  type TicketGuidelineItem 
+} from "@/lib/ticket-guidelines";
 import { issueBandItem, getBandItemByCode } from "@/lib/band-inventory-db";
 import { decrementColorStockByHex } from "@/lib/color-inventory-db";
 
@@ -1264,4 +1269,80 @@ export async function handoverCouponBandsAction(params: {
     console.error("handoverCouponBandsAction error:", error);
     return { success: false, error: error.message || "Failed to handover coupon bands" };
   }
-}
+}
+
+// =========================================================================
+// Ticket Guidelines Actions (Displayed on /tickets & /tickets/[month])
+// =========================================================================
+
+export async function fetchTicketGuidelinesAction(): Promise<TicketGuidelinesConfig> {
+  try {
+    const raw = getSiteSetting("ticket_guidelines", "");
+    if (!raw) return DEFAULT_TICKET_GUIDELINES;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.items)) {
+      return {
+        sectionTitle: parsed.sectionTitle || DEFAULT_TICKET_GUIDELINES.sectionTitle,
+        items: parsed.items
+      };
+    }
+    return DEFAULT_TICKET_GUIDELINES;
+  } catch (err) {
+    console.error("fetchTicketGuidelinesAction error:", err);
+    return DEFAULT_TICKET_GUIDELINES;
+  }
+}
+
+export async function saveTicketGuidelinesAction(config: TicketGuidelinesConfig): Promise<{ success: boolean; error?: string }> {
+  try {
+    const value = JSON.stringify(config);
+    setSiteSetting("ticket_guidelines", value, "Important Guidelines displayed on /tickets");
+    
+    // Also mirror to PG if available
+    try {
+      const { simulatorPool } = await import("@/lib/simulator-db");
+      if (simulatorPool) {
+        await simulatorPool.query(`
+          INSERT INTO site_settings (key, value, description)
+          VALUES ($1, $2, $3)
+          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description
+        `, ["ticket_guidelines", value, "Important Guidelines displayed on /tickets"]);
+      }
+    } catch (_) {}
+
+    revalidatePath("/tickets");
+    revalidatePath("/tickets/[month]");
+    revalidatePath("/admin/tickets");
+    return { success: true };
+  } catch (err: any) {
+    console.error("saveTicketGuidelinesAction error:", err);
+    return { success: false, error: err.message || "Failed to save guidelines" };
+  }
+}
+
+export async function resetTicketGuidelinesAction(): Promise<{ success: boolean; config: TicketGuidelinesConfig; error?: string }> {
+  try {
+    const value = JSON.stringify(DEFAULT_TICKET_GUIDELINES);
+    setSiteSetting("ticket_guidelines", value, "Important Guidelines displayed on /tickets");
+
+    try {
+      const { simulatorPool } = await import("@/lib/simulator-db");
+      if (simulatorPool) {
+        await simulatorPool.query(`
+          INSERT INTO site_settings (key, value, description)
+          VALUES ($1, $2, $3)
+          ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, description = EXCLUDED.description
+        `, ["ticket_guidelines", value, "Important Guidelines displayed on /tickets"]);
+      }
+    } catch (_) {}
+
+    revalidatePath("/tickets");
+    revalidatePath("/tickets/[month]");
+    revalidatePath("/admin/tickets");
+    return { success: true, config: DEFAULT_TICKET_GUIDELINES };
+  } catch (err: any) {
+    console.error("resetTicketGuidelinesAction error:", err);
+    return { success: false, config: DEFAULT_TICKET_GUIDELINES, error: err.message || "Failed to reset guidelines" };
+  }
+}
+

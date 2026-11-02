@@ -21,6 +21,7 @@ import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow, AddonRow } fro
 import type { SimPodiumSlot } from '@/lib/simulator-db';
 import { useCart } from '@/context/CartContext';
 import { Info, Check, X, Sparkles, ChevronRight, Ban, Plus } from 'lucide-react';
+import TicketGuidelinesSection from '@/components/tickets/TicketGuidelinesSection';
 
 export default function BookingProductPage({ params }: { params: Promise<{ month: string }> }) {
   const unwrappedParams = use(params);
@@ -1200,85 +1201,8 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
           </div>
         </div>
 
-        {/* Important Guidelines Section */}
-        <div className="mt-20 bg-white rounded-3xl p-8 md:p-12 shadow-sm border border-gray-100">
-          <h2 className="text-2xl font-black font-heading text-[#0d1b2a] mb-8 flex items-center gap-3">
-            <span className="text-[#ff5a1f]">⚠️</span> Important Guidelines
-          </h2>
-          
-          <ul className="space-y-6 text-gray-700 text-sm leading-relaxed">
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">1.</span>
-              <div>
-                Children under 14 years must be accompanied by a parent or guardian holding a valid Visitor, Participant, VIP Visitor, or VIP Participant ticket. Parents/guardians are solely responsible for the safety and supervision of their children and must not leave them unattended at any time during the entire allotted time. <span className="text-red-500 font-bold ml-1">❌ Children under 3 years of age are not allowed inside the Funzone.</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">2.</span>
-              <div>
-                <span className="text-red-500 font-bold mr-1">❌</span> Food, eatables, and drinks are not allowed inside the Fun Zone area during the activity time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">3.</span>
-              <div>
-                <strong>Visitor Ticket:</strong> Allows 1 hour entry only as a companion. Visitors are not permitted to play any activities.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹300 + GST for 1 hour for one person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">4.</span>
-              <div>
-                <strong>Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}).<br/>
-                <span className="text-[#ff5a1f] font-bold">₹1000 + GST for 1 hour for one person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">5.</span>
-              <div>
-                <strong>VIP Visitor Ticket:</strong> Grants 1 hour access to selected experiences – RC Flight Simulator, Car Race Sim Beginner, HO & N Scale Model Railway Activities.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹500 + GST for 1 hour for one person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">6.</span>
-              <div>
-                <strong>VIP Participant Ticket:</strong> Grants 1 hour full access to 15 RC Activities ({exclusionNotice.replace(/^\*/, "")}), with upgraded hobby-grade RC cars on Drift, Off-Road, Mini-Z tracks & FPV RC cars + 30 minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.<br/>
-                <span className="text-[#ff5a1f] font-bold">₹1500 + GST for 1 hour for one person</span>
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">7.</span>
-              <div>
-                <span className="text-red-500 font-bold mr-1">🚫</span> Entry will not be allowed to any person without a valid booking/ticket.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">8.</span>
-              <div>
-                <span className="mr-1">⏰</span> Please arrive at least 20 minutes before your slot start time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">9.</span>
-              <div>
-                <span className="text-red-500 font-bold mr-1">❌</span> Late arrivals will not receive additional play/visit time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">10.</span>
-              <div>
-                <span className="text-red-500 font-bold mr-1">❌</span> No refunds, cancellations, or rescheduling once tickets are booked. Tickets are non-transferable and cannot be shared with other candidates during the allotted time.
-              </div>
-            </li>
-            <li className="flex gap-4">
-              <span className="font-bold text-[#ff5a1f] min-w-[24px]">11.</span>
-              <div>
-                <span className="text-[#ff5a1f] font-bold mr-1">❗</span> Please note that limited parking is available below the Fun Zone premises. Participants and visitors are requested to plan their visit accordingly. BMTC Shantinagar Public Parking is also available approximately a 5-minute walk from the Fun Zone.
-              </div>
-            </li>
-          </ul>
-        </div>
+        {/* Important Guidelines Section (Dynamic & Editable by Admin) */}
+        <TicketGuidelinesSection className="bg-white rounded-3xl p-8 md:p-12 shadow-sm border border-gray-100" />
       </div>
 
       {/* Pass Types Comparison Modal */}

@@ -35,7 +35,8 @@ import {
   Loader2,
   Zap,
   Tag,
-  Shuffle
+  Shuffle,
+  ArrowUpDown
 } from "lucide-react";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle, formatTimeSlotLabel, getSlotInfoForColor } from "@/lib/slotColors";
 import { 
@@ -170,6 +171,8 @@ export default function BandInventoryPage() {
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [pageSize, setPageSize] = useState<number>(50);
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [sortBy, setSortBy] = useState<"band_code" | "status" | "total_uses" | "created_at" | "updated_at">("band_code");
+  const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("ASC");
 
   // Filters for Movement Log
   const [movementSearch, setMovementSearch] = useState("");
@@ -413,6 +416,8 @@ export default function BandInventoryPage() {
           location: locationFilter,
           color_name: colorFilter,
           category: categoryFilter,
+          sortBy: sortBy,
+          sortOrder: sortOrder,
           limit: itemsLimit,
           offset: itemsOffset,
         }),
@@ -661,7 +666,7 @@ export default function BandInventoryPage() {
 
   useEffect(() => {
     loadData();
-  }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter]);
+  }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter, sortBy, sortOrder]);
 
   const handleSyncSlots = async () => {
     setIsSyncingSlots(true);
@@ -2972,6 +2977,28 @@ export default function BandInventoryPage() {
                 </select>
               </div>
 
+              {/* Sort Selector */}
+              <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white border border-gray-300 rounded-xl px-2.5 py-1">
+                <span className="text-gray-500 font-semibold text-xs whitespace-nowrap">Sort:</span>
+                <select
+                  value={`${sortBy}_${sortOrder}`}
+                  onChange={(e) => {
+                    const [sb, so] = e.target.value.split("_");
+                    setSortBy(sb as any);
+                    setSortOrder(so as any);
+                    setCurrentPage(1);
+                  }}
+                  className="bg-transparent text-gray-900 text-xs font-bold py-1 focus:outline-none cursor-pointer"
+                >
+                  <option value="band_code_ASC">Series ID (0001 → 9999)</option>
+                  <option value="band_code_DESC">Series ID (9999 → 0001)</option>
+                  <option value="updated_at_DESC">Recently Updated</option>
+                  <option value="created_at_DESC">Recently Added</option>
+                  <option value="total_uses_DESC">Most Used</option>
+                  <option value="status_ASC">Status</option>
+                </select>
+              </div>
+
               {/* Standardize All Categories Button */}
               {canManageStock && (
                 <button
@@ -3091,7 +3118,29 @@ export default function BandInventoryPage() {
                       title="Select all on this page"
                     />
                   </th>
-                  <th className="py-3.5 px-4">Unique Band ID</th>
+                  <th 
+                    className="py-3.5 px-4 cursor-pointer hover:bg-gray-100 select-none transition-colors"
+                    onClick={() => {
+                      if (sortBy === "band_code") {
+                        setSortOrder(prev => prev === "ASC" ? "DESC" : "ASC");
+                      } else {
+                        setSortBy("band_code");
+                        setSortOrder("ASC");
+                      }
+                    }}
+                    title="Click to sort by Unique Band ID series"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <span>Unique Band ID</span>
+                      {sortBy === "band_code" ? (
+                        <span className="text-[11px] font-black text-[#ff5a1f] bg-orange-100 px-1.5 py-0.5 rounded">
+                          {sortOrder === "ASC" ? "1-9 ↑" : "9-1 ↓"}
+                        </span>
+                      ) : (
+                        <ArrowUpDown className="w-3.5 h-3.5 text-gray-400" />
+                      )}
+                    </div>
+                  </th>
                   <th className="py-3.5 px-4">Color / Scheme</th>
                   <th className="py-3.5 px-4">Category</th>
                   <th className="py-3.5 px-4">Location</th>

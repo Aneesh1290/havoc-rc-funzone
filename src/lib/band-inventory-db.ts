@@ -858,10 +858,21 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       const totalCount = countRes.rows[0]?.cnt || 0;
 
       const allowedSortCols = ['band_code', 'status', 'total_uses', 'created_at', 'updated_at'];
-      const sortBy = allowedSortCols.includes(options.sortBy || '') ? options.sortBy! : 'updated_at';
-      const sortOrder = options.sortOrder === 'ASC' ? 'ASC' : 'DESC';
+      const sortBy = allowedSortCols.includes(options.sortBy || '') ? options.sortBy! : 'band_code';
+      const sortOrder = options.sortOrder === 'DESC' ? 'DESC' : 'ASC';
 
-      let querySql = `SELECT * FROM band_items ${whereSql} ORDER BY ${sortBy} ${sortOrder}`;
+      let orderByClause = '';
+      if (sortBy === 'band_code') {
+        orderByClause = `
+          REGEXP_REPLACE(band_code, '[0-9]', '', 'g') ${sortOrder},
+          COALESCE(NULLIF(REGEXP_REPLACE(band_code, '[^0-9]', '', 'g'), ''), '0')::bigint ${sortOrder},
+          band_code ${sortOrder}
+        `;
+      } else {
+        orderByClause = `${sortBy} ${sortOrder}, id ${sortOrder}`;
+      }
+
+      let querySql = `SELECT * FROM band_items ${whereSql} ORDER BY ${orderByClause}`;
       if (options.limit && options.limit > 0) {
         querySql += ` LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
         params.push(options.limit, Math.max(0, options.offset || 0));
@@ -910,18 +921,32 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
   const totalCount = countRow ? countRow.cnt : 0;
 
   const allowedSortCols = ["band_code", "status", "total_uses", "created_at", "updated_at"];
-  const sortBy = allowedSortCols.includes(options.sortBy || "") ? options.sortBy! : "updated_at";
-  const sortOrder = options.sortOrder === "ASC" ? "ASC" : "DESC";
+  const sortBy = allowedSortCols.includes(options.sortBy || "") ? options.sortBy! : "band_code";
+  const sortOrder = options.sortOrder === "DESC" ? "DESC" : "ASC";
+
+  let orderByClause = "";
+  if (sortBy === "band_code") {
+    orderByClause = `
+      CASE WHEN band_code GLOB '[0-9]*' THEN 0 ELSE 1 END ${sortOrder},
+      CASE WHEN band_code GLOB '[0-9]*' THEN CAST(band_code AS INTEGER) ELSE LENGTH(band_code) END ${sortOrder},
+      band_code ${sortOrder}
+    `;
+  } else {
+    orderByClause = `${sortBy} ${sortOrder}, id ${sortOrder}`;
+  }
 
   let querySql = `
     SELECT * FROM band_items 
     ${whereSql} 
-    ORDER BY ${sortBy} ${sortOrder}
+    ORDER BY ${orderByClause}
   `;
 
-  const rawItems = (options.limit && options.limit > 0)
-    ? db.prepare(querySql).all(...params, options.limit, Math.max(0, options.offset || 0)) as BandItem[]
-    : db.prepare(querySql).all(...params) as BandItem[];
+  if (options.limit && options.limit > 0) {
+    querySql += ` LIMIT ? OFFSET ?`;
+    params.push(options.limit, Math.max(0, options.offset || 0));
+  }
+
+  const rawItems = db.prepare(querySql).all(...params) as BandItem[];
 
   const items = rawItems.map(i => ({ ...i, category: "Standard" as BandCategory }));
   return { items, totalCount };

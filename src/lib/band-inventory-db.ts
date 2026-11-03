@@ -76,6 +76,8 @@ async function ensurePgSchema() {
         ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
         UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = '';
         CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
+        CREATE INDEX IF NOT EXISTS idx_band_items_len_code ON band_items(LENGTH(band_code), band_code);
+        CREATE INDEX IF NOT EXISTS idx_band_items_color_hex ON band_items(color_name, color_hex);
         CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
         CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
         CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location);
@@ -200,9 +202,9 @@ export async function ensureBandInventorySeeded(force: boolean = false) {
   }
 }
 
-// In-memory cache for inventory summary (10s TTL to prevent hammer on rapid clicks)
+// In-memory cache for inventory summary (60s TTL; auto-invalidated on every stock mutation)
 let cachedBandSummary: { data: BandInventorySummary; timestamp: number } | null = null;
-const BAND_SUMMARY_CACHE_TTL = 10 * 1000;
+const BAND_SUMMARY_CACHE_TTL = 60 * 1000;
 
 export function invalidateBandSummaryCache() {
   cachedBandSummary = null;
@@ -880,11 +882,7 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
 
       let orderByClause = '';
       if (sortBy === 'band_code') {
-        orderByClause = `
-          REGEXP_REPLACE(band_code, '[0-9]', '', 'g') ${sortOrder},
-          COALESCE(NULLIF(REGEXP_REPLACE(band_code, '[^0-9]', '', 'g'), ''), '0')::bigint ${sortOrder},
-          band_code ${sortOrder}
-        `;
+        orderByClause = `LENGTH(band_code) ${sortOrder}, band_code ${sortOrder}`;
       } else {
         orderByClause = `${sortBy} ${sortOrder}, id ${sortOrder}`;
       }

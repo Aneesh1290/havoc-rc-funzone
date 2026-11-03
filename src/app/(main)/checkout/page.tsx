@@ -614,7 +614,7 @@ export default function CheckoutPage() {
                   >
                     Terms &amp; Conditions
                   </Link>
-                  <span>, </span>
+                  <span> and </span>
                   <Link 
                     href="/refund" 
                     onClick={(e) => e.stopPropagation()} 
@@ -622,15 +622,6 @@ export default function CheckoutPage() {
                     className="font-bold text-[#0d1b2a] underline decoration-[#ff5a1f]/40 hover:text-[#ff5a1f] hover:decoration-[#ff5a1f] transition-colors"
                   >
                     Refund Policy
-                  </Link>
-                  <span> and </span>
-                  <Link 
-                    href="/shipping" 
-                    onClick={(e) => e.stopPropagation()} 
-                    target="_blank"
-                    className="font-bold text-[#0d1b2a] underline decoration-[#ff5a1f]/40 hover:text-[#ff5a1f] hover:decoration-[#ff5a1f] transition-colors"
-                  >
-                    Shipping Policy
                   </Link>
                   <span>.</span>
                 </div>

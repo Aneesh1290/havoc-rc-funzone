@@ -572,7 +572,7 @@ export default function CheckoutPage() {
                           )}
                         </div>
                         <p className="text-gray-600 text-xs sm:text-sm mt-1">
-                          Reserve your slot now and pay with cash, card, or UPI upon arrival at the venue ticket counter.
+                          Reserve your slot now and pay with card or UPI upon arrival at the venue ticket counter.
                         </p>
                       </div>
                     </div>

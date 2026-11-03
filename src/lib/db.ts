@@ -6,9 +6,13 @@ import { deleteSimulatorSlotLocks } from './simulator-db';
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
 function getDatabasePath(): string {
-  // If DATA_DIR or DB_PATH is specified:
-  // Note: During `next build` on Render, the persistent disk is NOT mounted yet!
-  // We check if the target directory can be accessed/created; if not, we fallback safely during build.
+  // During `next build`, Render persistent disks (/var/data) are not mounted yet.
+  // Use a local build DB so Next.js build-time prerendering succeeds cleanly without ENOENT.
+  if (process.env.NEXT_PHASE === 'phase-production-build') {
+    return path.resolve(process.cwd(), 'havoc.db');
+  }
+
+  // If DATA_DIR or DB_PATH is specified at runtime:
   if (process.env.DB_PATH) {
     try {
       const dir = path.dirname(process.env.DB_PATH);
@@ -16,32 +20,34 @@ function getDatabasePath(): string {
         fs.mkdirSync(dir, { recursive: true });
       }
       return process.env.DB_PATH;
-    } catch (e) {
-      console.warn("DB_PATH directory not accessible (likely during build), falling back to local havoc.db:", e);
-      return path.resolve(process.cwd(), 'havoc.db');
-    }
-  }
-  if (process.env.DATA_DIR) {
-    try {
-      if (!fs.existsSync(process.env.DATA_DIR)) {
-        fs.mkdirSync(process.env.DATA_DIR, { recursive: true });
-      }
-      return path.join(process.env.DATA_DIR, 'havoc.db');
-    } catch (e) {
-      console.warn("DATA_DIR not accessible (likely during build), falling back to local havoc.db:", e);
+    } catch (_) {
       return path.resolve(process.cwd(), 'havoc.db');
     }
   }
 
-  // Automatic check for common Render / Linux persistent disk mount points
-  const candidateDirs = ['/var/data', '/data', '/mnt/data'];
-  for (const dir of candidateDirs) {
+  if (process.env.DATA_DIR) {
     try {
-      if (fs.existsSync(dir)) {
-        return path.join(dir, 'havoc.db');
+      const dir = process.env.DATA_DIR;
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
       }
-    } catch (_) {}
+      return path.join(dir, 'havoc.db');
+    } catch (_) {
+      return path.resolve(process.cwd(), 'havoc.db');
+    }
   }
+
+  // Automatic check for common Render / Linux persistent disk mount points using static literals
+  // (Static literals avoid Turbopack dynamic filesystem tracing warnings)
+  try {
+    if (fs.existsSync('/var/data')) return '/var/data/havoc.db';
+  } catch (_) {}
+  try {
+    if (fs.existsSync('/data')) return '/data/havoc.db';
+  } catch (_) {}
+  try {
+    if (fs.existsSync('/mnt/data')) return '/mnt/data/havoc.db';
+  } catch (_) {}
 
   return path.resolve(process.cwd(), 'havoc.db');
 }

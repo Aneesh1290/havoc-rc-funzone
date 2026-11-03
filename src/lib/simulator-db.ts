@@ -534,8 +534,48 @@ export function parseSimPodiumTimeRange(timeRange: string): { label: string; sta
 
 /**
  * Fetches all active simulator slots from Havoc Sim Podium's PostgreSQL `slots` table
+ * and ensures all daytime slots (including 11AM-2PM) are always available.
  */
 export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
+  const defaultBaseSlots = [
+    { label: "11AM-11:30AM", startHour: 11.0 },
+    { label: "11:30AM-12PM", startHour: 11.5 },
+    { label: "12PM-12:30PM", startHour: 12.0 },
+    { label: "12:30PM-1PM", startHour: 12.5 },
+    { label: "1PM-1:30PM", startHour: 13.0 },
+    { label: "1:30PM-2PM", startHour: 13.5 },
+    { label: "2PM-2:30PM", startHour: 14.0 },
+    { label: "2:30PM-3PM", startHour: 14.5 },
+    { label: "3PM-3:30PM", startHour: 15.0 },
+    { label: "3:30PM-4PM", startHour: 15.5 },
+    { label: "4PM-4:30PM", startHour: 16.0 },
+    { label: "4:30PM-5PM", startHour: 16.5 },
+    { label: "5PM-5:30PM", startHour: 17.0 },
+    { label: "5:30PM-6PM", startHour: 17.5 },
+    { label: "6PM-6:30PM", startHour: 18.0 },
+    { label: "6:30PM-7PM", startHour: 18.5 },
+    { label: "7PM-7:30PM", startHour: 19.0 },
+    { label: "7:30PM-8PM", startHour: 19.5 },
+    { label: "8PM-8:30PM", startHour: 20.0 },
+    { label: "8:30PM-9PM", startHour: 20.5 },
+    { label: "9PM-9:30PM", startHour: 21.0 },
+    { label: "9:30PM-10PM", startHour: 21.5 },
+    { label: "10PM-10:30PM", startHour: 22.0 },
+    { label: "10:30PM-11PM", startHour: 22.5 },
+  ];
+
+  const slotMap = new Map<string, SimPodiumSlot>();
+  defaultBaseSlots.forEach((ds, idx) => {
+    slotMap.set(ds.label, {
+      id: 9000 + idx,
+      time_range: ds.label,
+      active: 1,
+      sort_order: idx + 1,
+      label: ds.label,
+      startHour: ds.startHour
+    });
+  });
+
   try {
     const res = await simulatorPool.query<{
       id: number;
@@ -549,20 +589,24 @@ export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
        ORDER BY sort_order ASC, id ASC`
     );
 
-    return res.rows.map(r => {
+    res.rows.forEach(r => {
       const parsed = parseSimPodiumTimeRange(r.time_range);
-      return {
-        id: r.id,
-        time_range: r.time_range,
-        active: r.active,
-        sort_order: r.sort_order,
-        label: parsed.label,
-        startHour: parsed.startHour
-      };
+      if (parsed.label) {
+        slotMap.set(parsed.label, {
+          id: r.id,
+          time_range: r.time_range,
+          active: r.active,
+          sort_order: r.sort_order,
+          label: parsed.label,
+          startHour: parsed.startHour
+        });
+      }
     });
+
+    return Array.from(slotMap.values()).sort((a, b) => a.startHour - b.startHour);
   } catch (err) {
     console.error('Error fetching slots from Havoc Sim Podium database:', err);
-    return [];
+    return Array.from(slotMap.values()).sort((a, b) => a.startHour - b.startHour);
   }
 }
 

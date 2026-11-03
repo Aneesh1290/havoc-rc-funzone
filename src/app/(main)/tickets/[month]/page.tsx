@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 
 // Need to unwrap the params promise for Next.js 15+ in Client Components
@@ -209,10 +209,19 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
 
   const passEndHour = getPassEndHour(time);
   
-  // Use dynamically loaded slots from Havoc Sim Podium database (or fallback to static base slots)
-  const activeSimSlots = dbSimSlots.length > 0 
-    ? dbSimSlots.map(s => ({ label: s.label, startHour: s.startHour }))
-    : BASE_30MIN_SIM_SLOTS;
+  // Combine all operational 30-min base slots (11AM to 11PM) with any dynamically loaded slots from Havoc Sim Podium database
+  const activeSimSlots: { label: string; startHour: number }[] = useMemo(() => {
+    const combinedMap = new Map<string, { label: string; startHour: number }>();
+    // 1. Ensure all standard 30-min slots from 11AM onwards (including 12PM-2PM) are always available
+    BASE_30MIN_SIM_SLOTS.forEach((s: { label: string; startHour: number }) => combinedMap.set(s.label, s));
+    // 2. Add or overlay any custom active slots loaded from Sim Podium database
+    dbSimSlots.forEach((s) => {
+      if (s.label) {
+        combinedMap.set(s.label, { label: s.label, startHour: s.startHour });
+      }
+    });
+    return Array.from(combinedMap.values()).sort((a, b) => a.startHour - b.startHour);
+  }, [dbSimSlots]);
 
   // Show 30-min simulator slots starting from or after the Funzone pass end hour.
   // If the pass is late evening (e.g. 8PM-9PM or 9PM-10PM), gracefully show the available evening simulator slots so visitors can still select their perk.

@@ -316,6 +316,8 @@ export function initDB() {
   try { db.exec('ALTER TABLE tickets ADD COLUMN has_simulator_perk INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN perk_duration_mins INTEGER NOT NULL DEFAULT 30'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN perk_title TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE tickets ADD COLUMN perk_badge TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE tickets ADD COLUMN perk_description TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN description TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN benefits TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE tickets ADD COLUMN is_addon INTEGER NOT NULL DEFAULT 0'); } catch (e) {}
@@ -475,6 +477,8 @@ export interface TicketRow {
   has_simulator_perk?: number;
   perk_duration_mins?: number;
   perk_title?: string | null;
+  perk_badge?: string | null;
+  perk_description?: string | null;
   description?: string | null;
   benefits?: string | null;
   is_addon?: number;
@@ -1263,11 +1267,13 @@ export function updateTicket(
   perkDurationMins = 30,
   perkTitle = "",
   description = "",
-  benefits = ""
+  benefits = "",
+  perkBadge = "",
+  perkDescription = ""
 ) {
   return db.prepare(`
     UPDATE tickets 
-    SET price = ?, capacity = ?, has_simulator_perk = ?, perk_duration_mins = ?, perk_title = ?, description = ?, benefits = ?
+    SET price = ?, capacity = ?, has_simulator_perk = ?, perk_duration_mins = ?, perk_title = ?, description = ?, benefits = ?, perk_badge = ?, perk_description = ?
     WHERE id = ?
   `).run(
     price, 
@@ -1277,6 +1283,8 @@ export function updateTicket(
     perkTitle.trim() || null, 
     description.trim() || null, 
     benefits.trim() || null, 
+    perkBadge.trim() || null,
+    perkDescription.trim() || null,
     id
   );
 }
@@ -1289,12 +1297,14 @@ export function createTicket(
   perkDurationMins = 30,
   perkTitle = "",
   description = "",
-  benefits = ""
+  benefits = "",
+  perkBadge = "",
+  perkDescription = ""
 ) {
   const formattedName = name.trim().toUpperCase().replace(/\s+/g, '_');
   return db.prepare(`
-    INSERT INTO tickets (name, price, capacity, active, has_simulator_perk, perk_duration_mins, perk_title, description, benefits) 
-    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?)
+    INSERT INTO tickets (name, price, capacity, active, has_simulator_perk, perk_duration_mins, perk_title, description, benefits, perk_badge, perk_description) 
+    VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     formattedName, 
     price, 
@@ -1303,7 +1313,9 @@ export function createTicket(
     perkDurationMins, 
     perkTitle.trim() || null, 
     description.trim() || null, 
-    benefits.trim() || null
+    benefits.trim() || null,
+    perkBadge.trim() || null,
+    perkDescription.trim() || null
   );
 }
 

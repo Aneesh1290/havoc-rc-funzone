@@ -102,7 +102,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     },
     VIP_PARTICIPANT: {
       title: "VIP Participant Pass",
-      tagline: "15 RC activities + Upgraded Hobby Grade Cars + 30-Min Havoc Sim Podium session.",
+      tagline: "15 RC activities + Upgraded Hobby Grade Cars + Havoc Sim Podium session.",
       price: "₹1,500 + GST",
       badge: "All-Inclusive + Sim Podium",
       badgeColor: "bg-orange-50 text-[#ff5a1f] border-orange-200",
@@ -110,7 +110,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       benefits: [
         "Full access to 15 RC activities for 1 hour",
         "Upgraded hobby-grade RC Cars for Drift, Off-Road, Mini-Z tracks & FPV RC cars",
-        "BONUS: Free 30-min session on any 1 simulator in the Havoc Sim Podium (Airbus, Boeing, GT, F1, etc.)"
+        "BONUS: Free session on any 1 simulator in the Havoc Sim Podium (Airbus, Boeing, GT, F1, etc.)"
       ]
     }
   };
@@ -710,15 +710,22 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                       </h4>
                       <p className="text-xs text-gray-500">
                         {quantity > 1 
-                          ? `${quantity} Tickets selected: Each participant gets their own 30-min simulator session. Slot selection is mandatory for each participant.`
-                          : `Choose your simulator & preferred 30-min slot. Included free with your ${selectedTicket?.name.replace(/_/g, ' ')}.`
+                          ? `${quantity} Tickets selected: Each participant gets their own ${perkDuration}-min simulator session (${requiredSlotsPerTicket > 1 ? `${requiredSlotsPerTicket} x 30-min slots` : '1 slot'}). Slot selection is mandatory for each participant.`
+                          : (selectedTicket?.perk_description && selectedTicket.perk_description.trim())
+                            ? selectedTicket.perk_description
+                            : `Choose your simulator & preferred ${perkDuration >= 60 ? `${perkDuration}-minute session` : '30-min slot'}. Included free with your ${selectedTicket?.name.replace(/_/g, ' ')}.`
                         }
                       </p>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-50 text-[#ff5a1f] border border-[#ff5a1f]/20">
-                      {quantity > 1 ? `${quantity} PARTICIPANTS` : `FREE PERK (30 MINS)`}
+                      {quantity > 1 
+                        ? `${quantity} PARTICIPANTS` 
+                        : (selectedTicket?.perk_badge && selectedTicket.perk_badge.trim())
+                          ? selectedTicket.perk_badge
+                          : `FREE PERK (${perkDuration} MINS)`
+                      }
                     </span>
                     {!allSimsSelected && (
                       <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-red-50 text-red-600 border border-red-200 animate-pulse">
@@ -865,11 +872,11 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                                   </div>
                                 </div>
 
-                                {/* 30-Min Time Slot Pill Buttons */}
+                                {/* Simulator Time Slot Pill Buttons */}
                                 <div className="pt-2 border-t border-gray-200/60">
                                   <div className="flex items-center justify-between mb-2">
                                     <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider">
-                                      Select 30-Min Slot for Participant {participantNumber} *
+                                      Select Simulator Slot for Participant {participantNumber} {requiredSlotsPerTicket > 1 ? `(Slot ${sessionIndex + 1} of ${requiredSlotsPerTicket})` : ""} *
                                     </label>
                                     <span className="text-[11px] text-gray-500 font-semibold">
                                       {time ? `Available after ${time.split("-")[1] || time}` : "Select visit time slot first"}

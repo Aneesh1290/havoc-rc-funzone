@@ -634,9 +634,11 @@ export async function updateTicketAction(
   perkDurationMins = 30,
   perkTitle = "",
   description = "",
-  benefits = ""
+  benefits = "",
+  perkBadge = "",
+  perkDescription = ""
 ) {
-  updateTicket(id, price, capacity, hasSimulatorPerk, perkDurationMins, perkTitle, description, benefits);
+  updateTicket(id, price, capacity, hasSimulatorPerk, perkDurationMins, perkTitle, description, benefits, perkBadge, perkDescription);
   revalidatePath('/admin/tickets');
   revalidatePath('/tickets');
 }
@@ -649,10 +651,12 @@ export async function createTicketAction(
   perkDurationMins = 30,
   perkTitle = "",
   description = "",
-  benefits = ""
+  benefits = "",
+  perkBadge = "",
+  perkDescription = ""
 ) {
   try {
-    createTicket(name, price, capacity, hasSimulatorPerk, perkDurationMins, perkTitle, description, benefits);
+    createTicket(name, price, capacity, hasSimulatorPerk, perkDurationMins, perkTitle, description, benefits, perkBadge, perkDescription);
     revalidatePath('/admin/tickets');
     revalidatePath('/tickets');
     return { success: true };

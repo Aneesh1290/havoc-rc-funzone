@@ -25,6 +25,8 @@ export default function TicketsPage() {
     hasSimulatorPerk: false,
     perkDurationMins: 60,
     perkTitle: "1-Hour Havoc Sim Podium Session",
+    perkBadge: "",
+    perkDescription: "",
     description: "",
     benefits: ""
   });
@@ -80,7 +82,9 @@ export default function TicketsPage() {
         target.perk_duration_mins || 30,
         target.perk_title || "",
         target.description || "",
-        target.benefits || ""
+        target.benefits || "",
+        target.perk_badge || "",
+        target.perk_description || ""
       );
       await loadTickets();
     }
@@ -99,7 +103,9 @@ export default function TicketsPage() {
       newTicket.perkDurationMins,
       newTicket.perkTitle,
       newTicket.description,
-      newTicket.benefits
+      newTicket.benefits,
+      newTicket.perkBadge,
+      newTicket.perkDescription
     );
     if (res.success) {
       setIsAddingTicket(false);
@@ -110,6 +116,8 @@ export default function TicketsPage() {
         hasSimulatorPerk: false,
         perkDurationMins: 60,
         perkTitle: "1-Hour Havoc Sim Podium Session",
+        perkBadge: "",
+        perkDescription: "",
         description: "",
         benefits: ""
       });
@@ -410,40 +418,76 @@ export default function TicketsPage() {
                 </label>
 
                 {Boolean(editingTicket.has_simulator_perk) && (
-                  <div className="pt-3 border-t border-orange-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in duration-150">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                        Simulator Session Duration
-                      </label>
-                      <select
-                        value={editingTicket.perk_duration_mins || 30}
-                        onChange={(e) => setEditingTicket({
-                          ...editingTicket,
-                          perk_duration_mins: parseInt(e.target.value) || 30
-                        })}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                      >
-                        <option value={30}>30 Minutes</option>
-                        <option value={60}>1 Hour (60 Mins)</option>
-                        <option value={90}>1.5 Hours (90 Mins)</option>
-                        <option value={120}>2 Hours (120 Mins)</option>
-                      </select>
+                  <div className="pt-3 border-t border-orange-200/60 space-y-3 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Simulator Session Duration
+                        </label>
+                        <select
+                          value={editingTicket.perk_duration_mins || 30}
+                          onChange={(e) => setEditingTicket({
+                            ...editingTicket,
+                            perk_duration_mins: parseInt(e.target.value) || 30
+                          })}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        >
+                          <option value={30}>30 Minutes</option>
+                          <option value={60}>1 Hour (60 Mins)</option>
+                          <option value={90}>1.5 Hours (90 Mins)</option>
+                          <option value={120}>2 Hours (120 Mins)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Display Title
+                        </label>
+                        <input 
+                          type="text"
+                          value={editingTicket.perk_title || ""}
+                          onChange={(e) => setEditingTicket({
+                            ...editingTicket,
+                            perk_title: e.target.value
+                          })}
+                          placeholder="e.g. 1-Hour Havoc Sim Session"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                        Perk Display Title
-                      </label>
-                      <input 
-                        type="text"
-                        value={editingTicket.perk_title || ""}
-                        onChange={(e) => setEditingTicket({
-                          ...editingTicket,
-                          perk_title: e.target.value
-                        })}
-                        placeholder="e.g. 1-Hour Havoc Sim Session"
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Badge Label (Optional)
+                        </label>
+                        <input 
+                          type="text"
+                          value={editingTicket.perk_badge || ""}
+                          onChange={(e) => setEditingTicket({
+                            ...editingTicket,
+                            perk_badge: e.target.value
+                          })}
+                          placeholder={`Auto: FREE PERK (${editingTicket.perk_duration_mins || 30} MINS)`}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Subtitle / Note (Optional)
+                        </label>
+                        <input 
+                          type="text"
+                          value={editingTicket.perk_description || ""}
+                          onChange={(e) => setEditingTicket({
+                            ...editingTicket,
+                            perk_description: e.target.value
+                          })}
+                          placeholder={`Auto: Choose your simulator & preferred ${editingTicket.perk_duration_mins || 30}-min slot...`}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -569,40 +613,76 @@ export default function TicketsPage() {
                 </label>
 
                 {newTicket.hasSimulatorPerk && (
-                  <div className="pt-3 border-t border-orange-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 animate-in fade-in duration-150">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                        Simulator Session Duration
-                      </label>
-                      <select
-                        value={newTicket.perkDurationMins}
-                        onChange={(e) => setNewTicket({
-                          ...newTicket,
-                          perkDurationMins: parseInt(e.target.value) || 60
-                        })}
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                      >
-                        <option value={30}>30 Minutes</option>
-                        <option value={60}>1 Hour (60 Mins)</option>
-                        <option value={90}>1.5 Hours (90 Mins)</option>
-                        <option value={120}>2 Hours (120 Mins)</option>
-                      </select>
+                  <div className="pt-3 border-t border-orange-200/60 space-y-3 animate-in fade-in duration-150">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Simulator Session Duration
+                        </label>
+                        <select
+                          value={newTicket.perkDurationMins}
+                          onChange={(e) => setNewTicket({
+                            ...newTicket,
+                            perkDurationMins: parseInt(e.target.value) || 60
+                          })}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        >
+                          <option value={30}>30 Minutes</option>
+                          <option value={60}>1 Hour (60 Mins)</option>
+                          <option value={90}>1.5 Hours (90 Mins)</option>
+                          <option value={120}>2 Hours (120 Mins)</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Display Title
+                        </label>
+                        <input 
+                          type="text"
+                          value={newTicket.perkTitle}
+                          onChange={(e) => setNewTicket({
+                            ...newTicket,
+                            perkTitle: e.target.value
+                          })}
+                          placeholder="e.g. 1-Hour Havoc Sim Podium Session"
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
                     </div>
 
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
-                        Perk Display Title
-                      </label>
-                      <input 
-                        type="text"
-                        value={newTicket.perkTitle}
-                        onChange={(e) => setNewTicket({
-                          ...newTicket,
-                          perkTitle: e.target.value
-                        })}
-                        placeholder="e.g. 1-Hour Havoc Sim Podium Session"
-                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
-                      />
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Badge Label (Optional)
+                        </label>
+                        <input 
+                          type="text"
+                          value={newTicket.perkBadge}
+                          onChange={(e) => setNewTicket({
+                            ...newTicket,
+                            perkBadge: e.target.value
+                          })}
+                          placeholder={`Auto: FREE PERK (${newTicket.perkDurationMins || 60} MINS)`}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-1">
+                          Perk Subtitle / Note (Optional)
+                        </label>
+                        <input 
+                          type="text"
+                          value={newTicket.perkDescription}
+                          onChange={(e) => setNewTicket({
+                            ...newTicket,
+                            perkDescription: e.target.value
+                          })}
+                          placeholder={`Auto: Choose your simulator & preferred ${newTicket.perkDurationMins || 60}-min slot...`}
+                          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}

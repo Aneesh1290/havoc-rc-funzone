@@ -81,3 +81,4 @@ export const DEFAULT_TICKET_GUIDELINES: TicketGuidelinesConfig = {
     }
   ]
 };
+

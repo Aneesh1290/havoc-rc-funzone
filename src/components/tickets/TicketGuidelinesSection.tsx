@@ -66,3 +66,4 @@ export default function TicketGuidelinesSection({ initialConfig, className }: Pr
     </div>
   );
 }
+

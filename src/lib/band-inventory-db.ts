@@ -1,7 +1,7 @@
 import { db, initDB } from "./db";
 import { simulatorPool } from "./simulator-db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "./slotColors";
-import { getDistinctSlotColors, ensureColorInventorySchema } from "./color-inventory-db";
+import { getDistinctSlotColors, ensureColorInventorySchema, invalidateSubcategoryBandsCache } from "./color-inventory-db";
 
 export * from "./band-types";
 import { 
@@ -153,7 +153,11 @@ async function ensurePgSchema() {
 
 export const TARGET_SLOT_BAND_COLORS: { code: string; name: string; hex: string; count: number }[] = [];
 
+let bandInventorySeedChecked = false;
+
 export async function ensureBandInventorySeeded(force: boolean = false) {
+  if (bandInventorySeedChecked && !force) return;
+  bandInventorySeedChecked = true;
   initDB();
 
   // Standardize any existing bands with missing category to 'Standard'
@@ -208,6 +212,7 @@ const BAND_SUMMARY_CACHE_TTL = 60 * 1000;
 
 export function invalidateBandSummaryCache() {
   cachedBandSummary = null;
+  invalidateSubcategoryBandsCache();
 }
 
 export async function getBandInventorySummary(): Promise<BandInventorySummary> {

@@ -20,10 +20,11 @@ export const simulatorPool =
     },
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 4000,
+    connectionTimeoutMillis: 10000,
   });
 
-if (process.env.NODE_ENV !== 'production') {
+// Always store singleton on global so all server action chunks share the exact same pool
+if (!global._simulatorPool) {
   global._simulatorPool = simulatorPool;
 }
 

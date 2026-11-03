@@ -1050,6 +1050,7 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
       `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
     }
 
+    invalidateSubcategoryBandsCache();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete record" };
@@ -1062,16 +1063,36 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
  * =========================================================================
  */
 
+let cachedSubcategories: { data: SubcategoryBandItem[]; timestamp: number } | null = null;
+const SUBCAT_CACHE_TTL = 60 * 1000;
+
+export function invalidateSubcategoryBandsCache() {
+  cachedSubcategories = null;
+}
+
 /**
  * Retrieve all universal subcategory bands with live stock counts from inventory
  */
 export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
-  await ensureColorInventorySchema();
+  if (cachedSubcategories && Date.now() - cachedSubcategories.timestamp < SUBCAT_CACHE_TTL) {
+    return cachedSubcategories.data;
+  }
+
+  ensureColorInventorySchema().catch(() => {});
   const hasPg = Boolean(process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL);
 
   if (hasPg) {
     try {
       const res = await simulatorPool.query(`
+        WITH band_stock AS (
+          SELECT 
+            UPPER(color_hex) as hex,
+            UPPER(color_name) as name,
+            SUM(CASE WHEN status = 'available' AND (location = 'warehouse' OR location IS NULL) THEN 1 ELSE 0 END)::int as wh,
+            SUM(CASE WHEN status = 'available' AND location = 'reception' THEN 1 ELSE 0 END)::int as rec
+          FROM band_items
+          GROUP BY UPPER(color_hex), UPPER(color_name)
+        )
         SELECT 
           sb.id,
           sb.category_name,
@@ -1081,37 +1102,19 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
           sb.active,
           sb.created_at,
           sb.updated_at,
-          COALESCE(
-            (
-              SELECT SUM(CASE WHEN bi.status = 'available' AND (bi.location = 'warehouse' OR bi.location IS NULL) THEN 1 ELSE 0 END)
-              FROM band_items bi
-              WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
-                 OR UPPER(bi.color_name) = UPPER(sb.color_name)
-                 OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
-                 OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
-            ),
-            wci.quantity,
-            0
-          ) as warehouse_stock,
-          COALESCE(
-            (
-              SELECT SUM(CASE WHEN bi.status = 'available' AND bi.location = 'reception' THEN 1 ELSE 0 END)
-              FROM band_items bi
-              WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
-                 OR UPPER(bi.color_name) = UPPER(sb.color_name)
-                 OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
-                 OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
-            ),
-            wci.in_reception,
-            0
-          ) as reception_stock
+          COALESCE(bs_hex.wh, bs_name.wh, wci.quantity, 0) as warehouse_stock,
+          COALESCE(bs_hex.rec, bs_name.rec, wci.in_reception, 0) as reception_stock
         FROM subcategory_bands sb
         LEFT JOIN wristband_color_inventory wci 
           ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
+        LEFT JOIN band_stock bs_hex
+          ON UPPER(sb.color_hex) = bs_hex.hex
+        LEFT JOIN band_stock bs_name
+          ON UPPER(sb.color_name) = bs_name.name
         ORDER BY sb.id ASC
       `);
 
-      return res.rows.map(r => ({
+      const result = res.rows.map(r => ({
         id: r.id,
         category_name: r.category_name,
         color_hex: r.color_hex,
@@ -1123,6 +1126,9 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
         warehouse_stock: Number(r.warehouse_stock || 0),
         reception_stock: Number(r.reception_stock || 0)
       }));
+
+      cachedSubcategories = { data: result, timestamp: Date.now() };
+      return result;
     } catch (pgErr) {
       console.warn("[Color Inventory] PG getSubcategoryBands error, falling back to SQLite:", pgErr);
     }
@@ -1131,6 +1137,15 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
   // SQLite fallback
   initDB();
   const rows = db.prepare(`
+    WITH band_stock AS (
+      SELECT 
+        UPPER(color_hex) as hex,
+        UPPER(color_name) as name,
+        SUM(CASE WHEN status = 'available' AND (location = 'warehouse' OR location IS NULL) THEN 1 ELSE 0 END) as wh,
+        SUM(CASE WHEN status = 'available' AND location = 'reception' THEN 1 ELSE 0 END) as rec
+      FROM band_items
+      GROUP BY UPPER(color_hex), UPPER(color_name)
+    )
     SELECT 
       sb.id,
       sb.category_name,
@@ -1140,37 +1155,19 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
       sb.active,
       sb.created_at,
       sb.updated_at,
-      COALESCE(
-        (
-          SELECT SUM(CASE WHEN bi.status = 'available' AND (bi.location = 'warehouse' OR bi.location IS NULL) THEN 1 ELSE 0 END)
-          FROM band_items bi
-          WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
-             OR UPPER(bi.color_name) = UPPER(sb.color_name)
-             OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
-             OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
-        ),
-        wci.quantity,
-        0
-      ) as warehouse_stock,
-      COALESCE(
-        (
-          SELECT SUM(CASE WHEN bi.status = 'available' AND bi.location = 'reception' THEN 1 ELSE 0 END)
-          FROM band_items bi
-          WHERE UPPER(bi.color_hex) = UPPER(sb.color_hex)
-             OR UPPER(bi.color_name) = UPPER(sb.color_name)
-             OR (UPPER(sb.color_name) LIKE '%' || UPPER(bi.color_name) || '%')
-             OR (UPPER(bi.color_name) LIKE '%' || UPPER(sb.color_name) || '%')
-        ),
-        wci.in_reception,
-        0
-      ) as reception_stock
+      COALESCE(bs_hex.wh, bs_name.wh, wci.quantity, 0) as warehouse_stock,
+      COALESCE(bs_hex.rec, bs_name.rec, wci.in_reception, 0) as reception_stock
     FROM subcategory_bands sb
     LEFT JOIN wristband_color_inventory wci 
       ON UPPER(sb.color_hex) = UPPER(wci.color_hex)
+    LEFT JOIN band_stock bs_hex
+      ON UPPER(sb.color_hex) = bs_hex.hex
+    LEFT JOIN band_stock bs_name
+      ON UPPER(sb.color_name) = bs_name.name
     ORDER BY sb.id ASC
   `).all() as any[];
 
-  return rows.map(r => ({
+  const sqliteResult = rows.map(r => ({
     id: r.id,
     category_name: r.category_name,
     color_hex: r.color_hex,
@@ -1182,6 +1179,9 @@ export async function getSubcategoryBands(): Promise<SubcategoryBandItem[]> {
     warehouse_stock: Number(r.warehouse_stock || 0),
     reception_stock: Number(r.reception_stock || 0)
   }));
+
+  cachedSubcategories = { data: sqliteResult, timestamp: Date.now() };
+  return sqliteResult;
 }
 
 /**
@@ -1278,6 +1278,7 @@ export async function createSubcategoryBand(data: {
       `).run(hex, name, initialStock, initialReception);
     }
 
+    invalidateSubcategoryBandsCache();
     return { success: true, id: createdId };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to create subcategory band." };
@@ -1400,6 +1401,7 @@ export async function updateSubcategoryBand(
       WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
     `).run(name, hex, oldHex, hex, oldName, oldName);
 
+    invalidateSubcategoryBandsCache();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to update subcategory band." };
@@ -1522,6 +1524,7 @@ export async function renameWristbandColor(params: {
       WHERE UPPER(color) = ? OR (color_name = ? AND ? != '')
     `).run(newName, newHex, oldHex, oldName, oldName);
 
+    invalidateSubcategoryBandsCache();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to rename wristband color." };
@@ -1547,6 +1550,7 @@ export async function toggleSubcategoryBandStatus(id: number, active: boolean): 
   try {
     initDB();
     db.prepare("UPDATE subcategory_bands SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(val, id);
+    invalidateSubcategoryBandsCache();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to toggle status." };
@@ -1611,6 +1615,7 @@ export async function deleteSubcategoryBand(id: number): Promise<{ success: bool
       `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
     }
 
+    invalidateSubcategoryBandsCache();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete subcategory band." };

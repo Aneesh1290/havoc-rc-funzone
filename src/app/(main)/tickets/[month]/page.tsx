@@ -108,7 +108,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       badgeColor: "bg-orange-50 text-[#ff5a1f] border-orange-200",
       accessType: "vip",
       benefits: [
-        "Full access to 15 RC activities for 1 hour",
+        "Full access to 15 RC activities for 2 hours",
         "Upgraded hobby-grade RC Cars for Drift, Off-Road, Mini-Z tracks & FPV RC cars",
         "BONUS: Free session on any 1 simulator in the Havoc Sim Podium (Airbus, Boeing, GT, F1, etc.)"
       ]
@@ -594,11 +594,17 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   onChange={(e) => setType(e.target.value)}
                 >
                   <option value="" disabled className="normal-case">Select</option>
-                  {dbTickets.map(ticket => (
-                    <option key={ticket.id} value={ticket.name}>
-                      {ticket.name.replace('_', ' ')} - ₹{ticket.price} PER PERSON
-                    </option>
-                  ))}
+                  {dbTickets.map(ticket => {
+                    const isTwoHours = ticket.name.toUpperCase().replace(/\s+/g, '_').includes('VIP_PARTICIPANT') || 
+                                       ticket.name.toUpperCase() === 'VIP' ||
+                                       ticket.name.toUpperCase().includes('2_HOUR') ||
+                                       ticket.name.toUpperCase().includes('2 HOUR');
+                    return (
+                      <option key={ticket.id} value={ticket.name}>
+                        {ticket.name.replace(/_/g, ' ')} - ₹{ticket.price} {isTwoHours ? 'PER PERSON FOR 2 HOURS' : 'PER PERSON PER HOUR'}
+                      </option>
+                    );
+                  })}
                 </select>
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-4 text-gray-400">
                   <svg className="h-4 w-4 fill-current transform rotate-180" viewBox="0 0 20 20"><path d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" /></svg>

@@ -223,46 +223,12 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       ensurePgSchema().catch(() => {});
 
       const pgSummaryPromise = (async (): Promise<BandInventorySummary> => {
-        const [countsRes, todayRes, colorRowsRes, slotInvRes, subcatConfigs, subcatRes, catRes] = await Promise.all([
+        // Run a single consolidated aggregation query for band_items instead of 4 separate full-table scans
+        const [subcatRes, todayRes, slotInvRes, subcatConfigs] = await Promise.all([
           simulatorPool.query(`
             SELECT
-              COUNT(*)::int AS total,
-              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int AS available,
-              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int AS issued,
-              SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int AS damaged,
-              SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int AS lost,
-              SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int AS retired
-            FROM band_items
-          `),
-          simulatorPool.query(`
-            SELECT
-              SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END)::int AS issued_today,
-              SUM(CASE WHEN transaction_type = 'RETURN' THEN 1 ELSE 0 END)::int AS returned_today
-            FROM band_transactions
-            WHERE created_at::date = CURRENT_DATE
-          `),
-          simulatorPool.query(`
-            SELECT
-              color_name,
-              color_hex,
-              COUNT(*)::int as total,
-              SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse,
-              SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
-              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
-              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
-              SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
-              SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
-              SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired
-            FROM band_items
-            GROUP BY color_name, color_hex
-            ORDER BY total DESC, color_name ASC
-          `),
-          simulatorPool.query("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory").catch(() => ({ rows: [] as any[] })),
-          simulatorPool.query("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''").catch(() => ({ rows: [] as any[] })),
-          simulatorPool.query(`
-            SELECT
-              color_name,
-              color_hex,
+              COALESCE(color_name, 'Unknown') as color_name,
+              COALESCE(color_hex, '#CCCCCC') as color_hex,
               COALESCE(category, 'Standard') as category,
               COUNT(*)::int as total,
               SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
@@ -278,78 +244,114 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           `).catch(() => ({ rows: [] as any[] })),
           simulatorPool.query(`
             SELECT
-              category,
-              COUNT(*)::int as total,
-              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
-              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued
-            FROM band_items
-            GROUP BY category
-            ORDER BY total DESC
-          `).catch(() => ({ rows: [] as any[] }))
+              SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END)::int AS issued_today,
+              SUM(CASE WHEN transaction_type = 'RETURN' THEN 1 ELSE 0 END)::int AS returned_today
+            FROM band_transactions
+            WHERE created_at::date = CURRENT_DATE
+          `).catch(() => ({ rows: [] as any[] })),
+          simulatorPool.query("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory").catch(() => ({ rows: [] as any[] })),
+          simulatorPool.query("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''").catch(() => ({ rows: [] as any[] })),
         ]);
 
-        const counts = countsRes.rows[0] || {};
-        const totalBands = Number(counts.total || 0);
-        const available = Number(counts.available || 0);
-        const issued = Number(counts.issued || 0);
-        const damaged = Number(counts.damaged || 0);
-        const lost = Number(counts.lost || 0);
-        const retired = Number(counts.retired || 0);
+        let totalBands = 0;
+        let available = 0;
+        let issued = 0;
+        let damaged = 0;
+        let lost = 0;
+        let retired = 0;
+
+        const catMap = new Map<string, { total: number; available: number; issued: number }>();
+        const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+        const nameToKeyMap = new Map<string, string>();
+        const normalizeColorKey = (name?: string) => (name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
+
+        // 1. Process all counts, categories, and colors from the single grouping query
+        for (const row of subcatRes.rows) {
+          const rowTotal = Number(row.total || 0);
+          const rowAvail = Number(row.available || 0);
+          const rowIssued = Number(row.issued || 0);
+          const rowDamaged = Number(row.damaged || 0);
+          const rowLost = Number(row.lost || 0);
+          const rowRetired = Number(row.retired || 0);
+          const rowInRec = Number(row.in_reception || 0);
+          const rowWh = Number(row.warehouse !== undefined && row.warehouse !== null ? row.warehouse : Math.max(0, rowAvail - rowInRec));
+          const rowCat = row.category || 'Standard';
+
+          totalBands += rowTotal;
+          available += rowAvail;
+          issued += rowIssued;
+          damaged += rowDamaged;
+          lost += rowLost;
+          retired += rowRetired;
+
+          // Category aggregation
+          const catStat = catMap.get(rowCat) || { total: 0, available: 0, issued: 0 };
+          catStat.total += rowTotal;
+          catStat.available += rowAvail;
+          catStat.issued += rowIssued;
+          catMap.set(rowCat, catStat);
+
+          // Color breakdown aggregation
+          const hex = (row.color_hex || "").trim().toUpperCase();
+          const name = (row.color_name || "").trim();
+          const normKey = normalizeColorKey(name);
+          const key = hex || normKey;
+
+          let existing: BandColorBreakdown | undefined = hex ? colorBreakdownMap.get(hex) : undefined;
+          if (!existing && normKey) {
+            const mappedKey = nameToKeyMap.get(normKey);
+            if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
+          }
+
+          let targetBreakdown: BandColorBreakdown;
+          if (existing) {
+            existing.total += rowTotal;
+            existing.available += rowWh;
+            existing.in_reception = (existing.in_reception || 0) + rowInRec;
+            existing.issued += rowIssued;
+            existing.damaged += rowDamaged;
+            existing.lost += rowLost;
+            existing.retired += rowRetired;
+            targetBreakdown = existing;
+          } else {
+            targetBreakdown = {
+              color_name: name || hex,
+              color_hex: hex,
+              total: rowTotal,
+              available: rowWh,
+              in_reception: rowInRec,
+              issued: rowIssued,
+              damaged: rowDamaged,
+              lost: rowLost,
+              retired: rowRetired,
+              warehouse: rowWh,
+              subcategories: []
+            };
+            colorBreakdownMap.set(key, targetBreakdown);
+            if (normKey) nameToKeyMap.set(normKey, key);
+            if (hex) nameToKeyMap.set(hex, key);
+          }
+
+          if (!targetBreakdown.subcategories) targetBreakdown.subcategories = [];
+          targetBreakdown.subcategories.push({
+            category: rowCat,
+            total: rowTotal,
+            available: rowAvail,
+            issued: rowIssued,
+            damaged: rowDamaged,
+            lost: rowLost,
+            retired: rowRetired,
+            in_reception: rowInRec,
+            warehouse: rowWh
+          });
+        }
+
         const activeInventory = Math.max(0, totalBands - retired);
         const availabilityRate = activeInventory > 0 ? Math.round((available / activeInventory) * 100) : 0;
 
         const todayRow = todayRes.rows[0] || {};
         const issuedToday = Number(todayRow.issued_today || 0);
         const returnedToday = Number(todayRow.returned_today || 0);
-
-        const colorBreakdownMap = new Map<string, BandColorBreakdown>();
-      const nameToKeyMap = new Map<string, string>();
-
-      const normalizeColorKey = (name?: string) => (name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
-
-      // 1. Merge actual Postgres inventory counts (matching by HEX first, then by normalized name)
-      for (const r of colorRowsRes.rows) {
-        const hex = (r.color_hex || "").trim().toUpperCase();
-        const name = (r.color_name || "").trim();
-        const normKey = normalizeColorKey(name);
-        const key = hex || normKey;
-        const inRec = Number(r.in_reception || 0);
-        const wh = Number(r.warehouse !== undefined && r.warehouse !== null ? r.warehouse : Math.max(0, Number(r.available || 0) - inRec));
-
-        let existing = hex ? colorBreakdownMap.get(hex) : undefined;
-        if (!existing && normKey) {
-          const mappedKey = nameToKeyMap.get(normKey);
-          if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
-        }
-
-        if (existing) {
-          if (name && (!existing.color_name || existing.color_name === existing.color_hex)) {
-            existing.color_name = name;
-          }
-          existing.color_hex = hex || existing.color_hex;
-          existing.total = Number(r.total || 0);
-          existing.available = wh;
-          existing.in_reception = inRec;
-          existing.issued = Number(r.issued || 0);
-          existing.damaged = Number(r.damaged || 0);
-          existing.lost = Number(r.lost || 0);
-          existing.retired = Number(r.retired || 0);
-        } else {
-          colorBreakdownMap.set(key, {
-            color_name: name || hex,
-            color_hex: hex,
-            total: Number(r.total || 0),
-            available: wh,
-            in_reception: inRec,
-            issued: Number(r.issued || 0),
-            damaged: Number(r.damaged || 0),
-            lost: Number(r.lost || 0),
-            retired: Number(r.retired || 0),
-          });
-          if (normKey) nameToKeyMap.set(normKey, key);
-          if (hex) nameToKeyMap.set(hex, key);
-        }
-      }
 
         // 2. Also incorporate slot colors from wristband_color_inventory
         for (const sir of slotInvRes.rows) {
@@ -449,27 +451,6 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           }
         }
 
-        // 4. Subcategories breakdown
-        for (const row of subcatRes.rows) {
-          const hex = (row.color_hex || "").trim().toUpperCase();
-          const name = (row.color_name || "").trim();
-          const targetBreakdown = colorBreakdownMap.get(hex) || (name ? colorBreakdownMap.get(name.toLowerCase()) : undefined);
-          if (targetBreakdown) {
-            if (!targetBreakdown.subcategories) targetBreakdown.subcategories = [];
-            targetBreakdown.subcategories.push({
-              category: row.category,
-              total: Number(row.total || 0),
-              available: Number(row.available || 0),
-              issued: Number(row.issued || 0),
-              damaged: Number(row.damaged || 0),
-              lost: Number(row.lost || 0),
-              retired: Number(row.retired || 0),
-              in_reception: Number(row.in_reception || 0),
-              warehouse: Number(row.warehouse || 0),
-            });
-          }
-        }
-
         const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
           if (b.total !== a.total) return b.total - a.total;
           return a.color_name.localeCompare(b.color_name);
@@ -483,12 +464,12 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             available: c.available,
           }));
 
-        const categoryBreakdown = catRes.rows.map(r => ({
-          category: r.category || 'Standard',
-          total: Number(r.total || 0),
-          available: Number(r.available || 0),
-          issued: Number(r.issued || 0),
-        }));
+        const categoryBreakdown = Array.from(catMap.entries()).map(([cat, stats]) => ({
+          category: cat,
+          total: stats.total,
+          available: stats.available,
+          issued: stats.issued,
+        })).sort((a, b) => b.total - a.total);
 
         const finalSummary: BandInventorySummary = {
           totalBands,

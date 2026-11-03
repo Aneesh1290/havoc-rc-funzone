@@ -99,6 +99,7 @@ export interface BandColorBreakdown {
   lost: number;
   retired: number;
   in_reception?: number;
+  warehouse?: number;
   color_inventory_id?: number;
   subcategories?: BandSubcategoryBreakdown[];
   time_slot_label?: string | null;

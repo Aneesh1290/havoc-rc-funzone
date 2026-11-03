@@ -461,7 +461,7 @@ export default function BandInventoryPage() {
   const canManageStock = hasUserPermission(sessionUser, "bands:manage_stock");
   const canAssignBands = hasUserPermission(sessionUser, "bands:assign");
 
-  // Load all initial data
+  // Load initial data (only fetching active tab data to keep page loads lightning fast)
   const loadData = async (showRefreshSpinner = false) => {
     if (showRefreshSpinner) setIsRefreshing(true);
     else setIsLoading(true);
@@ -470,44 +470,52 @@ export default function BandInventoryPage() {
       const itemsLimit = pageSize === -1 ? 50000 : pageSize;
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
+      const shouldFetchItems = activeTab === "master";
+      const shouldFetchTx = activeTab === "movements";
+      const shouldFetchCoupon = activeTab === "coupon_bands";
+
       const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes, timeSlotsRes] = await Promise.all([
         getBandInventorySummaryAction(),
-        getBandItemsAction({
-          search: searchQuery,
-          status: statusFilter,
-          location: locationFilter,
-          color_name: colorFilter,
-          category: categoryFilter,
-          sortBy: sortBy,
-          sortOrder: sortOrder,
-          limit: itemsLimit,
-          offset: itemsOffset,
-        }),
-        getBandTransactionsAction({
-          search: movementSearch,
-          type: movementTypeFilter,
-          limit: 100,
-        }),
+        shouldFetchItems
+          ? getBandItemsAction({
+              search: searchQuery,
+              status: statusFilter,
+              location: locationFilter,
+              color_name: colorFilter,
+              category: categoryFilter,
+              sortBy: sortBy,
+              sortOrder: sortOrder,
+              limit: itemsLimit,
+              offset: itemsOffset,
+            })
+          : null,
+        shouldFetchTx
+          ? getBandTransactionsAction({
+              search: movementSearch,
+              type: movementTypeFilter,
+              limit: 100,
+            })
+          : null,
         getSubcategoryBandsAction(),
-        fetchCouponBandInventoryAction(),
-        fetchTimeSlotsAction().catch(() => []),
+        shouldFetchCoupon ? fetchCouponBandInventoryAction() : null,
+        timeSlots.length > 0 ? Promise.resolve(timeSlots) : fetchTimeSlotsAction().catch(() => []),
       ]);
 
-      if (summaryRes.success && summaryRes.data) {
+      if (summaryRes?.success && summaryRes.data) {
         setSummary(summaryRes.data);
       }
-      if (itemsRes.success && itemsRes.data) {
+      if (itemsRes?.success && itemsRes.data) {
         setItems(itemsRes.data.items);
         setTotalItemsCount(itemsRes.data.totalCount);
       }
-      if (txRes.success && txRes.data) {
+      if (txRes?.success && txRes.data) {
         setTransactions(txRes.data.transactions);
         setTotalTransactionsCount(txRes.data.totalCount);
       }
-      if (subcatRes.success && subcatRes.data) {
+      if (subcatRes?.success && subcatRes.data) {
         setConfiguredSubcategories(subcatRes.data);
       }
-      if (couponBandRes.success && couponBandRes.data) {
+      if (couponBandRes?.success && couponBandRes.data) {
         setCouponInventory(couponBandRes.data);
       }
       if (Array.isArray(timeSlotsRes)) {
@@ -728,7 +736,7 @@ export default function BandInventoryPage() {
 
   useEffect(() => {
     loadData();
-  }, [searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter, sortBy, sortOrder]);
+  }, [activeTab, searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter, sortBy, sortOrder]);
 
   const handleSyncSlots = async () => {
     setIsSyncingSlots(true);

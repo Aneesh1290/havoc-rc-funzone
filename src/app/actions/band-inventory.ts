@@ -5,6 +5,7 @@ import { checkSessionAction } from "@/app/login/actions";
 import { hasUserPermission } from "@/lib/permissions";
 import {
   getBandInventorySummary,
+  invalidateBandSummaryCache,
   getBandItems,
   getBandItemById,
   getBandItemByCode,
@@ -102,6 +103,7 @@ export async function createBandItemAction(data: {
     const staffName = session.username || "Staff";
     const res = await createBandItem({ ...data, staff_name: staffName });
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -126,6 +128,7 @@ export async function bulkCreateBandItemsAction(data: {
     const staffName = session.username || "Staff";
     const res = await bulkCreateBandItems({ ...data, staff_name: staffName });
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -185,6 +188,7 @@ export async function stockOutBandAction(data: {
     const staffName = session.username || "Staff";
     const res = await stockOutBandItem({ ...data, staff_name: staffName });
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -202,6 +206,7 @@ export async function restoreBandAction(data: {
     const staffName = session.username || "Staff";
     const res = await restoreBandItem({ ...data, staff_name: staffName });
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -225,6 +230,7 @@ export async function updateBandItemAction(
     await getStaffSession("bands:manage_stock");
     const res = await updateBandItem(id, data);
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -238,6 +244,7 @@ export async function deleteBandItemAction(id: number): Promise<{ success: boole
     await getStaffSession("bands:manage_stock");
     const res = await deleteBandItem(id);
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -254,6 +261,7 @@ export async function bulkDeleteBandItemsAction(ids: number[]): Promise<{ succes
     }
     const res = await bulkDeleteBandItems(ids);
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -267,6 +275,7 @@ export async function deleteAllBandInventoryAction(options?: { resetStarterStock
     await getStaffSession("bands:manage_stock");
     const res = await deleteAllBandInventory(options);
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
     }
     return res;
@@ -348,6 +357,7 @@ export async function handoverWristbandsAction(params: {
       staff_name: staffName,
     });
     if (res.success) {
+      invalidateBandSummaryCache();
       revalidatePath("/admin/bands");
       revalidatePath("/admin/bookings");
     }
@@ -366,6 +376,7 @@ export async function standardizeAllBandCategoriesAction(): Promise<{
   try {
     await getStaffSession();
     const result = await standardizeAllBandCategories();
+    invalidateBandSummaryCache();
     revalidatePath("/admin/bands");
     revalidatePath("/admin/slots");
     return result;
@@ -393,6 +404,7 @@ export async function purgeOrResetColorStockAction(params: {
   try {
     await getStaffSession("bands:manage_stock");
     const result = await purgeOrResetColorStock(params);
+    invalidateBandSummaryCache();
     revalidatePath("/admin/bands");
     revalidatePath("/admin/slots");
     return result;

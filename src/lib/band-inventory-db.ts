@@ -24,119 +24,129 @@ function isPostgresActive(): boolean {
 }
 
 let pgSchemaInitialized = false;
+let pgSchemaPromise: Promise<void> | null = null;
+
 async function ensurePgSchema() {
   if (pgSchemaInitialized || !isPostgresActive()) return;
-  try {
-    await simulatorPool.query(`
-      CREATE TABLE IF NOT EXISTS band_items (
-        id SERIAL PRIMARY KEY,
-        band_code VARCHAR(100) NOT NULL,
-        color_name VARCHAR(100) NOT NULL,
-        color_hex VARCHAR(50) NOT NULL,
-        category VARCHAR(50) DEFAULT 'Standard',
-        status VARCHAR(50) DEFAULT 'available',
-        current_holder_name VARCHAR(255),
-        current_booking_id INTEGER,
-        current_order_number VARCHAR(100),
-        total_uses INTEGER DEFAULT 0,
-        notes TEXT,
-        location VARCHAR(50) DEFAULT 'warehouse',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name)
-      );
+  if (pgSchemaPromise) return pgSchemaPromise;
 
-      -- Migration: Drop old single-column unique constraint if present so different colors can share the same band numbers
-      DO $$
-      BEGIN
-        IF EXISTS (
-          SELECT 1 FROM pg_constraint 
-          WHERE conname = 'band_items_band_code_key'
-        ) THEN
-          ALTER TABLE band_items DROP CONSTRAINT band_items_band_code_key;
-        END IF;
-      END $$;
-
-      -- Ensure compound unique constraint exists on (band_code, color_name)
-      DO $$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT 1 FROM pg_constraint 
-          WHERE conname = 'unique_band_code_per_color'
-        ) THEN
-          ALTER TABLE band_items ADD CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name);
-        END IF;
-      END $$;
-
-      ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
-      UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = '';
-      CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
-      CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
-      CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
-      CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location);
-
-      CREATE TABLE IF NOT EXISTS band_transactions (
-        id SERIAL PRIMARY KEY,
-        band_id INTEGER NOT NULL REFERENCES band_items(id) ON DELETE CASCADE,
-        band_code VARCHAR(100) NOT NULL,
-        color_name VARCHAR(100) NOT NULL,
-        color_hex VARCHAR(50) NOT NULL,
-        transaction_type VARCHAR(50) NOT NULL,
-        quantity INTEGER DEFAULT 1,
-        customer_name VARCHAR(255),
-        booking_id INTEGER,
-        order_number VARCHAR(100),
-        staff_name VARCHAR(100),
-        notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE INDEX IF NOT EXISTS idx_band_tx_band_id ON band_transactions(band_id);
-      CREATE INDEX IF NOT EXISTS idx_band_tx_type ON band_transactions(transaction_type);
-      CREATE TABLE IF NOT EXISTS time_slots (
-        id SERIAL PRIMARY KEY,
-        label VARCHAR(100) NOT NULL UNIQUE,
-        start_hour NUMERIC,
-        end_hour NUMERIC,
-        active INTEGER DEFAULT 1,
-        sort_order INTEGER DEFAULT 0,
-        color VARCHAR(50),
-        color_name VARCHAR(100),
-        remark TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-
-      CREATE TABLE IF NOT EXISTS site_settings (
-        key VARCHAR(100) PRIMARY KEY,
-        value TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    pgSchemaInitialized = true;
-
-    // Safely sync active time_slots into PostgreSQL so both Havoc RC Fun Zone and Havoc Sim Podium see them
+  pgSchemaPromise = (async () => {
     try {
-      initDB();
-      const localSlots = db.prepare("SELECT label, start_hour, end_hour, active, sort_order, color, color_name, remark FROM time_slots WHERE active = 1").all() as any[];
-      for (const slot of localSlots) {
-        await simulatorPool.query(`
-          INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (label) DO UPDATE 
-          SET color = COALESCE(time_slots.color, EXCLUDED.color),
-              color_name = COALESCE(time_slots.color_name, EXCLUDED.color_name),
-              sort_order = EXCLUDED.sort_order,
-              active = EXCLUDED.active
-        `, [slot.label, slot.start_hour, slot.end_hour, slot.active ?? 1, slot.sort_order ?? 0, slot.color, slot.color_name, slot.remark]);
-      }
-    } catch (slotSyncErr) {
-      console.warn("[Band Inventory] Could not sync time_slots to Postgres:", slotSyncErr);
-    }
+      await simulatorPool.query(`
+        CREATE TABLE IF NOT EXISTS band_items (
+          id SERIAL PRIMARY KEY,
+          band_code VARCHAR(100) NOT NULL,
+          color_name VARCHAR(100) NOT NULL,
+          color_hex VARCHAR(50) NOT NULL,
+          category VARCHAR(50) DEFAULT 'Standard',
+          status VARCHAR(50) DEFAULT 'available',
+          current_holder_name VARCHAR(255),
+          current_booking_id INTEGER,
+          current_order_number VARCHAR(100),
+          total_uses INTEGER DEFAULT 0,
+          notes TEXT,
+          location VARCHAR(50) DEFAULT 'warehouse',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name)
+        );
 
-    // Note: Automatic sync of starter band_items is permanently disabled.
-  } catch (err) {
-    console.warn("[Band Inventory] Could not auto-initialize Postgres schema:", err);
-  }
+        -- Migration: Drop old single-column unique constraint if present so different colors can share the same band numbers
+        DO $$
+        BEGIN
+          IF EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conname = 'band_items_band_code_key'
+          ) THEN
+            ALTER TABLE band_items DROP CONSTRAINT band_items_band_code_key;
+          END IF;
+        END $$;
+
+        -- Ensure compound unique constraint exists on (band_code, color_name)
+        DO $$
+        BEGIN
+          IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint 
+            WHERE conname = 'unique_band_code_per_color'
+          ) THEN
+            ALTER TABLE band_items ADD CONSTRAINT unique_band_code_per_color UNIQUE (band_code, color_name);
+          END IF;
+        END $$;
+
+        ALTER TABLE band_items ADD COLUMN IF NOT EXISTS location VARCHAR(50) DEFAULT 'warehouse';
+        UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = '';
+        CREATE INDEX IF NOT EXISTS idx_band_items_code ON band_items(band_code);
+        CREATE INDEX IF NOT EXISTS idx_band_items_status ON band_items(status);
+        CREATE INDEX IF NOT EXISTS idx_band_items_color ON band_items(color_name);
+        CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location);
+
+        CREATE TABLE IF NOT EXISTS band_transactions (
+          id SERIAL PRIMARY KEY,
+          band_id INTEGER NOT NULL REFERENCES band_items(id) ON DELETE CASCADE,
+          band_code VARCHAR(100) NOT NULL,
+          color_name VARCHAR(100) NOT NULL,
+          color_hex VARCHAR(50) NOT NULL,
+          transaction_type VARCHAR(50) NOT NULL,
+          quantity INTEGER DEFAULT 1,
+          customer_name VARCHAR(255),
+          booking_id INTEGER,
+          order_number VARCHAR(100),
+          staff_name VARCHAR(100),
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_band_tx_band_id ON band_transactions(band_id);
+        CREATE INDEX IF NOT EXISTS idx_band_tx_type ON band_transactions(transaction_type);
+        CREATE TABLE IF NOT EXISTS time_slots (
+          id SERIAL PRIMARY KEY,
+          label VARCHAR(100) NOT NULL UNIQUE,
+          start_hour NUMERIC,
+          end_hour NUMERIC,
+          active INTEGER DEFAULT 1,
+          sort_order INTEGER DEFAULT 0,
+          color VARCHAR(50),
+          color_name VARCHAR(100),
+          remark TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE IF NOT EXISTS site_settings (
+          key VARCHAR(100) PRIMARY KEY,
+          value TEXT,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      pgSchemaInitialized = true;
+
+      // Safely sync active time_slots into PostgreSQL in parallel so both Havoc RC Fun Zone and Havoc Sim Podium see them
+      try {
+        initDB();
+        const localSlots = db.prepare("SELECT label, start_hour, end_hour, active, sort_order, color, color_name, remark FROM time_slots WHERE active = 1").all() as any[];
+        await Promise.all(
+          localSlots.map(slot =>
+            simulatorPool.query(`
+              INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+              ON CONFLICT (label) DO UPDATE 
+              SET color = COALESCE(time_slots.color, EXCLUDED.color),
+                  color_name = COALESCE(time_slots.color_name, EXCLUDED.color_name),
+                  sort_order = EXCLUDED.sort_order,
+                  active = EXCLUDED.active
+            `, [slot.label, slot.start_hour, slot.end_hour, slot.active ?? 1, slot.sort_order ?? 0, slot.color, slot.color_name, slot.remark])
+          )
+        );
+      } catch (slotSyncErr) {
+        console.warn("[Band Inventory] Could not sync time_slots to Postgres:", slotSyncErr);
+      }
+    } catch (err) {
+      console.warn("[Band Inventory] Could not auto-initialize Postgres schema:", err);
+    } finally {
+      pgSchemaPromise = null;
+    }
+  })();
+
+  return pgSchemaPromise;
 }
 
 export const TARGET_SLOT_BAND_COLORS: { code: string; name: string; hex: string; count: number }[] = [];
@@ -190,64 +200,107 @@ export async function ensureBandInventorySeeded(force: boolean = false) {
   }
 }
 
+// In-memory cache for inventory summary (10s TTL to prevent hammer on rapid clicks)
+let cachedBandSummary: { data: BandInventorySummary; timestamp: number } | null = null;
+const BAND_SUMMARY_CACHE_TTL = 10 * 1000;
+
+export function invalidateBandSummaryCache() {
+  cachedBandSummary = null;
+}
+
 export async function getBandInventorySummary(): Promise<BandInventorySummary> {
+  if (cachedBandSummary && Date.now() - cachedBandSummary.timestamp < BAND_SUMMARY_CACHE_TTL) {
+    return cachedBandSummary.data;
+  }
+
   await ensureBandInventorySeeded();
 
   if (isPostgresActive()) {
     try {
-      await ensurePgSchema();
-      try {
-        await simulatorPool.query("UPDATE band_items SET category = 'Standard' WHERE category IS NULL OR category = ''");
-      } catch (_) {}
-      const countsRes = await simulatorPool.query(`
-        SELECT
-          COUNT(*)::int AS total,
-          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int AS available,
-          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int AS issued,
-          SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int AS damaged,
-          SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int AS lost,
-          SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int AS retired
-        FROM band_items
-      `);
-      const counts = countsRes.rows[0] || {};
-      const totalBands = Number(counts.total || 0);
-      const available = Number(counts.available || 0);
-      const issued = Number(counts.issued || 0);
-      const damaged = Number(counts.damaged || 0);
-      const lost = Number(counts.lost || 0);
-      const retired = Number(counts.retired || 0);
-      const activeInventory = Math.max(0, totalBands - retired);
-      const availabilityRate = activeInventory > 0 ? Math.round((available / activeInventory) * 100) : 0;
+      // Run DDL check in background if needed, do not block read path
+      ensurePgSchema().catch(() => {});
 
-      const todayRes = await simulatorPool.query(`
-        SELECT
-          SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END)::int AS issued_today,
-          SUM(CASE WHEN transaction_type = 'RETURN' THEN 1 ELSE 0 END)::int AS returned_today
-        FROM band_transactions
-        WHERE created_at::date = CURRENT_DATE
-      `);
-      const todayRow = todayRes.rows[0] || {};
-      const issuedToday = Number(todayRow.issued_today || 0);
-      const returnedToday = Number(todayRow.returned_today || 0);
+      const pgSummaryPromise = (async (): Promise<BandInventorySummary> => {
+        const [countsRes, todayRes, colorRowsRes, slotInvRes, subcatConfigs, subcatRes, catRes] = await Promise.all([
+          simulatorPool.query(`
+            SELECT
+              COUNT(*)::int AS total,
+              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int AS available,
+              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int AS issued,
+              SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int AS damaged,
+              SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int AS lost,
+              SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int AS retired
+            FROM band_items
+          `),
+          simulatorPool.query(`
+            SELECT
+              SUM(CASE WHEN transaction_type = 'ISSUE' THEN 1 ELSE 0 END)::int AS issued_today,
+              SUM(CASE WHEN transaction_type = 'RETURN' THEN 1 ELSE 0 END)::int AS returned_today
+            FROM band_transactions
+            WHERE created_at::date = CURRENT_DATE
+          `),
+          simulatorPool.query(`
+            SELECT
+              color_name,
+              color_hex,
+              COUNT(*)::int as total,
+              SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse,
+              SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
+              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
+              SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
+              SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
+              SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired
+            FROM band_items
+            GROUP BY color_name, color_hex
+            ORDER BY total DESC, color_name ASC
+          `),
+          simulatorPool.query("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory").catch(() => ({ rows: [] as any[] })),
+          simulatorPool.query("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''").catch(() => ({ rows: [] as any[] })),
+          simulatorPool.query(`
+            SELECT
+              color_name,
+              color_hex,
+              COALESCE(category, 'Standard') as category,
+              COUNT(*)::int as total,
+              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
+              SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
+              SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
+              SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired,
+              SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
+              SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse
+            FROM band_items
+            GROUP BY color_name, color_hex, category
+            ORDER BY color_name ASC, total DESC
+          `).catch(() => ({ rows: [] as any[] })),
+          simulatorPool.query(`
+            SELECT
+              category,
+              COUNT(*)::int as total,
+              SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
+              SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued
+            FROM band_items
+            GROUP BY category
+            ORDER BY total DESC
+          `).catch(() => ({ rows: [] as any[] }))
+        ]);
 
-      const colorRowsRes = await simulatorPool.query(`
-        SELECT
-          color_name,
-          color_hex,
-          COUNT(*)::int as total,
-          SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse,
-          SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
-          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
-          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
-          SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
-          SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
-          SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired
-        FROM band_items
-        GROUP BY color_name, color_hex
-        ORDER BY total DESC, color_name ASC
-      `);
+        const counts = countsRes.rows[0] || {};
+        const totalBands = Number(counts.total || 0);
+        const available = Number(counts.available || 0);
+        const issued = Number(counts.issued || 0);
+        const damaged = Number(counts.damaged || 0);
+        const lost = Number(counts.lost || 0);
+        const retired = Number(counts.retired || 0);
+        const activeInventory = Math.max(0, totalBands - retired);
+        const availabilityRate = activeInventory > 0 ? Math.round((available / activeInventory) * 100) : 0;
 
-      const colorBreakdownMap = new Map<string, BandColorBreakdown>();
+        const todayRow = todayRes.rows[0] || {};
+        const issuedToday = Number(todayRow.issued_today || 0);
+        const returnedToday = Number(todayRow.returned_today || 0);
+
+        const colorBreakdownMap = new Map<string, BandColorBreakdown>();
       const nameToKeyMap = new Map<string, string>();
 
       const normalizeColorKey = (name?: string) => (name || "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -296,9 +349,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
         }
       }
 
-      // 2. Also incorporate any configured slot colors from wristband_color_inventory with their stock & reception values
-      try {
-        const slotInvRes = await simulatorPool.query("SELECT id, color_hex, color_name, quantity, in_reception FROM wristband_color_inventory");
+        // 2. Also incorporate slot colors from wristband_color_inventory
         for (const sir of slotInvRes.rows) {
           const hex = (sir.color_hex || "").trim().toUpperCase();
           const name = (sir.color_name || "").trim();
@@ -313,8 +364,7 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
           }
           if (!existing && normKey) {
-            // Fuzzy search by substring
-            for (const [k, item] of colorBreakdownMap.entries()) {
+            for (const [_, item] of colorBreakdownMap.entries()) {
               const iNorm = normalizeColorKey(item.color_name);
               if (iNorm === normKey || (iNorm && normKey && (iNorm.includes(normKey) || normKey.includes(iNorm)))) {
                 existing = item;
@@ -325,16 +375,12 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
           if (existing) {
             existing.color_inventory_id = invId;
-            if (name && name !== hex) {
-              existing.color_name = name;
-            }
-            // If individual band items haven't been generated yet, reflect the color pool's stock
+            if (name && name !== hex) existing.color_name = name;
             if (existing.total === 0 && (poolQty > 0 || inRec > 0)) {
               existing.total = poolQty + inRec;
               existing.available = poolQty;
               existing.in_reception = inRec;
             } else if (existing.total > 0) {
-              // Physical band_items exist! Do NOT inflate existing.total with duplicate phantom poolQty!
               if (!existing.in_reception || existing.in_reception === 0) {
                 if (inRec > 0) {
                   existing.in_reception = inRec;
@@ -360,11 +406,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             if (hex) nameToKeyMap.set(hex, key);
           }
         }
-      } catch (ignoreInv) {}
 
-      // Incorporate configured subcategories to ensure the latest color_name and category is reflected
-      try {
-        const subcatConfigs = await simulatorPool.query("SELECT color_hex, color_name, category_name FROM subcategory_bands WHERE color_name IS NOT NULL AND color_name != ''");
+        // 3. Subcategories config
         for (const sc of subcatConfigs.rows) {
           const hex = (sc.color_hex || "").trim().toUpperCase();
           const scName = (sc.color_name || "").trim();
@@ -403,28 +446,8 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             }
           }
         }
-      } catch (_) {}
 
-      // Subcategories breakdown grouped by (color_name, color_hex, category)
-      try {
-        const subcatRes = await simulatorPool.query(`
-          SELECT
-            color_name,
-            color_hex,
-            COALESCE(category, 'Standard') as category,
-            COUNT(*)::int as total,
-            SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
-            SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued,
-            SUM(CASE WHEN status = 'damaged' THEN 1 ELSE 0 END)::int as damaged,
-            SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END)::int as lost,
-            SUM(CASE WHEN status = 'retired' THEN 1 ELSE 0 END)::int as retired,
-            SUM(CASE WHEN location = 'reception' AND status = 'available' THEN 1 ELSE 0 END)::int as in_reception,
-            SUM(CASE WHEN (location = 'warehouse' OR location IS NULL) AND status = 'available' THEN 1 ELSE 0 END)::int as warehouse
-          FROM band_items
-          GROUP BY color_name, color_hex, category
-          ORDER BY color_name ASC, total DESC
-        `);
-
+        // 4. Subcategories breakdown
         for (const row of subcatRes.rows) {
           const hex = (row.color_hex || "").trim().toUpperCase();
           const name = (row.color_name || "").trim();
@@ -444,56 +467,53 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
             });
           }
         }
-      } catch (errSubcat) {
-        console.warn("[Band Inventory] Subcategory query notice:", errSubcat);
-      }
 
-      const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
-        if (b.total !== a.total) return b.total - a.total;
-        return a.color_name.localeCompare(b.color_name);
-      });
+        const colorBreakdown: BandColorBreakdown[] = Array.from(colorBreakdownMap.values()).sort((a, b) => {
+          if (b.total !== a.total) return b.total - a.total;
+          return a.color_name.localeCompare(b.color_name);
+        });
 
-      const lowStockColors = colorBreakdown
-        .filter(c => c.total > 0 && c.available < 3)
-        .map(c => ({
-          color_name: c.color_name,
-          color_hex: c.color_hex,
-          available: c.available,
+        const lowStockColors = colorBreakdown
+          .filter(c => c.total > 0 && c.available < 3)
+          .map(c => ({
+            color_name: c.color_name,
+            color_hex: c.color_hex,
+            available: c.available,
+          }));
+
+        const categoryBreakdown = catRes.rows.map(r => ({
+          category: r.category || 'Standard',
+          total: Number(r.total || 0),
+          available: Number(r.available || 0),
+          issued: Number(r.issued || 0),
         }));
 
-      const catRes = await simulatorPool.query(`
-        SELECT
-          category,
-          COUNT(*)::int as total,
-          SUM(CASE WHEN status = 'available' THEN 1 ELSE 0 END)::int as available,
-          SUM(CASE WHEN status = 'issued' THEN 1 ELSE 0 END)::int as issued
-        FROM band_items
-        GROUP BY category
-        ORDER BY total DESC
-      `);
+        const finalSummary: BandInventorySummary = {
+          totalBands,
+          available,
+          issued,
+          damaged,
+          lost,
+          retired,
+          activeInventory,
+          issuedToday,
+          returnedToday,
+          availabilityRate,
+          colorBreakdown,
+          categoryBreakdown,
+          lowStockColors,
+        };
 
-      const categoryBreakdown = catRes.rows.map(r => ({
-        category: r.category || 'Standard',
-        total: Number(r.total || 0),
-        available: Number(r.available || 0),
-        issued: Number(r.issued || 0),
-      }));
+        cachedBandSummary = { data: finalSummary, timestamp: Date.now() };
+        return finalSummary;
+      })();
 
-      return {
-        totalBands,
-        available,
-        issued,
-        damaged,
-        lost,
-        retired,
-        activeInventory,
-        issuedToday,
-        returnedToday,
-        availabilityRate,
-        colorBreakdown,
-        categoryBreakdown,
-        lowStockColors,
-      };
+      // 4000ms timeout race so cold start does NOT freeze admin
+      const timeoutPromise = new Promise<BandInventorySummary>((_, reject) =>
+        setTimeout(() => reject(new Error("PG summary query timeout")), 4000)
+      );
+
+      return await Promise.race([pgSummaryPromise, timeoutPromise]);
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for summary:", pgErr);
     }
@@ -817,7 +837,7 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
 
   if (isPostgresActive()) {
     try {
-      await ensurePgSchema();
+      ensurePgSchema().catch(() => {});
       const whereClauses: string[] = [];
       const params: any[] = [];
       let pIdx = 1;
@@ -854,9 +874,6 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       }
 
       const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-      const countRes = await simulatorPool.query(`SELECT COUNT(*)::int as cnt FROM band_items ${whereSql}`, params);
-      const totalCount = countRes.rows[0]?.cnt || 0;
-
       const allowedSortCols = ['band_code', 'status', 'total_uses', 'created_at', 'updated_at'];
       const sortBy = allowedSortCols.includes(options.sortBy || '') ? options.sortBy! : 'band_code';
       const sortOrder = options.sortOrder === 'DESC' ? 'DESC' : 'ASC';
@@ -873,14 +890,27 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       }
 
       let querySql = `SELECT * FROM band_items ${whereSql} ORDER BY ${orderByClause}`;
+      const queryParams = [...params];
       if (options.limit && options.limit > 0) {
         querySql += ` LIMIT $${pIdx} OFFSET $${pIdx + 1}`;
-        params.push(options.limit, Math.max(0, options.offset || 0));
+        queryParams.push(options.limit, Math.max(0, options.offset || 0));
       }
 
-      const itemsRes = await simulatorPool.query(querySql, params);
-      const items = (itemsRes.rows as BandItem[]).map(i => ({ ...i, category: "Standard" as BandCategory }));
-      return { items, totalCount };
+      const queryPromise = (async () => {
+        const [countRes, itemsRes] = await Promise.all([
+          simulatorPool.query(`SELECT COUNT(*)::int as cnt FROM band_items ${whereSql}`, params),
+          simulatorPool.query(querySql, queryParams)
+        ]);
+        const totalCount = countRes.rows[0]?.cnt || 0;
+        const items = (itemsRes.rows as BandItem[]).map(i => ({ ...i, category: "Standard" as BandCategory }));
+        return { items, totalCount };
+      })();
+
+      const timeoutPromise = new Promise<{ items: BandItem[]; totalCount: number }>((_, reject) =>
+        setTimeout(() => reject(new Error("PG items query timeout")), 4000)
+      );
+
+      return await Promise.race([queryPromise, timeoutPromise]);
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for items:", pgErr);
     }

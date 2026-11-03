@@ -20,7 +20,7 @@ export const simulatorPool =
     },
     max: 10,
     idleTimeoutMillis: 30000,
-    connectionTimeoutMillis: 10000,
+    connectionTimeoutMillis: 4000,
   });
 
 if (process.env.NODE_ENV !== 'production') {
@@ -184,21 +184,43 @@ export async function initSimulatorLocksTable() {
   }
 }
 
+// Fast in-memory cache for taken simulator slots (20-second TTL to avoid duplicate remote PG calls)
+const takenSlotsCache = new Map<string, { data: string[]; timestamp: number }>();
+const TAKEN_SLOTS_CACHE_TTL = 20 * 1000;
+
+export function invalidateTakenSlotsCache() {
+  takenSlotsCache.clear();
+}
+
 /**
  * Query locked/taken slots for a specific simulator and date
  */
 export async function getTakenSimulatorSlots(simulatorName: string, bookingDate: string): Promise<string[]> {
+  const cacheKey = `${simulatorName}:::${bookingDate}`;
+  const cached = takenSlotsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < TAKEN_SLOTS_CACHE_TTL) {
+    return cached.data;
+  }
+
   try {
     const formattedDate = formatToSimulatorDate(bookingDate);
-    // Also include raw bookingDate in query so whether Sim Podium has 'Oct 17 (Sat)' or 'Oct 17', both match
-    const res = await simulatorPool.query<{ booking_time: string }>(
+    // Timeout promise (3.5s) to avoid 60s freeze if Render PostgreSQL is cold/sleeping
+    const queryPromise = simulatorPool.query<{ booking_time: string }>(
       `SELECT booking_time FROM simulator_slot_locks 
        WHERE simulator_name = $1 
          AND (booking_date = $2 OR booking_date = $3)
          AND status IN ('PENDING', 'PAID', 'ATTENDED', 'CONFIRMED');`,
       [simulatorName, formattedDate, bookingDate]
     );
-    return res.rows.map(r => r.booking_time);
+
+    const timeoutPromise = new Promise<{ rows: { booking_time: string }[] }>((resolve) =>
+      setTimeout(() => resolve({ rows: [] }), 3500)
+    );
+
+    const res = await Promise.race([queryPromise, timeoutPromise]);
+    const results = res.rows.map(r => r.booking_time);
+    takenSlotsCache.set(cacheKey, { data: results, timestamp: Date.now() });
+    return results;
   } catch (err) {
     console.error(`Error querying taken simulator slots for ${simulatorName} on ${bookingDate}:`, err);
     return [];
@@ -282,6 +304,7 @@ export async function lockSimulatorSlot(params: {
       console.error('Error inserting into Sim Podium bookings table:', bookingTableErr);
     }
 
+    invalidateTakenSlotsCache();
     return { success: true };
   } catch (err: any) {
     console.error('Error locking simulator slot in PostgreSQL:', err);
@@ -316,6 +339,8 @@ export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: n
       [sourceOrderId, idSuffix]
     );
 
+    invalidateTakenSlotsCache();
+    invalidateTakenSlotsCache();
     return true;
   } catch (err) {
     console.error('Error releasing simulator slots for order:', sourceOrderId, err);
@@ -368,6 +393,8 @@ export async function releaseSpecificSimulatorSlot(params: {
       );
     }
 
+    invalidateTakenSlotsCache();
+    invalidateTakenSlotsCache();
     return true;
   } catch (err) {
     console.error('Error releasing specific simulator slot:', params, err);
@@ -393,6 +420,8 @@ export async function deleteSimulatorSlotLocks(sourceOrderId: string): Promise<b
       [sourceOrderId]
     );
 
+    invalidateTakenSlotsCache();
+    invalidateTakenSlotsCache();
     return true;
   } catch (err) {
     console.error('Error deleting simulator slot locks for order:', sourceOrderId, err);
@@ -441,6 +470,7 @@ export async function confirmSimulatorSlotLocks(
       [tempTxnId, finalOrderId, customerName || null, customerPhone || null]
     );
 
+    invalidateTakenSlotsCache();
     return true;
   } catch (err) {
     console.error('Error confirming simulator slot locks for order:', tempTxnId, '->', finalOrderId, err);
@@ -457,27 +487,46 @@ export interface SimPodiumProduct {
   image_url?: string;
 }
 
+// 5-minute memory cache for Sim Podium simulator list
+let cachedSimulators: { data: SimPodiumProduct[]; timestamp: number } | null = null;
+const SIMULATORS_CACHE_TTL = 5 * 60 * 1000;
+
 /**
  * Fetches all simulators/products that exist in the Havoc Sim Podium PostgreSQL database
  */
 export async function getSimPodiumSimulators(): Promise<SimPodiumProduct[]> {
+  if (cachedSimulators && Date.now() - cachedSimulators.timestamp < SIMULATORS_CACHE_TTL) {
+    return cachedSimulators.data;
+  }
+
   try {
-    const res = await simulatorPool.query(
+    const queryPromise = simulatorPool.query(
       `SELECT id, name, type, price, description, image_url 
        FROM products 
        ORDER BY id ASC`
     );
-    return res.rows.map(r => ({
-      id: r.id,
-      name: (r.name || '').trim(),
-      type: (r.type || 'Simulator').trim(),
-      price: r.price,
-      description: r.description || '',
-      image_url: r.image_url || ''
-    }));
+
+    const timeoutPromise = new Promise<{ rows: any[] }>((resolve) =>
+      setTimeout(() => resolve({ rows: [] }), 3500)
+    );
+
+    const res = await Promise.race([queryPromise, timeoutPromise]);
+    if (res.rows.length > 0) {
+      const data = res.rows.map(r => ({
+        id: r.id,
+        name: (r.name || '').trim(),
+        type: (r.type || 'Simulator').trim(),
+        price: r.price,
+        description: r.description || '',
+        image_url: r.image_url || ''
+      }));
+      cachedSimulators = { data, timestamp: Date.now() };
+      return data;
+    }
+    return cachedSimulators?.data || [];
   } catch (err) {
     console.error('Error fetching simulators from Havoc Sim Podium database:', err);
-    return [];
+    return cachedSimulators?.data || [];
   }
 }
 
@@ -518,7 +567,7 @@ export function parseSimPodiumTimeRange(timeRange: string): { label: string; sta
   }
 
   // Parse end
-  const endRaw = parts[1]; // e.g. "11:30 AM" or "02:30 PM"
+  const endRaw = parts[1]; // e.g. "11:30 AM" or "02:00 PM"
   const endMatch = endRaw.match(/(\d{1,2})(?::(\d{2}))?\s*(AM|PM)/i);
   let endLabel = '';
   if (endMatch) {
@@ -532,11 +581,19 @@ export function parseSimPodiumTimeRange(timeRange: string): { label: string; sta
   return { label, startHour };
 }
 
+// 10-minute memory cache for Sim Podium slots
+let cachedSimSlots: { data: SimPodiumSlot[]; timestamp: number } | null = null;
+const SIM_SLOTS_CACHE_TTL = 10 * 60 * 1000;
+
 /**
  * Fetches all active simulator slots from Havoc Sim Podium's PostgreSQL `slots` table
  * and ensures all daytime slots (including 11AM-2PM) are always available.
  */
 export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
+  if (cachedSimSlots && Date.now() - cachedSimSlots.timestamp < SIM_SLOTS_CACHE_TTL) {
+    return cachedSimSlots.data;
+  }
+
   const defaultBaseSlots = [
     { label: "11AM-11:30AM", startHour: 11.0 },
     { label: "11:30AM-12PM", startHour: 11.5 },
@@ -577,7 +634,7 @@ export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
   });
 
   try {
-    const res = await simulatorPool.query<{
+    const queryPromise = simulatorPool.query<{
       id: number;
       time_range: string;
       active: number;
@@ -589,21 +646,33 @@ export async function getSimPodiumSlots(): Promise<SimPodiumSlot[]> {
        ORDER BY sort_order ASC, id ASC`
     );
 
-    res.rows.forEach(r => {
-      const parsed = parseSimPodiumTimeRange(r.time_range);
-      if (parsed.label) {
-        slotMap.set(parsed.label, {
-          id: r.id,
-          time_range: r.time_range,
-          active: r.active,
-          sort_order: r.sort_order,
-          label: parsed.label,
-          startHour: parsed.startHour
-        });
-      }
-    });
+    const timeoutPromise = new Promise<{ rows: any[] }>((resolve) =>
+      setTimeout(() => resolve({ rows: [] }), 3500)
+    );
 
-    return Array.from(slotMap.values()).sort((a, b) => a.startHour - b.startHour);
+    const res = await Promise.race([queryPromise, timeoutPromise]);
+
+    if (res.rows && res.rows.length > 0) {
+      res.rows.forEach(r => {
+        const parsed = parseSimPodiumTimeRange(r.time_range);
+        if (parsed.label) {
+          slotMap.set(parsed.label, {
+            id: r.id,
+            time_range: r.time_range,
+            active: r.active,
+            sort_order: r.sort_order,
+            label: parsed.label,
+            startHour: parsed.startHour
+          });
+        }
+      });
+    }
+
+    const sortedSlots = Array.from(slotMap.values()).sort((a, b) => a.startHour - b.startHour);
+    if (res.rows && res.rows.length > 0) {
+      cachedSimSlots = { data: sortedSlots, timestamp: Date.now() };
+    }
+    return sortedSlots;
   } catch (err) {
     console.error('Error fetching slots from Havoc Sim Podium database:', err);
     return Array.from(slotMap.values()).sort((a, b) => a.startHour - b.startHour);

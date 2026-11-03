@@ -261,14 +261,20 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
       const uniqueSimNames = Array.from(new Set(simSelections.map(s => s.simName).filter(Boolean)));
       const takenMap: Record<string, string[]> = {};
 
-      for (const simName of uniqueSimNames) {
-        try {
-          const taken = await fetchTakenSimulatorSlotsAction(simName, date);
-          takenMap[simName] = taken;
-        } catch (e) {
-          console.error(`Failed to fetch taken slots for ${simName}:`, e);
-          takenMap[simName] = [];
-        }
+      const results = await Promise.all(
+        uniqueSimNames.map(async (simName) => {
+          try {
+            const taken = await fetchTakenSimulatorSlotsAction(simName, date);
+            return { simName, taken };
+          } catch (e) {
+            console.error(`Failed to fetch taken slots for ${simName}:`, e);
+            return { simName, taken: [] as string[] };
+          }
+        })
+      );
+
+      for (const res of results) {
+        takenMap[res.simName] = res.taken;
       }
 
       if (isMounted) {

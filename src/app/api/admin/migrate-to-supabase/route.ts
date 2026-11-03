@@ -335,55 +335,66 @@ async function handleMigration(req: NextRequest) {
     report.bookings = bookingRows.length;
 
     // 10. Migrate band_items (batch processing to handle 36k items quickly)
-    const bandRows = await fetchSourceRows("band_items", "SELECT * FROM band_items ORDER BY id ASC");
-    let migratedBands = 0;
-    const BATCH_SIZE = 500;
-    
-    for (let i = 0; i < bandRows.length; i += BATCH_SIZE) {
-      const batch = bandRows.slice(i, i + BATCH_SIZE);
-      const values: any[] = [];
-      const valueStrings: string[] = [];
-      let pIdx = 1;
+    const existingBandsRes = await targetPool.query("SELECT COUNT(*)::int as cnt FROM band_items");
+    const existingBandsCount = existingBandsRes.rows[0]?.cnt || 0;
 
-      for (const b of batch) {
-        valueStrings.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, $${pIdx + 8}, $${pIdx + 9}, $${pIdx + 10}, $${pIdx + 11})`);
-        values.push(
-          b.id,
-          b.band_code,
-          b.color_name,
-          b.color_hex,
-          b.category || "Standard",
-          b.status || "available",
-          b.current_holder_name || null,
-          b.current_booking_id || null,
-          b.current_order_number || null,
-          b.total_uses || 0,
-          b.notes || null,
-          b.location || "warehouse"
-        );
-        pIdx += 12;
-      }
+    if (existingBandsCount >= 30000) {
+      report.band_items = existingBandsCount;
+    } else {
+      const bandRows = await fetchSourceRows("band_items", "SELECT * FROM band_items ORDER BY id ASC");
+      let migratedBands = 0;
+      const BATCH_SIZE = 500;
+      
+      for (let i = 0; i < bandRows.length; i += BATCH_SIZE) {
+        const batch = bandRows.slice(i, i + BATCH_SIZE);
+        const values: any[] = [];
+        const valueStrings: string[] = [];
+        let pIdx = 1;
 
-      if (valueStrings.length > 0) {
-        await targetPool.query(`
-          INSERT INTO band_items (
-            id, band_code, color_name, color_hex, category, status, current_holder_name, current_booking_id, current_order_number, total_uses, notes, location
-          ) VALUES ${valueStrings.join(", ")}
-          ON CONFLICT (band_code, color_name) DO UPDATE SET
-            status = EXCLUDED.status,
-            current_holder_name = EXCLUDED.current_holder_name,
-            current_order_number = EXCLUDED.current_order_number,
-            location = EXCLUDED.location,
-            total_uses = EXCLUDED.total_uses;
-        `, values);
-        migratedBands += batch.length;
+        for (const b of batch) {
+          valueStrings.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, $${pIdx + 8}, $${pIdx + 9}, $${pIdx + 10}, $${pIdx + 11})`);
+          values.push(
+            b.id,
+            b.band_code,
+            b.color_name,
+            b.color_hex,
+            b.category || "Standard",
+            b.status || "available",
+            b.current_holder_name || null,
+            b.current_booking_id || null,
+            b.current_order_number || null,
+            b.total_uses || 0,
+            b.notes || null,
+            b.location || "warehouse"
+          );
+          pIdx += 12;
+        }
+
+        if (valueStrings.length > 0) {
+          await targetPool.query(`
+            INSERT INTO band_items (
+              id, band_code, color_name, color_hex, category, status, current_holder_name, current_booking_id, current_order_number, total_uses, notes, location
+            ) VALUES ${valueStrings.join(", ")}
+            ON CONFLICT (band_code, color_name) DO UPDATE SET
+              status = EXCLUDED.status,
+              current_holder_name = EXCLUDED.current_holder_name,
+              current_order_number = EXCLUDED.current_order_number,
+              location = EXCLUDED.location,
+              total_uses = EXCLUDED.total_uses;
+          `, values);
+          migratedBands += batch.length;
+        }
       }
+      report.band_items = migratedBands;
     }
-    report.band_items = migratedBands;
 
-    // 11. Migrate band_transactions
+    // 11. Migrate band_transactions (sanitizing orphan band_ids so foreign keys never fail)
+    const validBandIdsRes = await targetPool.query("SELECT id FROM band_items");
+    const validBandIds = new Set(validBandIdsRes.rows.map(r => r.id));
+
     const txRows = await fetchSourceRows("band_transactions", "SELECT * FROM band_transactions ORDER BY id ASC");
     let migratedTxs = 0;
+    const BATCH_SIZE = 500;
     for (let i = 0; i < txRows.length; i += BATCH_SIZE) {
       const batch = txRows.slice(i, i + BATCH_SIZE);
       const values: any[] = [];
@@ -391,10 +402,11 @@ async function handleMigration(req: NextRequest) {
       let pIdx = 1;
 
       for (const t of batch) {
+        const safeBandId = (t.band_id && validBandIds.has(t.band_id)) ? t.band_id : null;
         valueStrings.push(`($${pIdx}, $${pIdx + 1}, $${pIdx + 2}, $${pIdx + 3}, $${pIdx + 4}, $${pIdx + 5}, $${pIdx + 6}, $${pIdx + 7}, $${pIdx + 8}, $${pIdx + 9}, $${pIdx + 10}, $${pIdx + 11})`);
         values.push(
           t.id,
-          t.band_id,
+          safeBandId,
           t.band_code,
           t.color_name,
           t.color_hex,
@@ -468,3 +480,4 @@ async function handleMigration(req: NextRequest) {
     if (sourcePool) await sourcePool.end().catch(() => {});
   }
 }
+

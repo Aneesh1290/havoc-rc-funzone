@@ -143,6 +143,37 @@ export default function BandInventoryPage() {
   const [couponPage, setCouponPage] = useState(1);
   const [couponPageSize, setCouponPageSize] = useState(50);
   const [selectedCouponIds, setSelectedCouponIds] = useState<number[]>([]);
+  const [lastCheckedCouponIndex, setLastCheckedCouponIndex] = useState<number | null>(null);
+
+  const handleCouponCheckboxClick = (
+    e: React.MouseEvent<HTMLInputElement | HTMLTableCellElement>,
+    index: number,
+    itemId: number
+  ) => {
+    if (e.shiftKey && lastCheckedCouponIndex !== null && paginatedCouponItems[lastCheckedCouponIndex]) {
+      window.getSelection()?.removeAllRanges();
+      const start = Math.min(lastCheckedCouponIndex, index);
+      const end = Math.max(lastCheckedCouponIndex, index);
+      const rangeIds = paginatedCouponItems.slice(start, end + 1).map((i) => i.id);
+
+      const shouldSelect = selectedCouponIds.includes(paginatedCouponItems[lastCheckedCouponIndex].id);
+
+      setSelectedCouponIds((prev) => {
+        const prevSet = new Set(prev);
+        if (shouldSelect) {
+          rangeIds.forEach((id) => prevSet.add(id));
+        } else {
+          rangeIds.forEach((id) => prevSet.delete(id));
+        }
+        return Array.from(prevSet);
+      });
+    } else {
+      setSelectedCouponIds((prev) =>
+        prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
+      );
+      setLastCheckedCouponIndex(index);
+    }
+  };
 
   // Coupon Handover Modal States
   const [isCouponHandoverModalOpen, setIsCouponHandoverModalOpen] = useState(false);
@@ -214,7 +245,38 @@ export default function BandInventoryPage() {
 
   // Selection States for Bulk Actions
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
+  const [lastCheckedIndex, setLastCheckedIndex] = useState<number | null>(null);
   const [isDeletingBulk, setIsDeletingBulk] = useState(false);
+
+  const handleBandCheckboxClick = (
+    e: React.MouseEvent<HTMLInputElement | HTMLTableCellElement>,
+    index: number,
+    itemId: number
+  ) => {
+    if (e.shiftKey && lastCheckedIndex !== null && items[lastCheckedIndex]) {
+      window.getSelection()?.removeAllRanges();
+      const start = Math.min(lastCheckedIndex, index);
+      const end = Math.max(lastCheckedIndex, index);
+      const rangeIds = items.slice(start, end + 1).map((i) => i.id);
+
+      const shouldSelect = selectedItemIds.includes(items[lastCheckedIndex].id);
+
+      setSelectedItemIds((prev) => {
+        const prevSet = new Set(prev);
+        if (shouldSelect) {
+          rangeIds.forEach((id) => prevSet.add(id));
+        } else {
+          rangeIds.forEach((id) => prevSet.delete(id));
+        }
+        return Array.from(prevSet);
+      });
+    } else {
+      setSelectedItemIds((prev) =>
+        prev.includes(itemId) ? prev.filter((id) => id !== itemId) : [...prev, itemId]
+      );
+      setLastCheckedIndex(index);
+    }
+  };
 
   // Color Quick Action Modal (when pressing color card in summary)
   const [selectedColorForAction, setSelectedColorForAction] = useState<BandColorBreakdown | null>(null);
@@ -2708,7 +2770,7 @@ export default function BandInventoryPage() {
                       </td>
                     </tr>
                   ) : (
-                    paginatedCouponItems.map((item) => {
+                    paginatedCouponItems.map((item, index) => {
                       const isRedeemed = item.used_count > 0;
                       const today = new Date().toISOString().split("T")[0];
                       const isExpired = item.expiry_date && item.expiry_date < today && !isRedeemed;
@@ -2721,17 +2783,18 @@ export default function BandInventoryPage() {
                             isChecked ? "bg-purple-50/50" : ""
                           }`}
                         >
-                          <td className="py-3 px-4">
+                          <td 
+                            className="py-3 px-4 cursor-pointer select-none"
+                            onClick={(e) => {
+                              if (e.target !== e.currentTarget) return;
+                              handleCouponCheckboxClick(e, index, item.id);
+                            }}
+                          >
                             <input
                               type="checkbox"
                               checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedCouponIds([...selectedCouponIds, item.id]);
-                                } else {
-                                  setSelectedCouponIds(selectedCouponIds.filter((id) => id !== item.id));
-                                }
-                              }}
+                              onChange={() => {}}
+                              onClick={(e) => handleCouponCheckboxClick(e, index, item.id)}
                               className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer"
                             />
                           </td>
@@ -3076,6 +3139,9 @@ export default function BandInventoryPage() {
                   {selectedItemIds.length}
                 </span>
                 <span>wristband(s) selected</span>
+                <span className="text-[11px] font-normal text-orange-700 hidden sm:inline ml-1.5">
+                  (Tip: Hold Shift + click to select a series range)
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -3159,23 +3225,24 @@ export default function BandInventoryPage() {
                     </td>
                   </tr>
                 ) : (
-                  items.map((item) => {
+                  items.map((item, index) => {
                     const badgeStyle = getWristbandBadgeStyle(item.color_hex);
                     const isSelected = selectedItemIds.includes(item.id);
                     return (
                       <tr key={item.id} className={`hover:bg-gray-50/80 transition-colors ${isSelected ? "bg-orange-50/40" : ""}`}>
                         {/* Checkbox */}
-                        <td className="py-3 px-3 text-center">
+                        <td 
+                          className="py-3 px-3 text-center cursor-pointer select-none"
+                          onClick={(e) => {
+                            if (e.target !== e.currentTarget) return;
+                            handleBandCheckboxClick(e, index, item.id);
+                          }}
+                        >
                           <input
                             type="checkbox"
                             checked={isSelected}
-                            onChange={(e) => {
-                              if (e.target.checked) {
-                                setSelectedItemIds((prev) => [...prev, item.id]);
-                              } else {
-                                setSelectedItemIds((prev) => prev.filter((id) => id !== item.id));
-                              }
-                            }}
+                            onChange={() => {}}
+                            onClick={(e) => handleBandCheckboxClick(e, index, item.id)}
                             className="rounded border-gray-300 text-[#ff5a1f] focus:ring-[#ff5a1f] cursor-pointer"
                           />
                         </td>

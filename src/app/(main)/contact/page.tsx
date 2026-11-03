@@ -36,10 +36,9 @@ export default function ContactPage() {
               <div>
                 <h3 className="font-bold text-[#0d1b2a] mb-2">Visit Us</h3>
                 <p className="text-gray-600">
-                  No. 90, Sabharwal Residency<br />
-                  Building, 4th Floor, KH Double Road<br />
-                  Above KFC Shantinagar KH,<br />
-                  Bengaluru, Karnataka 560027
+                  No 21 First Floor,<br />
+                  KH Double Road Opposite Shantinagar Bus Stand,<br />
+                  Bangalore 560027
                 </p>
               </div>
             </div>
@@ -75,7 +74,7 @@ export default function ContactPage() {
                 scrolling="no" 
                 marginHeight={0} 
                 marginWidth={0} 
-                src="https://maps.google.com/maps?width=100%25&amp;height=600&amp;hl=en&amp;q=No.%2090,%20Sabharwal%20Residency,%20Building,%204th%20Floor,%20KH%20Double%20Road,%20Above%20KFC%20Shantinagar%20KH,%20Bengaluru,%20Karnataka%20560027+(Havoc%20RC%20Funzone)&amp;t=&amp;z=15&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
+                src="https://maps.google.com/maps?width=100%25&amp;height=600&amp;hl=en&amp;q=No.%2021%20First%20Floor,%20KH%20Double%20Road,%20Opposite%20Shantinagar%20Bus%20Stand,%20Bangalore%20560027+(Havoc%20RC%20Funzone)&amp;t=&amp;z=15&amp;ie=UTF8&amp;iwloc=B&amp;output=embed"
                 className="w-full h-full grayscale-[20%] contrast-125"
                 style={{ filter: "opacity(0.9)" }}
               >

@@ -215,7 +215,7 @@ export default function RefundPolicyPage() {
                     <span>Physical Venue</span>
                   </div>
                   <p className="text-xs text-gray-600 leading-snug">
-                    4th Floor, Sabharwal Residency, KH Double Rd, Shantinagar, Bengaluru 560027
+                    No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027
                   </p>
                 </div>
               </div>

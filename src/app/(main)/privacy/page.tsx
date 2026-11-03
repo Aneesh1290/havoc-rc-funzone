@@ -94,7 +94,7 @@ export default function PrivacyPage() {
               <p className="mb-2">If you have any questions or concerns regarding this Privacy Policy, feel free to contact us:</p>
               <ul className="space-y-1">
                 <li><strong>Email:</strong> <a href="mailto:havocrcfunzone@gmail.com" className="text-[#ff5a1f] hover:underline">havocrcfunzone@gmail.com</a></li>
-                <li><strong>Address:</strong> No. 90, Sabharwal Residency Building, 4th Floor, KH Double Road, Above KFC Shantinagar KH, Bengaluru, Karnataka 560027</li>
+                <li><strong>Address:</strong> No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027</li>
                 <li><strong>Phone:</strong> +91 89513 36255</li>
               </ul>
             </section>

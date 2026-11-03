@@ -44,7 +44,7 @@ export default function ShippingPolicyPage() {
                 All purchases made on this website (<span>https://havocrcfunzone.com</span> or authorized booking portals) are for time-based entertainment service access passes (&ldquo;PlayPasses&rdquo;, &ldquo;Podium Sim Slots&rdquo;, or event registrations) at our venue:
               </p>
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200/80 mb-3 text-sm text-gray-800">
-                <strong>Venue Address:</strong> No. 90, Sabharwal Residency Building, 4th Floor, KH Double Road, Above KFC Shantinagar KH, Bengaluru, Karnataka 560027, India.
+                <strong>Venue Address:</strong> No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027, India.
               </div>
               <p>
                 Because our bookings represent capacity-controlled physical service reservations, <strong>no tangible physical goods requiring courier dispatch are shipped by default</strong>.

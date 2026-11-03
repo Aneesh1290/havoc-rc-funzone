@@ -69,7 +69,7 @@ export default function Footer() {
                   </a>
                 </li>
                 <li className="text-gray-400 text-xs sm:text-sm leading-relaxed pt-1">
-                  No. 90, Sabharwal Residency Building, 4th Floor, KH Double Road, Above KFC Shantinagar KH, Bengaluru 560027
+                  No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand Bangalore 560027
                 </li>
                 <li className="pt-2">
                   <div className="flex items-center gap-3">

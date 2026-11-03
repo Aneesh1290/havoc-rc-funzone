@@ -25,7 +25,7 @@ export default function TermsPage() {
             </p>
 
             <div className="bg-amber-50 border-l-4 border-amber-500 p-5 rounded-r-2xl text-sm text-amber-900 leading-relaxed">
-              <strong>Notice of Agreement:</strong> By accessing our website, purchasing an admission pass or simulator session, or stepping onto our premises at No. 90, Sabharwal Residency Building, 4th Floor, KH Double Road, Bengaluru, you expressly agree to abide by all terms, venue regulations, and payment guidelines detailed herein.
+              <strong>Notice of Agreement:</strong> By accessing our website, purchasing an admission pass or simulator session, or stepping onto our premises at No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027, you expressly agree to abide by all terms, venue regulations, and payment guidelines detailed herein.
             </div>
 
             {/* 1. Customer Rights and Responsibilities */}
@@ -186,7 +186,7 @@ export default function TermsPage() {
                   <MapPin className="w-4 h-4 text-[#ff5a1f] shrink-0 mt-0.5" />
                   <div>
                     <span className="block font-bold text-gray-900">Arena Address</span>
-                    <span className="text-gray-600 text-xs">No. 90, 4th Floor, KH Double Rd, Shantinagar, Bengaluru 560027</span>
+                    <span className="text-gray-600 text-xs">No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027</span>
                   </div>
                 </div>
               </div>

@@ -465,23 +465,21 @@ export default function OrderDetailPage() {
                 </button>
               </div>
 
-              {/* Grid with Headcount, Deposit, and Balance */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/80 p-4 rounded-xl border border-indigo-100/60 text-xs">
+              {/* Grid with Headcount and Reserved Slots */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-white/80 p-4 rounded-xl border border-indigo-100/60 text-xs">
                 <div>
-                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Expected Guests</span>
-                  <span className="font-bold text-gray-900 text-sm">{booking.expected_guests || totalQuantity} Attendees</span>
+                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Expected Headcount</span>
+                  <span className="font-bold text-gray-900 text-sm">
+                    {booking.expected_guests ? `${booking.expected_guests} Attendees` : `${booking.quantity || 1} Attendees`}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Grand Total</span>
-                  <span className="font-bold text-gray-900 text-sm font-mono">₹{totalAmount.toLocaleString('en-IN')}</span>
+                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Reservation Status</span>
+                  <span className="font-bold text-emerald-700 text-sm">Pure Reservation (Slot Locked)</span>
                 </div>
                 <div>
-                  <span className="text-emerald-600 uppercase font-bold text-[10px] block">Advance Paid</span>
-                  <span className="font-bold text-emerald-700 text-sm font-mono">₹{deposit.toLocaleString('en-IN')}</span>
-                </div>
-                <div>
-                  <span className="text-amber-600 uppercase font-bold text-[10px] block">Balance Due</span>
-                  <span className="font-bold text-amber-700 text-sm font-mono">₹{amountDue.toLocaleString('en-IN')}</span>
+                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Reserved Arena Slots</span>
+                  <span className="font-bold text-indigo-700 text-sm font-mono">{orderItems.length} Slot{orderItems.length > 1 ? "s" : ""}</span>
                 </div>
               </div>
 
@@ -520,14 +518,20 @@ export default function OrderDetailPage() {
             </div>
           )}
 
-          {/* Items Card */}
+          {/* Items / Reserved Slots Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm">
-            <h2 className="text-lg font-bold text-gray-900 mb-6 border-b border-gray-100 pb-3">
-              Items ({totalQuantity})
+            <h2 className="text-lg font-bold text-gray-900 mb-6 border-b border-gray-100 pb-3 flex items-center justify-between">
+              <span>{booking?.organization_name ? "Reserved Arena Slots" : "Items"} ({booking?.organization_name ? orderItems.length : totalQuantity})</span>
+              {booking?.organization_name && (
+                <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                  Fixed Quotation / Pure Reservation
+                </span>
+              )}
             </h2>
 
             <div className="space-y-6">
               {orderItems.map((item, idx) => {
+                const isOrgReservation = Boolean(booking?.organization_name || item.organization_name);
                 const itemQty = item.quantity || 1;
                 const hasItemTotal = item.total_amount !== null && item.total_amount !== undefined && !isNaN(Number(item.total_amount));
                 const catalogUnitPrice = item.ticket_price || 0;
@@ -545,11 +549,13 @@ export default function OrderDetailPage() {
                       {/* Ticket Type & Sub-Category Band Row */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-extrabold text-gray-900 text-sm tracking-tight uppercase">
-                          {item.ticket_name ? item.ticket_name.replace("_", " ") : "Havoc Funzone Pass"}
+                          {isOrgReservation 
+                            ? `${booking?.organization_type || "Organisation"} Reservation Session`
+                            : (item.ticket_name ? item.ticket_name.replace("_", " ") : "Havoc Funzone Pass")}
                         </span>
 
                         {/* Ticket Sub-Category Band Badge (if configured) */}
-                        {(() => {
+                        {!isOrgReservation && (() => {
                           const catBand = matchSubcategoryBand(item.ticket_name);
                           if (catBand) {
                             const badgeStyle = getWristbandBadgeStyle(catBand.color_hex);
@@ -809,23 +815,33 @@ export default function OrderDetailPage() {
                     </div>
 
                     <div className="flex items-center gap-6 self-start sm:self-auto text-sm">
-                      <div className="text-right">
-                        {isDiscounted && catalogUnitPrice > 0 && (
-                          <span className="text-xs text-gray-400 line-through mr-1.5 block sm:inline">
-                            ₹{catalogUnitPrice.toFixed(2)}
+                      {isOrgReservation ? (
+                        <div className="text-right">
+                          <span className="inline-block px-3 py-1 rounded-lg bg-emerald-50 text-emerald-800 font-bold text-xs border border-emerald-200">
+                            🔒 Pure Slot Reservation
                           </span>
-                        )}
-                        <span className="text-gray-700 font-bold">₹{itemUnitPrice.toFixed(2)}</span>
-                      </div>
-                      <span className="text-gray-400 font-semibold">×{itemQty}</span>
-                      <div className="text-right">
-                        {isDiscounted && (
-                          <span className="text-xs text-gray-400 line-through block font-normal">
-                            ₹{catalogLineTotalWithGst.toFixed(2)}
-                          </span>
-                        )}
-                        <span className="font-black text-gray-900 text-base">₹{itemLineEffective.toFixed(2)}</span>
-                      </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-right">
+                            {isDiscounted && catalogUnitPrice > 0 && (
+                              <span className="text-xs text-gray-400 line-through mr-1.5 block sm:inline">
+                                ₹{catalogUnitPrice.toFixed(2)}
+                              </span>
+                            )}
+                            <span className="text-gray-700 font-bold">₹{itemUnitPrice.toFixed(2)}</span>
+                          </div>
+                          <span className="text-gray-400 font-semibold">×{itemQty}</span>
+                          <div className="text-right">
+                            {isDiscounted && (
+                              <span className="text-xs text-gray-400 line-through block font-normal">
+                                ₹{catalogLineTotalWithGst.toFixed(2)}
+                              </span>
+                            )}
+                            <span className="font-black text-gray-900 text-base">₹{itemLineEffective.toFixed(2)}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -834,6 +850,7 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Payment Info Card */}
+          {!booking?.organization_name && (
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm space-y-4">
             <div className="flex items-center justify-between border-b border-gray-100 pb-3">
               <h2 className="text-lg font-bold text-gray-900">Payment info</h2>
@@ -947,6 +964,7 @@ export default function OrderDetailPage() {
               )}
             </div>
           </div>
+          )}
 
         </div>
 

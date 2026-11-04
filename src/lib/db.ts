@@ -339,7 +339,16 @@ export function initDB() {
     db.prepare("UPDATE tickets SET benefits = '' WHERE (UPPER(name) LIKE '%EXCAVATOR%' OR is_addon = 1) AND (benefits = '1-Hour arena session' OR benefits LIKE '%1-Hour arena session%')").run();
   } catch (e) {}
 
-  // Seed default Add-on (RC Excavator Activity) if addons table is empty
+  // Ensure dedicated ORGANISATION_RESERVATION ticket exists in DB (so group reservations do not count as VISITOR passes)
+  try {
+    const orgTicket = db.prepare("SELECT id FROM tickets WHERE UPPER(name) = 'ORGANISATION_RESERVATION'").get();
+    if (!orgTicket) {
+      db.prepare(`
+        INSERT INTO tickets (name, price, capacity, active, has_simulator_perk, is_addon, description)
+        VALUES ('ORGANISATION_RESERVATION', 0, 999, 0, 0, 0, 'Dedicated Arena Reservation for Schools, Parties & Groups')
+      `).run();
+    }
+  } catch (e) {}
   try {
     const addonCount = db.prepare('SELECT COUNT(*) as count FROM addons').get() as { count: number };
     if (addonCount.count === 0) {
@@ -1280,9 +1289,21 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
   const createdAt = new Date().toISOString();
   const orderNumber = getNextOrderNumber();
 
-  // Find a default active ticket for foreign key integrity
-  const defaultTicket = db.prepare('SELECT id FROM tickets WHERE active = 1 ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
-  const ticketId = defaultTicket?.id || 1;
+  // Use dedicated ORGANISATION_RESERVATION ticket for foreign key integrity
+  let orgTicket = db.prepare("SELECT id FROM tickets WHERE UPPER(name) = 'ORGANISATION_RESERVATION'").get() as { id: number } | undefined;
+  if (!orgTicket) {
+    try {
+      const ins = db.prepare(`
+        INSERT INTO tickets (name, price, capacity, active, has_simulator_perk, is_addon, description)
+        VALUES ('ORGANISATION_RESERVATION', 0, 999, 0, 0, 0, 'Dedicated Arena Reservation for Schools, Parties & Groups')
+      `).run();
+      orgTicket = { id: Number(ins.lastInsertRowid) };
+    } catch (_) {
+      const defaultTicket = db.prepare('SELECT id FROM tickets ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+      orgTicket = { id: defaultTicket?.id || 1 };
+    }
+  }
+  const ticketId = orgTicket.id;
 
   // Clean customer display name
   const displayName = contactName ? `${organizationName.trim()} (${contactName.trim()})` : organizationName.trim();
@@ -1313,7 +1334,7 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
         ticketId,
         eventDate,
         slot,
-        expectedGuests || 1,
+        1, // 1 reservation per slot (expected_guests stored separately in expected_guests column)
         displayName,
         contactEmail,
         contactPhone,

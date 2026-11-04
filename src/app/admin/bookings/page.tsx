@@ -397,7 +397,12 @@ export default function BookingsPage() {
             payment_ref: item.payment_ref || order.payment_ref || "",
             transaction_id: item.icici_txn_id || item.transaction_id || "",
             simulator_name: item.simulator_name || "",
-            simulator_slot: item.simulator_slot || ""
+            simulator_slot: item.simulator_slot || "",
+            organization_name: item.organization_name || order.organization_name || "",
+            organization_type: item.organization_type || order.organization_type || "",
+            expected_guests: item.expected_guests || order.expected_guests || 0,
+            special_requests: item.special_requests || order.special_requests || "",
+            tags: item.tags || order.tags || ""
           });
         }
       }

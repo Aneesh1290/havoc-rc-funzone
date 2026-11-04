@@ -23,6 +23,11 @@ export interface BookingExportItem {
   transaction_id?: string;
   simulator_name?: string;
   simulator_slot?: string;
+  organization_name?: string;
+  organization_type?: string;
+  expected_guests?: number;
+  special_requests?: string;
+  tags?: string;
 }
 
 // Convert "11AM-12PM" or "3PM-4PM" into start minutes from midnight for chronological sorting
@@ -180,6 +185,11 @@ interface OrderData {
   transaction_id?: string;
   simulator_name?: string;
   simulator_slot?: string;
+  organization_name?: string;
+  organization_type?: string;
+  expected_guests?: number;
+  special_requests?: string;
+  tags?: string;
   items: BookingExportItem[];
 }
 
@@ -672,10 +682,18 @@ function renderDaySheet(
         let vpCount = 0;
         let calculatedBaseAmount = 0;
 
+        const isOrgOrder = Boolean(order.organization_name || (order.tags && order.tags.includes("ORGANISATION")));
+
         for (const item of order.items) {
           const tName = (item.ticket_name || "").toUpperCase();
           const qty = item.quantity || 1;
           calculatedBaseAmount += (item.ticket_price || 0) * qty;
+
+          // Pure organisation reservations should NEVER count as V, P, VV, or VP tickets!
+          if (isOrgOrder || tName.includes("ORGANISATION") || tName.includes("RESERVATION")) {
+            // pure reservation slot lock; no standard ticket count
+            continue;
+          }
 
           if (tName.includes("VIP_PARTICIPANT") || tName.includes("VIP PARTICIPANT")) {
             vpCount += qty;
@@ -713,7 +731,9 @@ function renderDaySheet(
         grandTotalAmountReceived += received;
         grandTotalAmountDue += due;
 
-        const simPodiumDisplay = formatSimPodiumForExport(order);
+        const simPodiumDisplay = isOrgOrder
+          ? `[RESERVATION: ${order.organization_type || "GROUP"}]${order.expected_guests ? ` Headcount: ${order.expected_guests}` : ""}${order.special_requests ? ` | ${order.special_requests}` : ""}`
+          : formatSimPodiumForExport(order);
         // Dynamic row height calculated across ALL visual columns (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name)
         const rowHeight = calculateBookingRowHeight(order, simPodiumDisplay, { simPodium: 30, deskRef: 30, gatewayTxn: 24 });
 
@@ -963,10 +983,24 @@ export async function generateBookingsExcelReport(
         transaction_id: b.transaction_id || "",
         simulator_name: b.simulator_name || "",
         simulator_slot: b.simulator_slot || "",
+        organization_name: b.organization_name || "",
+        organization_type: b.organization_type || "",
+        expected_guests: Number(b.expected_guests || 0),
+        special_requests: b.special_requests || "",
+        tags: b.tags || "",
         items: []
       });
     } else {
       const existing = ordersMap.get(orderNum)!;
+      if (b.organization_name && !existing.organization_name) {
+        existing.organization_name = b.organization_name;
+        existing.organization_type = b.organization_type;
+        existing.expected_guests = Number(b.expected_guests || 0);
+        existing.special_requests = b.special_requests;
+      }
+      if (b.tags && !existing.tags) {
+        existing.tags = b.tags;
+      }
       if (b.payment_ref && !existing.payment_ref) {
         existing.payment_ref = b.payment_ref;
       }

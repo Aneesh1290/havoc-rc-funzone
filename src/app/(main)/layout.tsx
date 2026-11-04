@@ -10,13 +10,14 @@ export default function MainLayout({
 }>) {
   return (
     <CartProvider>
-      <Header />
-      <main className="flex-grow flex flex-col min-w-0">
-        {children}
-      </main>
-
-      <Footer />
-      <CartSidebar />
+      <div className="flex flex-col min-h-screen w-full overflow-x-clip">
+        <Header />
+        <main className="flex-grow flex flex-col min-w-0 w-full overflow-x-clip">
+          {children}
+        </main>
+        <Footer />
+        <CartSidebar />
+      </div>
     </CartProvider>
   );
 }

@@ -18,8 +18,8 @@ export default async function TicketTypePage() {
   );
 
   return (
-    <div className="min-h-screen bg-white text-black py-6 sm:py-16 overflow-x-hidden">
-      <div className="max-w-5xl mx-auto px-2 sm:px-6">
+    <div className="min-h-screen bg-white text-black py-6 sm:py-16 overflow-x-clip">
+      <div className="max-w-5xl mx-auto px-2 sm:px-6 overflow-x-clip">
         
         {/* Table Container Card with rounded corners and solid black border */}
         <div className="border-[2px] sm:border-[2.5px] border-black rounded-[20px] sm:rounded-[32px] overflow-hidden bg-white shadow-xl">

@@ -43,6 +43,39 @@ function getSlotStartMinutes(slot: string): number {
   return h * 60 + m;
 }
 
+// Convert "11AM-12PM" or "3PM-4PM" into end minutes from midnight
+function getSlotEndMinutes(slot: string): number {
+  if (!slot) return 9999;
+  const parts = slot.split("-");
+  const endPart = parts[1] || parts[0];
+  const match = endPart.match(/(\d+)(?::(\d+))?\s*(AM|PM)?/i);
+  if (!match) return 9999;
+  let h = parseInt(match[1], 10);
+  const m = match[2] ? parseInt(match[2], 10) : 0;
+  const ampm = match[3] ? match[3].toUpperCase() : "";
+  if (ampm === "PM" && h !== 12) h += 12;
+  if (ampm === "AM" && h === 12) h = 0;
+  return h * 60 + m;
+}
+
+// Combine an array of slots (e.g. ['11AM-12PM', '12PM-1PM', '1PM-2PM']) into a clean span e.g. "11AM-2PM"
+function formatCombinedSlotTiming(slots: string[]): string {
+  if (!slots || slots.length === 0) return "";
+  if (slots.length === 1) return slots[0];
+
+  const sorted = [...slots].sort((a, b) => getSlotStartMinutes(a) - getSlotStartMinutes(b));
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+
+  const startMatch = first.match(/^(\d+(?::\d+)?\s*(?:AM|PM)?)/i);
+  const endMatch = last.match(/-\s*(\d+(?::\d+)?\s*(?:AM|PM)?)$/i);
+
+  if (startMatch && endMatch) {
+    return `${startMatch[1].trim()}-${endMatch[1].trim()}`;
+  }
+  return sorted.join(", ");
+}
+
 function cleanColourName(colorName?: string | null, colorHex?: string | null): string {
   if (colorName && colorName.trim()) {
     return colorName.replace(/band|wristband/gi, "").trim().toUpperCase();
@@ -190,6 +223,7 @@ interface OrderData {
   expected_guests?: number;
   special_requests?: string;
   tags?: string;
+  combinedSlots?: string[];
   items: BookingExportItem[];
 }
 
@@ -665,7 +699,7 @@ function renderDaySheet(
 
       const firstOrder = ordersInSlot[0];
       const cName = meta?.colorName || cleanColourName(firstOrder?.slotColorName, firstOrder?.slotColor);
-      const slotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
+      let defaultSlotDisplayText = `SLOT-${slotNum}/ ${cName || "BAND"}`;
 
       // Color hex for this slot
       const slotHex = meta?.colorHex || normalizeHex(firstOrder?.slotColor) || "06B6D4";
@@ -675,14 +709,32 @@ function renderDaySheet(
         const sn = snIdx + 1;
         const currentSl = totalSlCounter++;
 
+        const isOrgOrder = Boolean(order.organization_name || (order.tags && order.tags.includes("ORGANISATION")));
+        let slotDisplayText = defaultSlotDisplayText;
+
+        if (isOrgOrder && order.combinedSlots && order.combinedSlots.length > 1) {
+          const slotNums = order.combinedSlots
+            .map(s => {
+              const m = slotMetaMap.get(s.trim().toUpperCase());
+              return m ? m.slotIndex : null;
+            })
+            .filter((n): n is number => n !== null);
+
+          if (slotNums.length > 1) {
+            const minNum = Math.min(...slotNums);
+            const maxNum = Math.max(...slotNums);
+            slotDisplayText = `SLOT ${minNum}-${maxNum} (${order.combinedSlots.length} SLOTS)`;
+          } else {
+            slotDisplayText = `${order.combinedSlots.length} SLOTS RESERVED`;
+          }
+        }
+
         // Count ticket types: V, P, VV, VP
         let vCount = 0;
         let pCount = 0;
         let vvCount = 0;
         let vpCount = 0;
         let calculatedBaseAmount = 0;
-
-        const isOrgOrder = Boolean(order.organization_name || (order.tags && order.tags.includes("ORGANISATION")));
 
         for (const item of order.items) {
           const tName = (item.ticket_name || "").toUpperCase();
@@ -960,14 +1012,18 @@ export async function generateBookingsExcelReport(
     });
   });
 
-  // Group items by order_number + date + time_slot
-  // (An organisation booking or multi-slot order has multiple rows in DB, each representing a specific reserved slot)
+  // Group items by order:
+  // For standard bookings, group by order_number + date + time_slot.
+  // For organisation reservations, group by order_number + date so all reserved slots are clubbed together in one clean combined block.
   const ordersMap = new Map<string, OrderData>();
 
   for (const b of bookings) {
     const orderNum = b.order_number || b.id;
-    // Separate by slot so every reserved slot appears in its corresponding time slot in the Excel sheet
-    const groupKey = `${orderNum}_${b.booking_date || ""}_${b.time_slot || ""}`;
+    const isOrgBooking = Boolean(b.organization_name || (b.tags && b.tags.includes("ORGANISATION")));
+    const groupKey = isOrgBooking
+      ? `ORG_${orderNum}_${b.booking_date || ""}`
+      : `${orderNum}_${b.booking_date || ""}_${b.time_slot || ""}`;
+
     if (!ordersMap.has(groupKey)) {
       ordersMap.set(groupKey, {
         orderNo: orderNum,
@@ -991,10 +1047,14 @@ export async function generateBookingsExcelReport(
         expected_guests: Number(b.expected_guests || 0),
         special_requests: b.special_requests || "",
         tags: b.tags || "",
+        combinedSlots: b.time_slot ? [b.time_slot] : [],
         items: []
       });
     } else {
       const existing = ordersMap.get(groupKey)!;
+      if (b.time_slot && (!existing.combinedSlots || !existing.combinedSlots.includes(b.time_slot))) {
+        existing.combinedSlots = [...(existing.combinedSlots || []), b.time_slot];
+      }
       if (b.organization_name && !existing.organization_name) {
         existing.organization_name = b.organization_name;
         existing.organization_type = b.organization_type;
@@ -1020,6 +1080,15 @@ export async function generateBookingsExcelReport(
       }
     }
     ordersMap.get(groupKey)!.items.push(b);
+  }
+
+  // Finalize combined timing and slot display for organisation bookings
+  for (const order of ordersMap.values()) {
+    if (order.combinedSlots && order.combinedSlots.length > 1) {
+      // Sort combined slots chronologically
+      order.combinedSlots.sort((a, b) => getSlotStartMinutes(a) - getSlotStartMinutes(b));
+      order.timeSlot = formatCombinedSlotTiming(order.combinedSlots);
+    }
   }
 
   const allOrders = Array.from(ordersMap.values());

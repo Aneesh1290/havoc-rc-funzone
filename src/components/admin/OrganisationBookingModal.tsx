@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   Building2,
   Calendar,
@@ -21,10 +21,14 @@ import {
   Flag,
   FileText,
   Lock,
-  ChevronDown
+  ChevronDown,
+  Zap,
+  ToggleLeft,
+  ToggleRight
 } from "lucide-react";
 import { COUNTRY_CODES } from "@/lib/countries";
 import { createOrganisationBookingAction } from "@/app/actions/organisation-bookings";
+import { fetchSimulatorListAction } from "@/app/actions/tickets";
 import type { TimeSlotRow, TicketRow } from "@/lib/db";
 import { useRouter } from "next/navigation";
 
@@ -144,6 +148,14 @@ export default function OrganisationBookingModal({
   const [customRequestInput, setCustomRequestInput] = useState("");
   const [organizationNotes, setOrganizationNotes] = useState("");
 
+  // Sim Podium Simulator Blocking
+  const [blockSimulators, setBlockSimulators] = useState(false);
+  const [blockAllSimulators, setBlockAllSimulators] = useState(true);
+  const [selectedSimulators, setSelectedSimulators] = useState<string[]>([]);
+  const [simulatorList, setSimulatorList] = useState<Array<{id: number | string; name: string; category?: string}>>([]);
+  const [isLoadingSimulators, setIsLoadingSimulators] = useState(false);
+  const [simSlotsBlockedCount, setSimSlotsBlockedCount] = useState(0);
+
   // Submission & Confirmation state
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -154,6 +166,19 @@ export default function OrganisationBookingModal({
   } | null>(null);
 
   const printAreaRef = useRef<HTMLDivElement>(null);
+
+  // Fetch simulator list when the toggle is first switched on
+  useEffect(() => {
+    if (blockSimulators && simulatorList.length === 0) {
+      setIsLoadingSimulators(true);
+      fetchSimulatorListAction()
+        .then(list => {
+          setSimulatorList(list);
+          setIsLoadingSimulators(false);
+        })
+        .catch(() => setIsLoadingSimulators(false));
+    }
+  }, [blockSimulators]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Active time slots sorted
   const activeSlots = useMemo(() => {
@@ -239,7 +264,12 @@ export default function OrganisationBookingModal({
         timeSlots: selectedSlots,
         blockPublicSlots,
         organizationNotes: organizationNotes.trim() || undefined,
-        specialRequests
+        specialRequests,
+        simulatorBlocking: blockSimulators ? {
+          blockSimulators: true,
+          blockAllSimulators,
+          selectedSimulators: blockAllSimulators ? [] : selectedSimulators
+        } : undefined,
       });
 
       if (!res.success || !res.orderCode) {
@@ -253,6 +283,7 @@ export default function OrganisationBookingModal({
         orderNumber: res.orderNumber || 0,
         primaryId: res.primaryId || 0
       });
+      setSimSlotsBlockedCount(res.simSlotsBlocked || 0);
       setIsSubmitting(false);
       onSuccess();
     } catch (err: any) {
@@ -394,6 +425,12 @@ export default function OrganisationBookingModal({
                       <span className="px-2.5 py-1 rounded-md bg-rose-50 text-rose-700 border border-rose-200 text-[11px] font-semibold flex items-center gap-1">
                         <Lock className="w-3 h-3 text-rose-600" />
                         Slots Blocked for Public
+                      </span>
+                    )}
+                    {simSlotsBlockedCount > 0 && (
+                      <span className="px-2.5 py-1 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-[11px] font-semibold flex items-center gap-1">
+                        <Zap className="w-3 h-3 text-indigo-600" />
+                        {simSlotsBlockedCount} Sim Podium Slot{simSlotsBlockedCount !== 1 ? 's' : ''} Blocked
                       </span>
                     )}
                   </div>
@@ -760,6 +797,107 @@ export default function OrganisationBookingModal({
                     />
                     <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-600"></div>
                   </label>
+                </div>
+
+                {/* Sim Podium Simulator Blocking (Optional) */}
+                <div className="pt-3 border-t border-neutral-200 space-y-3">
+                  {/* Toggle header */}
+                  <div className="flex items-center justify-between bg-indigo-50/60 p-3 rounded-lg border border-indigo-200">
+                    <div className="flex items-center space-x-2.5">
+                      <div className="p-2 rounded-md bg-indigo-100 text-indigo-600">
+                        <Zap className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="text-xs font-bold text-neutral-800">Also Block Sim Podium Simulators</div>
+                        <p className="text-[11px] text-neutral-500">
+                          Prevent public bookings on Havoc Sim Podium for the reserved time slots.
+                        </p>
+                      </div>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={blockSimulators}
+                        onChange={(e) => setBlockSimulators(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-11 h-6 bg-neutral-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-neutral-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    </label>
+                  </div>
+
+                  {/* Expanded options when enabled */}
+                  {blockSimulators && (
+                    <div className="bg-indigo-50/40 rounded-xl border border-indigo-100 p-3 space-y-3">
+                      {isLoadingSimulators ? (
+                        <div className="text-xs text-neutral-500 text-center py-3">Loading simulators...</div>
+                      ) : (
+                        <>
+                          {/* Mode selector */}
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setBlockAllSimulators(true)}
+                              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                                blockAllSimulators
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white text-neutral-700 border-neutral-200 hover:border-indigo-300'
+                              }`}
+                            >
+                              🔒 Block ALL Simulators
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setBlockAllSimulators(false)}
+                              className={`flex-1 py-2 px-3 rounded-lg text-xs font-bold border transition ${
+                                !blockAllSimulators
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white text-neutral-700 border-neutral-200 hover:border-indigo-300'
+                              }`}
+                            >
+                              🎯 Select Specific
+                            </button>
+                          </div>
+
+                          {/* Specific simulator checkboxes */}
+                          {!blockAllSimulators && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {simulatorList.map(sim => {
+                                const isChecked = selectedSimulators.includes(sim.name);
+                                return (
+                                  <label
+                                    key={sim.id}
+                                    className={`flex items-center gap-2 p-2 rounded-lg border cursor-pointer transition text-xs font-medium ${
+                                      isChecked
+                                        ? 'bg-indigo-100 border-indigo-300 text-indigo-800'
+                                        : 'bg-white border-neutral-200 text-neutral-700 hover:border-indigo-200'
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={isChecked}
+                                      onChange={() =>
+                                        setSelectedSimulators(prev =>
+                                          isChecked ? prev.filter(s => s !== sim.name) : [...prev, sim.name]
+                                        )
+                                      }
+                                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                                    />
+                                    {sim.name}
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          )}
+
+                          {blockAllSimulators && simulatorList.length > 0 && (
+                            <p className="text-[11px] text-indigo-700 font-medium">
+                              ✅ All {simulatorList.length} simulators will be blocked during {selectedSlots.length} reserved slot{selectedSlots.length !== 1 ? 's' : ''}.
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </section>
 

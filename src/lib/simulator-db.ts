@@ -431,6 +431,79 @@ export async function deleteSimulatorSlotLocks(sourceOrderId: string): Promise<b
 }
 
 /**
+ * Release / delete an explicit simulator slot lock by its record ID in simulator_slot_locks
+ */
+export async function deleteSimulatorSlotLockById(id: number): Promise<boolean> {
+  try {
+    const existing = await simulatorPool.query(
+      `SELECT source_order_id, booking_time FROM simulator_slot_locks WHERE id = $1`,
+      [id]
+    );
+
+    await simulatorPool.query(
+      `DELETE FROM simulator_slot_locks WHERE id = $1`,
+      [id]
+    );
+
+    if (existing.rows.length > 0) {
+      const { source_order_id, booking_time } = existing.rows[0];
+      if (source_order_id) {
+        await simulatorPool.query(
+          `DELETE FROM bookings WHERE order_id = $1 AND booking_time = $2`,
+          [source_order_id, booking_time]
+        ).catch(() => {});
+      }
+    }
+
+    invalidateTakenSlotsCache();
+    return true;
+  } catch (err) {
+    console.error('Error deleting simulator slot lock by ID:', id, err);
+    return false;
+  }
+}
+
+/**
+ * Fetch simulator slot locks (recent or filtered by date) for admin management view
+ */
+export async function getSimulatorSlotLocks(date?: string): Promise<Array<{
+  id: number;
+  simulator_name: string;
+  booking_date: string;
+  booking_time: string;
+  source_platform: string;
+  source_order_id: string;
+  customer_name?: string;
+  customer_phone?: string;
+  status: string;
+  created_at: string;
+}>> {
+  try {
+    let query = `
+      SELECT id, simulator_name, booking_date, booking_time, source_platform, 
+             source_order_id, customer_name, customer_phone, status, created_at
+      FROM simulator_slot_locks
+      WHERE status IN ('PENDING', 'PAID', 'CONFIRMED', 'ATTENDED')
+    `;
+    const params: any[] = [];
+
+    if (date) {
+      const formattedDate = formatToSimulatorDate(date);
+      query += ` AND (booking_date = $1 OR booking_date = $2)`;
+      params.push(formattedDate, date);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT 200`;
+
+    const res = await simulatorPool.query(query, params);
+    return res.rows || [];
+  } catch (err) {
+    console.error('Error fetching simulator_slot_locks:', err);
+    return [];
+  }
+}
+
+/**
  * Confirm simulator slot locks when online payment succeeds:
  * updates source_order_id from tempTxnId (e.g. TXN_RC_123456) to official order ID (e.g. PAID_RC_58)
  * and sets status = 'CONFIRMED' / 'PAID'.

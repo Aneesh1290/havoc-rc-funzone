@@ -82,6 +82,8 @@ import {
   parseSimulatorSlotAssignments,
   getSimPodiumSimulators,
   getSimPodiumSlots,
+  deleteSimulatorSlotLockById,
+  getSimulatorSlotLocks,
   SimPodiumSlot
 } from "@/lib/simulator-db";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -887,6 +889,107 @@ export async function useCouponAction(code: string, context?: { customerName?: s
 // VIP Perks Actions
 export async function fetchVipPerksAction(activeOnly = false): Promise<VipPerkRow[]> {
   return getVipPerks(activeOnly);
+}
+
+export async function fetchSimulatorListAction(): Promise<Array<{ id: number | string; name: string; category?: string }>> {
+  try {
+    // 1. Try fetching live from Havoc Sim Podium Postgres
+    const simPodiumProducts = await getSimPodiumSimulators();
+    if (simPodiumProducts && simPodiumProducts.length > 0) {
+      return simPodiumProducts.map(p => ({
+        id: p.id,
+        name: p.name,
+        category: p.type || "Simulator"
+      }));
+    }
+  } catch (err) {
+    console.warn("Could not fetch remote Sim Podium simulators, falling back to local vip_perks:", err);
+  }
+
+  // 2. Fallback to local vip_perks in havoc.db
+  const perks = getVipPerks(true);
+  return perks.map(p => ({
+    id: p.id,
+    name: p.name,
+    category: p.category
+  }));
+}
+
+export async function fetchSimulatorSlotLocksAction(date?: string) {
+  try {
+    return await getSimulatorSlotLocks(date);
+  } catch (err: any) {
+    console.error("fetchSimulatorSlotLocksAction error:", err);
+    return [];
+  }
+}
+
+export async function blockSimulatorSlotManualAction(params: {
+  simulatorName: string;
+  bookingDate: string;
+  bookingTime: string;
+  reason?: string;
+}): Promise<{ success: boolean; slotsBlocked?: number; error?: string }> {
+  try {
+    const session = await checkSessionAction();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const { simulatorName, bookingDate, bookingTime, reason } = params;
+    if (!simulatorName || !bookingDate || !bookingTime) {
+      return { success: false, error: "Simulator, Date and Time slot are required." };
+    }
+
+    // Expand 1-hour slot (e.g. 11AM-12PM) to two 30-min slots if needed
+    const assignments = parseSimulatorSlotAssignments(simulatorName, bookingTime);
+    const sourceOrderId = `BLOCK_SIM_${Date.now()}`;
+    let slotsBlocked = 0;
+
+    for (let i = 0; i < assignments.length; i++) {
+      const a = assignments[i];
+      const slotOrderId = assignments.length > 1 ? `${sourceOrderId}_${i + 1}` : sourceOrderId;
+      const res = await lockSimulatorSlot({
+        simulatorName: a.simulatorName,
+        bookingDate,
+        bookingTime: a.slotLabel,
+        sourceOrderId: slotOrderId,
+        customerName: reason ? `Admin Block: ${reason}` : `Admin Block (Manual)`,
+        status: 'CONFIRMED'
+      });
+      if (res.success) {
+        slotsBlocked++;
+      } else if (assignments.length === 1) {
+        return res;
+      }
+    }
+
+    revalidatePath('/admin/slots');
+    return { success: true, slotsBlocked };
+  } catch (err: any) {
+    console.error("blockSimulatorSlotManualAction error:", err);
+    return { success: false, error: err.message || "Failed to block simulator slot" };
+  }
+}
+
+export async function unblockSimulatorSlotManualAction(lockId: number): Promise<{ success: boolean; error?: string }> {
+  try {
+    const session = await checkSessionAction();
+    if (!session) {
+      return { success: false, error: "Unauthorized" };
+    }
+
+    const ok = await deleteSimulatorSlotLockById(lockId);
+    if (!ok) {
+      return { success: false, error: "Failed to release simulator slot lock" };
+    }
+
+    revalidatePath('/admin/slots');
+    return { success: true };
+  } catch (err: any) {
+    console.error("unblockSimulatorSlotManualAction error:", err);
+    return { success: false, error: err.message || "Failed to unblock simulator slot" };
+  }
 }
 
 export async function syncSimPodiumSimulatorsAction(): Promise<{ success: boolean; count?: number; error?: string }> {

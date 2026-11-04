@@ -42,7 +42,11 @@ import {
   updateSiteSettingAction,
   fetchOpenedSpecificDatesAction,
   toggleOpenedSpecificDateAction,
-  fetchTicketsAction
+  fetchTicketsAction,
+  fetchSimulatorSlotLocksAction,
+  blockSimulatorSlotManualAction,
+  unblockSimulatorSlotManualAction,
+  fetchSimulatorListAction,
 } from "@/app/actions/tickets";
 import {
   getColorInventoryAction,
@@ -95,7 +99,7 @@ function parseBarcodeInputs(text: string): string[] {
 }
 
 export default function SlotsManagementPage() {
-  const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots' | 'color_inventory'>('block_slots');
+  const [activeTab, setActiveTab] = useState<'block_slots' | 'manage_slots' | 'color_inventory' | 'sim_locks'>('block_slots');
 
   // Wristband Colour Inventory State
   const [colorInventory, setColorInventory] = useState<WristbandColorInventoryItem[]>([]);
@@ -118,6 +122,15 @@ export default function SlotsManagementPage() {
     bandCodes?: string[];
     invalidCodes?: string[];
   }>({ isLoading: false, count: 0, totalAvailable: 0 });
+
+  // Sim Podium Locks State
+  const [simLocks, setSimLocks] = useState<any[]>([]);
+  const [isLoadingSimLocks, setIsLoadingSimLocks] = useState(false);
+  const [simLockFilterDate, setSimLockFilterDate] = useState("");
+  const [simList, setSimList] = useState<Array<{id: number | string; name: string; category?: string}>>([]);
+  const [simBlockForm, setSimBlockForm] = useState({ simulatorName: "", bookingDate: "", bookingTime: "", reason: "" });
+  const [isBlockingSimSlot, setIsBlockingSimSlot] = useState(false);
+  const [simFeedback, setSimFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Handover Allotment Mode: 'auto' | 'series' | 'random'
   const [handoverMode, setHandoverMode] = useState<"auto" | "series" | "random">("auto");
@@ -298,6 +311,23 @@ export default function SlotsManagementPage() {
       setSelectedSpecificMonday(nextMon.value);
     }
   }, []);
+
+  const loadSimLocks = async (date?: string) => {
+    setIsLoadingSimLocks(true);
+    setSimFeedback(null);
+    try {
+      const locks = await fetchSimulatorSlotLocksAction(date);
+      setSimLocks(locks);
+      if (simList.length === 0) {
+        const sims = await fetchSimulatorListAction();
+        setSimList(sims);
+      }
+    } catch (err) {
+      console.error("[loadSimLocks Error]", err);
+    } finally {
+      setIsLoadingSimLocks(false);
+    }
+  };
 
   const loadColorInventory = async () => {
     setIsLoadingInventory(true);
@@ -1035,6 +1065,21 @@ export default function SlotsManagementPage() {
         >
           <Palette className="w-4 h-4 text-emerald-400" />
           Wristband Colour Inventory ({colorInventory.length})
+        </button>
+
+        <button
+          onClick={() => {
+            setActiveTab('sim_locks');
+            loadSimLocks(simLockFilterDate || undefined);
+          }}
+          className={`px-5 py-2.5 rounded-xl font-bold text-sm transition-all flex items-center gap-2 ${
+            activeTab === 'sim_locks'
+              ? 'bg-[#0d1b2a] text-white shadow-md'
+              : 'text-gray-600 hover:bg-gray-100'
+          }`}
+        >
+          <Zap className="w-4 h-4 text-indigo-400" />
+          Sim Podium Locks ({simLocks.length})
         </button>
       </div>
 
@@ -3643,6 +3688,208 @@ export default function SlotsManagementPage() {
           </div>
         </div>
       )}
+
+      {/* ── Sim Podium Locks Tab ─────────────────────────────── */}
+      {activeTab === 'sim_locks' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+            {/* LEFT: Block a Sim Podium Slot Manually */}
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6 space-y-4">
+              <h3 className="text-sm font-bold text-neutral-800 flex items-center gap-2">
+                <Zap className="w-4 h-4 text-indigo-500" />
+                Block Sim Podium Slot Manually
+              </h3>
+
+              {simFeedback && (
+                <div className={`p-3 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                  simFeedback.type === 'success'
+                    ? 'bg-green-50 border border-green-200 text-green-800'
+                    : 'bg-red-50 border border-red-200 text-red-700'
+                }`}>
+                  {simFeedback.type === 'success'
+                    ? <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0" />
+                    : <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                  {simFeedback.message}
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {/* Simulator selector */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-500 mb-1 uppercase tracking-wider">Simulator *</label>
+                  <select
+                    value={simBlockForm.simulatorName}
+                    onChange={e => setSimBlockForm(f => ({ ...f, simulatorName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  >
+                    <option value="">Select a simulator...</option>
+                    {simList.map(sim => (
+                      <option key={sim.id} value={sim.name}>{sim.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Date */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-500 mb-1 uppercase tracking-wider">Date *</label>
+                  <input
+                    type="date"
+                    value={simBlockForm.bookingDate}
+                    onChange={e => setSimBlockForm(f => ({ ...f, bookingDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                {/* Time slot — 30-min Sim Podium format */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-500 mb-1 uppercase tracking-wider">Time Slot (30-min) *</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 11AM-11:30AM or 11AM-12PM"
+                    value={simBlockForm.bookingTime}
+                    onChange={e => setSimBlockForm(f => ({ ...f, bookingTime: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none font-mono"
+                  />
+                  <p className="text-[10px] text-neutral-400 mt-0.5">1-hour inputs (e.g. 11AM-12PM) are auto-expanded to two 30-min slots.</p>
+                </div>
+
+                {/* Reason */}
+                <div>
+                  <label className="block text-[11px] font-semibold text-neutral-500 mb-1 uppercase tracking-wider">Reason / Notes</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. School reservation, maintenance, event block..."
+                    value={simBlockForm.reason}
+                    onChange={e => setSimBlockForm(f => ({ ...f, reason: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-xs focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={isBlockingSimSlot || !simBlockForm.simulatorName || !simBlockForm.bookingDate || !simBlockForm.bookingTime}
+                  onClick={async () => {
+                    setIsBlockingSimSlot(true);
+                    setSimFeedback(null);
+                    try {
+                      const res = await blockSimulatorSlotManualAction({
+                        simulatorName: simBlockForm.simulatorName,
+                        bookingDate: simBlockForm.bookingDate,
+                        bookingTime: simBlockForm.bookingTime,
+                        reason: simBlockForm.reason || undefined,
+                      });
+                      if (res.success) {
+                        setSimFeedback({ type: 'success', message: `✅ Blocked ${res.slotsBlocked || 1} slot(s) successfully.` });
+                        setSimBlockForm({ simulatorName: "", bookingDate: "", bookingTime: "", reason: "" });
+                        await loadSimLocks(simLockFilterDate || undefined);
+                      } else {
+                        setSimFeedback({ type: 'error', message: res.error || 'Failed to block slot.' });
+                      }
+                    } catch (err: any) {
+                      setSimFeedback({ type: 'error', message: err.message || 'Unexpected error.' });
+                    } finally {
+                      setIsBlockingSimSlot(false);
+                    }
+                  }}
+                  className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold text-xs flex items-center justify-center gap-2 transition shadow-sm"
+                >
+                  {isBlockingSimSlot ? (
+                    <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Blocking...</>
+                  ) : (
+                    <><Zap className="w-3.5 h-3.5" /> Block Sim Slot(s)</>
+                  )}
+                </button>
+              </div>
+            </div>
+
+            {/* RIGHT: Current Sim Locks list */}
+            <div className="bg-white rounded-2xl border border-neutral-200 shadow-sm p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-neutral-800 flex items-center gap-2">
+                  <Ban className="w-4 h-4 text-red-400" />
+                  Active Sim Podium Locks ({simLocks.length})
+                </h3>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={simLockFilterDate}
+                    onChange={e => {
+                      setSimLockFilterDate(e.target.value);
+                      loadSimLocks(e.target.value || undefined);
+                    }}
+                    className="px-2 py-1 rounded-lg border border-neutral-300 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={() => loadSimLocks(simLockFilterDate || undefined)}
+                    className="p-1.5 rounded-lg border border-neutral-200 hover:bg-neutral-100 text-neutral-500 transition"
+                    title="Refresh"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {isLoadingSimLocks ? (
+                <div className="flex items-center justify-center py-10 text-neutral-400 text-xs gap-2">
+                  <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+                  Loading locks...
+                </div>
+              ) : simLocks.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-10 text-neutral-400 text-xs gap-2">
+                  <CheckCircle2 className="w-8 h-8 text-neutral-200" />
+                  <span>No active simulator locks{simLockFilterDate ? ` for ${simLockFilterDate}` : ''}.</span>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[480px] overflow-y-auto pr-1">
+                  {simLocks.map((lock: any) => (
+                    <div
+                      key={lock.id}
+                      className="flex items-center justify-between p-3 rounded-xl border border-neutral-200 bg-neutral-50 hover:border-indigo-200 transition"
+                    >
+                      <div className="space-y-0.5 min-w-0">
+                        <div className="text-xs font-bold text-neutral-800 truncate">{lock.simulator_name}</div>
+                        <div className="text-[11px] text-neutral-500 flex items-center gap-1.5 flex-wrap">
+                          <span className="font-mono">{lock.booking_date}</span>
+                          <span className="text-neutral-300">·</span>
+                          <span className="font-mono">{lock.booking_time}</span>
+                          {lock.customer_name && (
+                            <>
+                              <span className="text-neutral-300">·</span>
+                              <span className="truncate max-w-[120px]">{lock.customer_name}</span>
+                            </>
+                          )}
+                        </div>
+                        {lock.source_order_id && (
+                          <div className="text-[10px] font-mono text-indigo-600">{lock.source_order_id}</div>
+                        )}
+                      </div>
+                      <button
+                        onClick={async () => {
+                          if (!confirm(`Unblock ${lock.simulator_name} @ ${lock.booking_time} on ${lock.booking_date}?`)) return;
+                          const res = await unblockSimulatorSlotManualAction(lock.id);
+                          if (res.success) {
+                            setSimFeedback({ type: 'success', message: `Unblocked slot #${lock.id}` });
+                            await loadSimLocks(simLockFilterDate || undefined);
+                          } else {
+                            setSimFeedback({ type: 'error', message: res.error || 'Unblock failed.' });
+                          }
+                        }}
+                        className="ml-3 p-1.5 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition shrink-0"
+                        title="Unblock this slot"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

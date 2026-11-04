@@ -1266,6 +1266,11 @@ export interface CreateOrganisationBookingParams {
   organizationNotes?: string;
   specialRequests?: string[];
   tags?: string;
+  simulatorBlocking?: {
+    blockSimulators?: boolean;
+    blockAllSimulators?: boolean;
+    selectedSimulators?: string[];
+  };
 }
 
 export function createOrganisationBooking(params: CreateOrganisationBookingParams) {
@@ -1281,7 +1286,9 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
     blockPublicSlots = true,
     organizationNotes,
     specialRequests = [],
-    tags = ''
+    tags = '',
+    // simulatorBlocking is intentionally destructured but handled in the async server action layer
+    // (after createOrganisationBooking returns), not here in the sync SQLite layer
   } = params;
 
   if (!timeSlots || timeSlots.length === 0) return null;

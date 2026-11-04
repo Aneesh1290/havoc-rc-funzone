@@ -1244,30 +1244,16 @@ export function addBatchBooking(
   };
 }
 
-export interface OrganisationBookingItem {
-  ticketId: number;
-  ticketName?: string;
-  date: string;
-  timeSlot: string;
-  quantity: number;
-  itemTotal: number;
-  simulatorName?: string;
-  simulatorSlot?: string;
-}
-
 export interface CreateOrganisationBookingParams {
   organizationType: string;
   organizationName: string;
   contactName: string;
-  contactEmail: string;
+  contactEmail?: string;
   contactPhone: string;
   expectedGuests?: number;
   eventDate: string;
-  items: OrganisationBookingItem[];
-  totalAmount: number;
-  depositAmount?: number;
-  paymentStatus: "Paid" | "Partially paid" | "Unpaid";
-  paymentRef?: string;
+  timeSlots: string[];
+  blockPublicSlots?: boolean;
   organizationNotes?: string;
   specialRequests?: string[];
   tags?: string;
@@ -1278,32 +1264,33 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
     organizationType,
     organizationName,
     contactName,
-    contactEmail,
+    contactEmail = "",
     contactPhone,
     expectedGuests = 0,
     eventDate,
-    items,
-    depositAmount = 0,
-    paymentStatus = 'Unpaid',
-    paymentRef,
+    timeSlots = [],
+    blockPublicSlots = true,
     organizationNotes,
     specialRequests = [],
     tags = ''
   } = params;
 
-  if (!items || items.length === 0) return null;
+  if (!timeSlots || timeSlots.length === 0) return null;
 
   const createdAt = new Date().toISOString();
   const orderNumber = getNextOrderNumber();
+
+  // Find a default active ticket for foreign key integrity
+  const defaultTicket = db.prepare('SELECT id FROM tickets WHERE active = 1 ORDER BY id ASC LIMIT 1').get() as { id: number } | undefined;
+  const ticketId = defaultTicket?.id || 1;
 
   // Clean customer display name
   const displayName = contactName ? `${organizationName.trim()} (${contactName.trim()})` : organizationName.trim();
 
   // Standardize organization tags
   const cleanTypeTag = (organizationType || 'ORGANISATION').toUpperCase().replace(/[\s/]+/g, '_');
-  const orgTag = `ORGANISATION,${cleanTypeTag}`;
-  const depositTag = depositAmount > 0 && paymentStatus === 'Partially paid' ? ',PARTIAL_DEPOSIT' : '';
-  const finalTags = tags ? `${orgTag}${depositTag},${tags}` : `${orgTag}${depositTag}`;
+  const orgTag = `ORGANISATION,RESERVATION,${cleanTypeTag}`;
+  const finalTags = tags ? `${orgTag},${tags}` : orgTag;
 
   const specialRequestsStr = Array.isArray(specialRequests) ? specialRequests.join(', ') : (specialRequests || '');
 
@@ -1311,40 +1298,43 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
     INSERT INTO bookings (
       order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
-      payment_status, fulfillment_status, tags, simulator_name, simulator_slot,
-      payment_ref, organization_name, organization_type, organization_notes,
+      payment_status, fulfillment_status, tags,
+      organization_name, organization_type, organization_notes,
       deposit_amount, expected_guests, special_requests, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'Reserved', 'Unfulfilled', ?, ?, ?, ?, 0, ?, ?, ?)
   `);
 
   const insertedIds: number[] = [];
 
   const runTx = db.transaction(() => {
-    for (const item of items) {
+    for (const slot of timeSlots) {
       const info = insertStmt.run(
         orderNumber,
-        item.ticketId,
-        item.date || eventDate,
-        item.timeSlot,
-        item.quantity,
+        ticketId,
+        eventDate,
+        slot,
+        expectedGuests || 1,
         displayName,
         contactEmail,
         contactPhone,
-        item.itemTotal,
-        paymentStatus,
         finalTags,
-        item.simulatorName || null,
-        item.simulatorSlot || null,
-        paymentRef || null,
         organizationName.trim(),
         organizationType,
         organizationNotes || null,
-        depositAmount,
         expectedGuests,
         specialRequestsStr,
         createdAt
       );
       insertedIds.push(Number(info.lastInsertRowid));
+
+      // Block public booking for this slot if requested
+      if (blockPublicSlots !== false) {
+        try {
+          blockSlotOrDate(eventDate, slot, `Organisation Reservation: ${organizationName.trim()}`);
+        } catch (blockErr) {
+          console.warn("[Organisation Reservation] Could not block slot:", blockErr);
+        }
+      }
     }
   });
 

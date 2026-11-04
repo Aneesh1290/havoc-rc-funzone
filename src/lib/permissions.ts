@@ -20,6 +20,7 @@ export const PERMISSION_GROUPS = {
     { key: "bookings:delete", label: "Delete Orders", description: "Can delete single or bulk orders from the bookings list" },
     { key: "bookings:payment", label: "Collect Payment", description: "Can mark orders as Paid / Unpaid in order details" },
     { key: "bookings:status", label: "Order Actions (Fulfill / Cancel)", description: "Can mark orders as Fulfilled / Unfulfilled or Cancel orders" },
+    { key: "bookings:reserve", label: "Organisation Reservations", description: "Can create dedicated organization, school, and party reservations" },
     { key: "bookings:checkin", label: "Customer Desk Check-In", description: "Can initiate customer OTP desk check-in" },
     { key: "bookings:export", label: "Export Excel Reports", description: "Can download Excel reports of orders" },
   ],

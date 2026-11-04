@@ -15,7 +15,7 @@ import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -212,7 +212,8 @@ export default function OrderDetailPage() {
   const totalAmount = hasRecordedTotal ? rawSumTotal : fullTariffWithGst;
   const itemsSubtotal = hasRecordedTotal ? Math.round((totalAmount / 1.18) * 100) / 100 : baseItemsSubtotal;
   const taxGst = Math.round((totalAmount - itemsSubtotal) * 100) / 100;
-  const amountDue = isPaid ? 0 : totalAmount;
+  const deposit = Number(booking?.deposit_amount || 0);
+  const amountDue = isPaid ? 0 : (booking?.payment_status === "Partially paid" ? Math.max(0, totalAmount - deposit) : totalAmount);
   const discountTotal = Math.max(0, fullTariffWithGst - totalAmount);
 
   const handleTogglePayment = async (status: string) => {
@@ -430,6 +431,94 @@ export default function OrderDetailPage() {
               </div>
             );
           })()}
+
+          {/* Organisation Reservation Details Card */}
+          {booking?.organization_name && (
+            <div className="rounded-2xl border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/70 via-white to-violet-50/50 p-6 shadow-sm space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/20">
+                    <Building2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-black uppercase tracking-wider text-indigo-900">
+                        {booking.organization_type || "Organisation"} Reservation
+                      </span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 border border-indigo-200">
+                        Group Booking
+                      </span>
+                    </div>
+                    <h2 className="text-lg font-black text-gray-900 font-heading">
+                      {booking.organization_name}
+                    </h2>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white hover:bg-gray-50 border border-gray-200 text-xs font-bold text-gray-700 shadow-xs transition-colors self-start sm:self-auto"
+                >
+                  <Printer className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Print Slip</span>
+                </button>
+              </div>
+
+              {/* Grid with Headcount, Deposit, and Balance */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-white/80 p-4 rounded-xl border border-indigo-100/60 text-xs">
+                <div>
+                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Expected Guests</span>
+                  <span className="font-bold text-gray-900 text-sm">{booking.expected_guests || totalQuantity} Attendees</span>
+                </div>
+                <div>
+                  <span className="text-gray-400 uppercase font-bold text-[10px] block">Grand Total</span>
+                  <span className="font-bold text-gray-900 text-sm font-mono">₹{totalAmount.toLocaleString('en-IN')}</span>
+                </div>
+                <div>
+                  <span className="text-emerald-600 uppercase font-bold text-[10px] block">Advance Paid</span>
+                  <span className="font-bold text-emerald-700 text-sm font-mono">₹{deposit.toLocaleString('en-IN')}</span>
+                </div>
+                <div>
+                  <span className="text-amber-600 uppercase font-bold text-[10px] block">Balance Due</span>
+                  <span className="font-bold text-amber-700 text-sm font-mono">₹{amountDue.toLocaleString('en-IN')}</span>
+                </div>
+              </div>
+
+              {/* Special Requests */}
+              {booking.special_requests && (
+                <div className="text-xs space-y-1 bg-amber-50/60 p-3 rounded-xl border border-amber-200/60">
+                  <span className="font-bold text-amber-900 block">Requested Arrangements & Setups:</span>
+                  <p className="text-amber-800">{booking.special_requests}</p>
+                </div>
+              )}
+
+              {/* Organization Notes */}
+              {booking.organization_notes && (
+                <div className="text-xs space-y-1 bg-gray-50 p-3 rounded-xl border border-gray-200">
+                  <span className="font-bold text-gray-700 block">Staff / Internal Notes:</span>
+                  <p className="text-gray-600">{booking.organization_notes}</p>
+                </div>
+              )}
+
+              {/* Collect Balance Action Button */}
+              {amountDue > 0 && canCollectPayment && (
+                <div className="pt-1 flex items-center justify-between bg-amber-50 border border-amber-200 p-3 rounded-xl">
+                  <div className="text-xs">
+                    <span className="font-bold text-amber-900">Remaining Balance: ₹{amountDue.toLocaleString('en-IN')}</span>
+                    <p className="text-[11px] text-amber-700">Collect payment upon arrival and mark reservation as fully paid.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleTogglePayment("Paid")}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-sm shadow-emerald-600/20 transition-all active:scale-95 shrink-0"
+                  >
+                    Collect Balance (₹{amountDue.toLocaleString('en-IN')})
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Items Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm">

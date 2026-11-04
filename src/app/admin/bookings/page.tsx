@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp } from "lucide-react";
-import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction } from "@/app/actions/tickets";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2 } from "lucide-react";
+import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
 import { hasUserPermission } from "@/lib/permissions";
 import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
-import type { TimeSlotRow } from "@/lib/db";
+import OrganisationBookingModal from "@/components/admin/OrganisationBookingModal";
+import type { TimeSlotRow, TicketRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
@@ -26,6 +27,12 @@ export interface GroupedOrder {
   total_quantity: number;
   payment_ref?: string;
   applied_coupon?: string;
+  organization_name?: string;
+  organization_type?: string;
+  organization_notes?: string;
+  deposit_amount?: number;
+  expected_guests?: number;
+  special_requests?: string;
   bookingIds: number[];
   primaryId: number;
   items: any[];
@@ -40,8 +47,10 @@ export default function BookingsPage() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
+  const [tickets, setTickets] = useState<TicketRow[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
+  const [isOrgBookingOpen, setIsOrgBookingOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
 
@@ -57,16 +66,26 @@ export default function BookingsPage() {
   const canDelete = hasUserPermission(sessionUser, "bookings:delete");
   const canDeskCheckIn = hasUserPermission(sessionUser, "bookings:checkin");
   const canExport = hasUserPermission(sessionUser, "bookings:export");
+  const canReserve = Boolean(
+    !sessionUser || 
+    sessionUser?.role === "Administrator" || 
+    sessionUser?.role === "super_admin" || 
+    sessionUser?.username?.toLowerCase() === "admin" ||
+    hasUserPermission(sessionUser, "bookings:reserve") || 
+    hasUserPermission(sessionUser, "bookings")
+  );
 
   const loadBookings = () => {
     setIsLoading(true);
     Promise.all([
       fetchAllBookingsAction(),
-      fetchTimeSlotsAction()
+      fetchTimeSlotsAction(),
+      fetchTicketsAction()
     ])
-      .then(([bookingsData, slotsData]) => {
+      .then(([bookingsData, slotsData, ticketsData]) => {
         setBookings(bookingsData || []);
         setTimeSlots(slotsData || []);
+        setTickets(ticketsData || []);
       })
       .catch((err) => console.error(err))
       .finally(() => setIsLoading(false));
@@ -102,6 +121,12 @@ export default function BookingsPage() {
           total_quantity: b.quantity || 1,
           payment_ref: b.payment_ref || "",
           applied_coupon: b.applied_coupon || "",
+          organization_name: b.organization_name || "",
+          organization_type: b.organization_type || "",
+          organization_notes: b.organization_notes || "",
+          deposit_amount: Number(b.deposit_amount || 0),
+          expected_guests: Number(b.expected_guests || 0),
+          special_requests: b.special_requests || "",
           bookingIds: [b.id],
           primaryId: b.id,
           items: [b],
@@ -117,6 +142,14 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
+        if (b.organization_name && !existing.organization_name) {
+          existing.organization_name = b.organization_name;
+          existing.organization_type = b.organization_type;
+          existing.organization_notes = b.organization_notes;
+          existing.deposit_amount = Number(b.deposit_amount || 0);
+          existing.expected_guests = Number(b.expected_guests || 0);
+          existing.special_requests = b.special_requests;
+        }
         if (b.payment_ref && !existing.payment_ref) {
           existing.payment_ref = b.payment_ref;
         }
@@ -244,7 +277,10 @@ export default function BookingsPage() {
     const customer = (order.customer_name || "").toLowerCase();
     const email = (order.customer_email || "").toLowerCase();
     const phone = (order.customer_phone || "").toLowerCase();
-    const matchesSearch = !q || orderNum.includes(q) || customer.includes(q) || email.includes(q) || phone.includes(q);
+    const orgName = (order.organization_name || "").toLowerCase();
+    const orgType = (order.organization_type || "").toLowerCase();
+    const tags = (order.tags || "").toLowerCase();
+    const matchesSearch = !q || orderNum.includes(q) || customer.includes(q) || email.includes(q) || phone.includes(q) || orgName.includes(q) || orgType.includes(q) || tags.includes(q);
 
     if (!matchesSearch) return false;
 
@@ -437,6 +473,19 @@ export default function BookingsPage() {
             </div>
           )}
 
+          {/* Organisation & Event Reservation Button */}
+          {canReserve && (
+            <button
+              type="button"
+              onClick={() => setIsOrgBookingOpen(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white shadow-sm shadow-indigo-600/20 whitespace-nowrap active:scale-[0.98]"
+              title="Create dedicated booking for schools, birthday parties & corporate groups"
+            >
+              <Building2 className="w-4 h-4" />
+              <span>Organisation Reservation</span>
+            </button>
+          )}
+
           {/* 1. Verify & Check-In Customer Button - green pill */}
           {canDeskCheckIn && (
             <button
@@ -537,6 +586,15 @@ export default function BookingsPage() {
           </div>
         </div>
       </div>
+
+      {/* Dedicated Organisation & Event Reservation Modal */}
+      <OrganisationBookingModal
+        isOpen={isOrgBookingOpen}
+        onClose={() => setIsOrgBookingOpen(false)}
+        onSuccess={() => loadBookings()}
+        timeSlots={timeSlots}
+        tickets={tickets}
+      />
 
       {/* Customer Desk Check-In & Verification Modal */}
       <DeskCheckInModal
@@ -917,6 +975,24 @@ export default function BookingsPage() {
                       {/* Order Code */}
                       <td className="py-4 px-4 font-mono font-bold text-gray-900 whitespace-nowrap tracking-tight group-hover:text-[#ff5a1f] transition-colors">
                         <div>{order.orderCode}</div>
+                        {order.organization_name && (
+                          <div className="mt-1">
+                            <span 
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider border shadow-2xs ${
+                                (order.organization_type || "").toLowerCase().includes("school") 
+                                  ? "bg-blue-100 text-blue-900 border-blue-300"
+                                  : (order.organization_type || "").toLowerCase().includes("birthday")
+                                    ? "bg-pink-100 text-pink-900 border-pink-300"
+                                    : (order.organization_type || "").toLowerCase().includes("corporate")
+                                      ? "bg-purple-100 text-purple-900 border-purple-300"
+                                      : "bg-indigo-100 text-indigo-900 border-indigo-300"
+                              }`}
+                              title={`Organisation Reservation: ${order.organization_name}`}
+                            >
+                              {(order.organization_type || "").toLowerCase().includes("school") ? "🏫" : (order.organization_type || "").toLowerCase().includes("birthday") ? "🎂" : (order.organization_type || "").toLowerCase().includes("corporate") ? "🏢" : "🏛️"} {order.organization_type || "ORG"}
+                            </span>
+                          </div>
+                        )}
                         {order.applied_coupon && (
                           <div className="mt-1">
                             <span 
@@ -990,6 +1066,17 @@ export default function BookingsPage() {
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-green-50 text-green-700 border border-green-200">
                             Paid
                           </span>
+                        ) : order.payment_status === "Partially paid" ? (
+                          <div className="space-y-0.5">
+                            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                              Partially Paid
+                            </span>
+                            {order.deposit_amount && order.deposit_amount > 0 && (
+                              <div className="text-[10px] text-amber-800 font-semibold">
+                                Adv: ₹{order.deposit_amount.toLocaleString('en-IN')} (Due: ₹{Math.max(0, order.total_amount - order.deposit_amount).toLocaleString('en-IN')})
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
                             Unpaid

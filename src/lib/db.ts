@@ -244,6 +244,12 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN wristband_number TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN category_wristband_number TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN applied_coupon TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN organization_name TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN organization_type TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN organization_notes TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN deposit_amount REAL DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN expected_guests INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN special_requests TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN is_band_coupon INTEGER DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_category TEXT DEFAULT \'VIP\''); } catch (e) {}
   try { db.exec('ALTER TABLE coupons ADD COLUMN band_color TEXT'); } catch (e) {}
@@ -687,6 +693,7 @@ export function getAllBookings() {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -701,6 +708,7 @@ export function getBookingById(id: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -715,6 +723,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
@@ -1226,6 +1235,120 @@ export function addBatchBooking(
   });
 
   runTransaction();
+
+  return {
+    orderNumber,
+    primaryId: insertedIds[0] || orderNumber,
+    insertedIds,
+    createdAt
+  };
+}
+
+export interface OrganisationBookingItem {
+  ticketId: number;
+  ticketName?: string;
+  date: string;
+  timeSlot: string;
+  quantity: number;
+  itemTotal: number;
+  simulatorName?: string;
+  simulatorSlot?: string;
+}
+
+export interface CreateOrganisationBookingParams {
+  organizationType: string;
+  organizationName: string;
+  contactName: string;
+  contactEmail: string;
+  contactPhone: string;
+  expectedGuests?: number;
+  eventDate: string;
+  items: OrganisationBookingItem[];
+  totalAmount: number;
+  depositAmount?: number;
+  paymentStatus: "Paid" | "Partially paid" | "Unpaid";
+  paymentRef?: string;
+  organizationNotes?: string;
+  specialRequests?: string[];
+  tags?: string;
+}
+
+export function createOrganisationBooking(params: CreateOrganisationBookingParams) {
+  const {
+    organizationType,
+    organizationName,
+    contactName,
+    contactEmail,
+    contactPhone,
+    expectedGuests = 0,
+    eventDate,
+    items,
+    depositAmount = 0,
+    paymentStatus = 'Unpaid',
+    paymentRef,
+    organizationNotes,
+    specialRequests = [],
+    tags = ''
+  } = params;
+
+  if (!items || items.length === 0) return null;
+
+  const createdAt = new Date().toISOString();
+  const orderNumber = getNextOrderNumber();
+
+  // Clean customer display name
+  const displayName = contactName ? `${organizationName.trim()} (${contactName.trim()})` : organizationName.trim();
+
+  // Standardize organization tags
+  const cleanTypeTag = (organizationType || 'ORGANISATION').toUpperCase().replace(/[\s/]+/g, '_');
+  const orgTag = `ORGANISATION,${cleanTypeTag}`;
+  const depositTag = depositAmount > 0 && paymentStatus === 'Partially paid' ? ',PARTIAL_DEPOSIT' : '';
+  const finalTags = tags ? `${orgTag}${depositTag},${tags}` : `${orgTag}${depositTag}`;
+
+  const specialRequestsStr = Array.isArray(specialRequests) ? specialRequests.join(', ') : (specialRequests || '');
+
+  const insertStmt = db.prepare(`
+    INSERT INTO bookings (
+      order_number, ticket_id, booking_date, time_slot, quantity, 
+      customer_name, customer_email, customer_phone, total_amount, 
+      payment_status, fulfillment_status, tags, simulator_name, simulator_slot,
+      payment_ref, organization_name, organization_type, organization_notes,
+      deposit_amount, expected_guests, special_requests, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertedIds: number[] = [];
+
+  const runTx = db.transaction(() => {
+    for (const item of items) {
+      const info = insertStmt.run(
+        orderNumber,
+        item.ticketId,
+        item.date || eventDate,
+        item.timeSlot,
+        item.quantity,
+        displayName,
+        contactEmail,
+        contactPhone,
+        item.itemTotal,
+        paymentStatus,
+        finalTags,
+        item.simulatorName || null,
+        item.simulatorSlot || null,
+        paymentRef || null,
+        organizationName.trim(),
+        organizationType,
+        organizationNotes || null,
+        depositAmount,
+        expectedGuests,
+        specialRequestsStr,
+        createdAt
+      );
+      insertedIds.push(Number(info.lastInsertRowid));
+    }
+  });
+
+  runTx();
 
   return {
     orderNumber,

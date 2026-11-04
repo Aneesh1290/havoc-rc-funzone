@@ -960,13 +960,16 @@ export async function generateBookingsExcelReport(
     });
   });
 
-  // Group items by order_number
-  const ordersMap = new Map<number, OrderData>();
+  // Group items by order_number + date + time_slot
+  // (An organisation booking or multi-slot order has multiple rows in DB, each representing a specific reserved slot)
+  const ordersMap = new Map<string, OrderData>();
 
   for (const b of bookings) {
     const orderNum = b.order_number || b.id;
-    if (!ordersMap.has(orderNum)) {
-      ordersMap.set(orderNum, {
+    // Separate by slot so every reserved slot appears in its corresponding time slot in the Excel sheet
+    const groupKey = `${orderNum}_${b.booking_date || ""}_${b.time_slot || ""}`;
+    if (!ordersMap.has(groupKey)) {
+      ordersMap.set(groupKey, {
         orderNo: orderNum,
         orderCode: b.order_code || `#PAYDUE_FZ_${orderNum}`,
         name: b.customer_name || "Guest",
@@ -991,7 +994,7 @@ export async function generateBookingsExcelReport(
         items: []
       });
     } else {
-      const existing = ordersMap.get(orderNum)!;
+      const existing = ordersMap.get(groupKey)!;
       if (b.organization_name && !existing.organization_name) {
         existing.organization_name = b.organization_name;
         existing.organization_type = b.organization_type;
@@ -1016,7 +1019,7 @@ export async function generateBookingsExcelReport(
         }
       }
     }
-    ordersMap.get(orderNum)!.items.push(b);
+    ordersMap.get(groupKey)!.items.push(b);
   }
 
   const allOrders = Array.from(ordersMap.values());

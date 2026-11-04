@@ -18,19 +18,19 @@ export default async function TicketTypePage() {
   );
 
   return (
-    <div className="min-h-screen bg-white text-black py-10 sm:py-16">
-      <div className="max-w-5xl mx-auto px-4 sm:px-6">
+    <div className="min-h-screen bg-white text-black py-6 sm:py-16 overflow-x-hidden">
+      <div className="max-w-5xl mx-auto px-2 sm:px-6">
         
         {/* Table Container Card with rounded corners and solid black border */}
-        <div className="border-[2.5px] border-black rounded-[24px] sm:rounded-[32px] overflow-hidden bg-white shadow-xl">
+        <div className="border-[2px] sm:border-[2.5px] border-black rounded-[20px] sm:rounded-[32px] overflow-hidden bg-white shadow-xl">
           
           {/* Header Banner matching the reference poster */}
-          <div className="px-6 sm:px-14 py-8 border-b-[2.5px] border-black flex flex-row items-center justify-center gap-6 sm:gap-12">
+          <div className="px-4 sm:px-14 py-5 sm:py-8 border-b-[2px] sm:border-b-[2.5px] border-black flex flex-row items-center justify-center gap-3 sm:gap-12">
             
             {/* Red Ticket Icon Graphic with scalloped side cutouts, white dashed divider, & checkmark */}
             <div className="relative shrink-0 flex items-center justify-center">
               <svg 
-                className="w-24 sm:w-36 h-16 sm:h-24 drop-shadow-sm" 
+                className="w-16 sm:w-36 h-11 sm:h-24 drop-shadow-sm" 
                 viewBox="0 0 160 100" 
                 fill="#d00000"
               >
@@ -59,13 +59,13 @@ export default async function TicketTypePage() {
 
             {/* Title Text */}
             <div className="leading-tight text-left">
-              <h1 className="text-2xl sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
+              <h1 className="text-lg sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
                 Ticket Categories:
               </h1>
-              <h2 className="text-2xl sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
+              <h2 className="text-lg sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
                 Havoc Rc Funzone
               </h2>
-              <h2 className="text-2xl sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
+              <h2 className="text-lg sm:text-4xl md:text-5xl font-black font-sans tracking-tight text-black">
                 &amp; Miniature World
               </h2>
             </div>

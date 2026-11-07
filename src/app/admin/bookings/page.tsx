@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2 } from "lucide-react";
-import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction } from "@/app/actions/tickets";
+import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
@@ -48,6 +48,7 @@ export default function BookingsPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [timeSlots, setTimeSlots] = useState<TimeSlotRow[]>([]);
   const [tickets, setTickets] = useState<TicketRow[]>([]);
+  const [coupons, setCoupons] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
   const [isOrgBookingOpen, setIsOrgBookingOpen] = useState(false);
@@ -80,12 +81,14 @@ export default function BookingsPage() {
     Promise.all([
       fetchAllBookingsAction(),
       fetchTimeSlotsAction(),
-      fetchTicketsAction()
+      fetchTicketsAction(),
+      fetchCouponsAction().catch(() => [])
     ])
-      .then(([bookingsData, slotsData, ticketsData]) => {
+      .then(([bookingsData, slotsData, ticketsData, couponsData]) => {
         setBookings(bookingsData || []);
         setTimeSlots(slotsData || []);
         setTickets(ticketsData || []);
+        setCoupons(couponsData || []);
       })
       .catch((err) => console.error(err))
       .finally(() => setIsLoading(false));
@@ -380,10 +383,24 @@ export default function BookingsPage() {
         return;
       }
 
+      // Create lookup map for coupons to determine discount type & percentage
+      const couponMap = new Map<string, any>();
+      for (const c of coupons) {
+        if (c.code) {
+          couponMap.set(c.code.toUpperCase().trim(), c);
+        }
+      }
+
       // Collect all line items from the target orders
       const exportItems: any[] = [];
       for (const order of targetOrders) {
+        const couponCode = (order.applied_coupon || "").toUpperCase().trim();
+        const matchedCoupon = couponCode ? couponMap.get(couponCode) : undefined;
+
         for (const item of order.items) {
+          const itemCouponCode = (item.applied_coupon || order.applied_coupon || "").toUpperCase().trim();
+          const itemCoupon = itemCouponCode ? (couponMap.get(itemCouponCode) || matchedCoupon) : matchedCoupon;
+
           exportItems.push({
             ...item,
             order_number: order.orderNumber,
@@ -394,6 +411,10 @@ export default function BookingsPage() {
             payment_status: order.payment_status,
             fulfillment_status: order.fulfillment_status,
             total_amount: order.total_amount,
+            applied_coupon: item.applied_coupon || order.applied_coupon || "",
+            coupon_code: itemCouponCode || couponCode,
+            coupon_discount_type: itemCoupon ? itemCoupon.discount_type : 'percentage',
+            coupon_discount_value: itemCoupon ? Number(itemCoupon.value) : 100,
             payment_ref: item.payment_ref || order.payment_ref || "",
             transaction_id: item.icici_txn_id || item.transaction_id || "",
             simulator_name: item.simulator_name || "",

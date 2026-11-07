@@ -28,6 +28,10 @@ export interface BookingExportItem {
   expected_guests?: number;
   special_requests?: string;
   tags?: string;
+  applied_coupon?: string;
+  coupon_code?: string;
+  coupon_discount_type?: string;
+  coupon_discount_value?: number;
 }
 
 // Convert "11AM-12PM" or "3PM-4PM" into start minutes from midnight for chronological sorting
@@ -190,6 +194,10 @@ interface OrderData {
   expected_guests?: number;
   special_requests?: string;
   tags?: string;
+  applied_coupon?: string;
+  coupon_code?: string;
+  coupon_discount_type?: string;
+  coupon_discount_value?: number;
   items: BookingExportItem[];
 }
 
@@ -280,6 +288,11 @@ function calculateBookingRowHeight(
   const email = (order.email || "").trim();
   if (email.length > 24) {
     maxLines = Math.max(maxLines, Math.ceil(email.length / 24));
+  }
+
+  // 6. Order No / Coupon visual lines (Column C)
+  if (order.applied_coupon || order.coupon_code) {
+    maxLines = Math.max(maxLines, 2);
   }
 
   if (maxLines <= 1) return 22;
@@ -721,7 +734,12 @@ function renderDaySheet(
         grandTotalTickets += (vCount + pCount + vvCount + vpCount);
 
         const isPaid = order.payment_status.toLowerCase() === "paid";
-        const totalAmt = order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18);
+        const hasZeroTotal = order.total_amount === 0 && (
+          isPaid || 
+          Boolean(order.applied_coupon) || 
+          (order.tags && (order.tags.includes("COUPON") || order.tags.includes("VIP_BAND") || order.tags.includes("100%")))
+        );
+        const totalAmt = hasZeroTotal ? 0 : (order.total_amount > 0 ? order.total_amount : Math.round(calculatedBaseAmount * 1.18));
         const received = isPaid ? totalAmt : 0;
         const due = isPaid ? 0 : totalAmt;
 
@@ -737,13 +755,29 @@ function renderDaySheet(
         // Dynamic row height calculated across ALL visual columns (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name)
         const rowHeight = calculateBookingRowHeight(order, simPodiumDisplay, { simPodium: 30, deskRef: 30, gatewayTxn: 24 });
 
+        // Format coupon tag display if a coupon was used
+        const couponCode = order.applied_coupon || order.coupon_code || "";
+        let couponLabel = "";
+        if (couponCode) {
+          const discountType = order.coupon_discount_type || "percentage";
+          const discountVal = order.coupon_discount_value !== undefined ? Number(order.coupon_discount_value) : 100;
+          const discountDesc = discountType === "flat" ? `₹${discountVal} OFF` : `${discountVal}% OFF`;
+          couponLabel = `COUPON: ${couponCode} (${discountDesc})`;
+        }
+
         // Clean desk ref to normalize line breaks and trim extraneous whitespace
-        const cleanDeskRef = order.payment_ref ? order.payment_ref.trim().replace(/\r\n/g, "\n").replace(/\n{2,}/g, "\n") : "-";
+        let cleanDeskRef = order.payment_ref ? order.payment_ref.trim().replace(/\r\n/g, "\n").replace(/\n{2,}/g, "\n") : "-";
+        if (couponLabel) {
+          cleanDeskRef = cleanDeskRef === "-" ? couponLabel : `${cleanDeskRef}\n${couponLabel}`;
+        }
+
+        // Order code display: show order code and if coupon used, show coupon badge line
+        const orderDisplayCode = couponLabel ? `${order.orderCode}\n[${couponLabel}]` : order.orderCode;
 
         const dataRow = worksheet.addRow([
           currentSl,
           sn,
-          order.orderCode,
+          orderDisplayCode,
           order.name,
           order.phone,
           order.email,
@@ -982,6 +1016,10 @@ export async function generateBookingsExcelReport(
         payment_status: b.payment_status || "Unpaid",
         fulfillment_status: b.fulfillment_status || "Unfulfilled",
         total_amount: Number(b.total_amount || 0),
+        applied_coupon: b.applied_coupon || b.coupon_code || "",
+        coupon_code: b.coupon_code || b.applied_coupon || "",
+        coupon_discount_type: b.coupon_discount_type,
+        coupon_discount_value: b.coupon_discount_value,
         payment_ref: b.payment_ref || "",
         transaction_id: b.transaction_id || "",
         simulator_name: b.simulator_name || "",
@@ -1003,6 +1041,18 @@ export async function generateBookingsExcelReport(
       }
       if (b.tags && !existing.tags) {
         existing.tags = b.tags;
+      }
+      if (b.applied_coupon && !existing.applied_coupon) {
+        existing.applied_coupon = b.applied_coupon;
+      }
+      if (b.coupon_code && !existing.coupon_code) {
+        existing.coupon_code = b.coupon_code;
+      }
+      if (b.coupon_discount_type && !existing.coupon_discount_type) {
+        existing.coupon_discount_type = b.coupon_discount_type;
+      }
+      if (b.coupon_discount_value !== undefined && existing.coupon_discount_value === undefined) {
+        existing.coupon_discount_value = b.coupon_discount_value;
       }
       if (b.payment_ref && !existing.payment_ref) {
         existing.payment_ref = b.payment_ref;

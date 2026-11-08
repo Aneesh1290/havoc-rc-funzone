@@ -209,3 +209,133 @@ export async function sendGoogleReviewWhatsApp(
 ): Promise<{ success: boolean; message: string; error?: string }> {
   return { success: false, message: "Google review WhatsApp link sending is disabled." };
 }
+
+export interface PaymentLinkWhatsAppParams {
+  customerName: string;
+  customerPhone: string;
+  countryCode?: string;
+  totalAmount: number;
+  paymentUrl: string;
+  orderSummary?: string;
+}
+
+/**
+ * Dispatches a payment link to customer via WhatsApp.
+ * Supports:
+ * 1. Interakt API Template (if INTERAKT_PAYMENT_LINK_TEMPLATE is set)
+ * 2. WhatsApp Cloud API
+ * 3. Direct wa.me fallback URL generation
+ */
+export async function sendPaymentLinkWhatsApp(
+  params: PaymentLinkWhatsAppParams
+): Promise<{ success: boolean; message: string; waMeUrl: string; error?: string }> {
+  const { countryCode: rawCountryCode, customerPhone, customerName, totalAmount, paymentUrl, orderSummary } = params;
+  const { countryCode, phoneNumber } = parsePhoneAndCountryCode(rawCountryCode ? `${rawCountryCode}${customerPhone}` : customerPhone);
+  const cleanCountryCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
+
+  const messageText = `Hi ${customerName || "Racer"}! 👋\n\nYour payment link for Havoc RC Fun Zone is ready:\n💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n${orderSummary ? `📋 Details: ${orderSummary}\n` : ""}🔗 Pay Now: ${paymentUrl}\n\nPlease complete your payment to proceed to the track. See you soon! 🏁`;
+  const digitsOnlyCountry = cleanCountryCode.replace(/\D/g, "");
+  const waMeUrl = `https://wa.me/${digitsOnlyCountry}${phoneNumber}?text=${encodeURIComponent(messageText)}`;
+
+  const interaktApiKey = process.env.INTERAKT_API_KEY;
+  const templateName = process.env.INTERAKT_PAYMENT_LINK_TEMPLATE;
+
+  // If Interakt template is configured, try sending via Interakt
+  if (interaktApiKey && templateName) {
+    try {
+      let authHeader = interaktApiKey.trim();
+      if (!authHeader.toLowerCase().startsWith("basic ")) {
+        authHeader = `Basic ${authHeader}`;
+      }
+
+      const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          countryCode: cleanCountryCode,
+          phoneNumber: phoneNumber,
+          type: "Template",
+          template: {
+            name: templateName,
+            languageCode: "en",
+            bodyValues: [
+              customerName || "Racer",
+              `₹${Number(totalAmount).toLocaleString("en-IN")}`,
+              paymentUrl,
+            ],
+          },
+        }),
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: `Payment link sent via WhatsApp to ${cleanCountryCode} ${phoneNumber}`,
+          waMeUrl,
+        };
+      } else {
+        const errText = await response.text();
+        console.warn("[Interakt Payment Link Warning]", response.status, errText);
+      }
+    } catch (err: any) {
+      console.warn("[Interakt Payment Link Exception]", err?.message);
+    }
+  }
+
+  // WhatsApp Cloud API fallback if available
+  const whatsappToken = process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_API_KEY;
+  const whatsappPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const cloudTemplate = process.env.WHATSAPP_PAYMENT_LINK_TEMPLATE;
+
+  if (whatsappToken && whatsappPhoneId && cloudTemplate) {
+    try {
+      const fullRecipient = `${digitsOnlyCountry}${phoneNumber}`;
+      const response = await fetch(`https://graph.facebook.com/v18.0/${whatsappPhoneId}/messages`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${whatsappToken.trim()}`,
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: fullRecipient,
+          type: "template",
+          template: {
+            name: cloudTemplate,
+            language: { code: "en" },
+            components: [
+              {
+                type: "body",
+                parameters: [
+                  { type: "text", text: customerName || "Racer" },
+                  { type: "text", text: `₹${Number(totalAmount).toLocaleString("en-IN")}` },
+                  { type: "text", text: paymentUrl },
+                ],
+              },
+            ],
+          },
+        }),
+      });
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: `Payment link sent via WhatsApp Cloud to ${cleanCountryCode} ${phoneNumber}`,
+          waMeUrl,
+        };
+      }
+    } catch (err: any) {
+      console.warn("[WhatsApp Cloud Payment Link Exception]", err?.message);
+    }
+  }
+
+  // Standard direct WhatsApp link available (wa.me)
+  return {
+    success: true,
+    message: `WhatsApp payment message prepared for ${cleanCountryCode} ${phoneNumber}`,
+    waMeUrl,
+  };
+}

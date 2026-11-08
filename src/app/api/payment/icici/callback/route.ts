@@ -98,14 +98,54 @@ export async function POST(req: NextRequest) {
         const items = JSON.parse(holdRow.items_json || '[]');
         const totalBaseCost = items.reduce((sum: number, i: any) => sum + (Number(i.itemTotal) || 0), 0);
         
-        // Sequential order number assigned strictly upon payment success!
-        const orderNo = getNextOrderNumber();
-        const createdAt = new Date().toISOString();
-        const formattedOrderCode = formatOrderNumber(orderNo, createdAt);
-        const finalOrderId = formattedOrderCode;
+        let finalOrderId = "";
+        let formattedOrderCode = "";
+
+        // Check if items belong to existing desk-checkin booking IDs (paying for existing unpaid desk booking)
+        const existingBookingIds = items
+          .map((i: any) => i.bookingId || i.booking_id)
+          .filter((id: any) => id && typeof id === 'number');
 
         const db = getDbInstance();
         try {
+          if (existingBookingIds.length > 0 && existingBookingIds.length === items.length) {
+            // Update existing desk bookings to Paid and mark payment_ref
+            const placeholders = existingBookingIds.map(() => '?').join(',');
+            db.prepare(`
+              UPDATE bookings 
+              SET payment_status = 'Paid', payment_ref = ?, icici_txn_id = ?
+              WHERE id IN (${placeholders})
+            `).run(txnID, txnID, ...existingBookingIds);
+
+            // Update any desk payment links holding these booking IDs
+            try {
+              const matchedLinks = db.prepare(`SELECT * FROM desk_payment_links WHERE status = 'pending'`).all() as any[];
+              for (const l of matchedLinks) {
+                const bIds: number[] = JSON.parse(l.booking_ids || '[]');
+                if (bIds.some(id => existingBookingIds.includes(id))) {
+                  db.prepare(`UPDATE desk_payment_links SET status = 'completed', paid_at = datetime('now'), payment_ref = ? WHERE id = ?`).run(txnID, l.id);
+                }
+              }
+            } catch (_) {}
+
+            // Find first booking's order_number
+            const firstRow = db.prepare('SELECT order_number, created_at FROM bookings WHERE id = ?').get(existingBookingIds[0]) as any;
+            const existingOrderNo = firstRow?.order_number || existingBookingIds[0];
+            formattedOrderCode = formatOrderNumber(existingOrderNo, firstRow?.created_at, 'Paid');
+            finalOrderId = formattedOrderCode;
+
+            // Delete hold
+            deleteOnlineCheckoutHold(baseOrderId);
+
+            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, req.url), 303);
+          }
+
+          // Otherwise, sequential order number assigned strictly upon payment success for standard checkout!
+          const orderNo = getNextOrderNumber();
+          const createdAt = new Date().toISOString();
+          formattedOrderCode = formatOrderNumber(orderNo, createdAt);
+          finalOrderId = formattedOrderCode;
+
           const couponCode = (items.length > 0 && items[0]?.appliedCoupon) ? String(items[0].appliedCoupon) : null;
           const insertStmt = db.prepare(`
             INSERT INTO bookings (

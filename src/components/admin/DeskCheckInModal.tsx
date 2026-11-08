@@ -28,6 +28,9 @@ import {
   Edit3,
   Tag,
   UserX,
+  Share2,
+  ExternalLink,
+  Copy,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
@@ -59,6 +62,7 @@ interface SessionBooking {
   wristband_number?: string | null;
   category_wristband_number?: string | null;
   applied_coupon?: string | null;
+  is_addon?: number | null;
 }
 
 import { 
@@ -139,6 +143,16 @@ export default function DeskCheckInModal({
     isOpen: false,
     session: null,
   });
+
+  // WhatsApp Payment Link State
+  const [isSendingPaymentLink, setIsSendingPaymentLink] = useState(false);
+  const [paymentLinkNotice, setPaymentLinkNotice] = useState<{
+    type: "success" | "error";
+    message: string;
+    waMeUrl?: string;
+    paymentUrl?: string;
+  } | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   // Ref for auto-focus
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -454,6 +468,68 @@ export default function DeskCheckInModal({
       setPaymentError("Network error while recording payment.");
     } finally {
       setIsCollectingPayment(false);
+    }
+  };
+
+  // Handler: Send Payment Link directly to customer via WhatsApp
+  const handleSendPaymentLinkWhatsApp = async () => {
+    const targetList = currentStep === 2 ? verifiedSessions : foundSessions;
+    const unpaidSessions = targetList.filter(
+      (s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid"
+    );
+
+    if (unpaidSessions.length === 0) {
+      setPaymentLinkNotice({
+        type: "error",
+        message: "No unpaid sessions selected to generate a payment link for.",
+      });
+      return;
+    }
+
+    setIsSendingPaymentLink(true);
+    setPaymentLinkNotice(null);
+
+    try {
+      const res = await fetch("/api/admin/verify/send-payment-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_ids: unpaidSessions.map((s) => s.id),
+          phone: phoneNumber,
+          country_code: countryCode,
+          customer_name: foundCustomerName,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        setPaymentLinkNotice({
+          type: "error",
+          message: data.error || "Failed to generate payment link.",
+        });
+        return;
+      }
+
+      setPaymentLinkNotice({
+        type: "success",
+        message: `Payment link generated for ₹${Number(data.total_amount).toLocaleString("en-IN")}. Click 'Open WhatsApp Chat' to message customer immediately if not auto-sent.`,
+        waMeUrl: data.wa_me_url,
+        paymentUrl: data.payment_url,
+      });
+
+      // Auto-open wa.me link in new tab if available so staff can send with 1 click
+      if (data.wa_me_url && typeof window !== "undefined") {
+        window.open(data.wa_me_url, "_blank");
+      }
+    } catch (err: any) {
+      console.error("Send payment link error:", err);
+      setPaymentLinkNotice({
+        type: "error",
+        message: "Network error while generating payment link.",
+      });
+    } finally {
+      setIsSendingPaymentLink(false);
     }
   };
 
@@ -1178,6 +1254,15 @@ export default function DeskCheckInModal({
                                   (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
                                   (session.fulfillment_status || "").toLowerCase() === "fulfilled";
                                 const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
+                            const isAddonActivity = Boolean(
+                              session.is_addon === 1 || 
+                              (session.ticket_name && (
+                                session.ticket_name.toUpperCase().includes("EXCAVATOR") || 
+                                session.ticket_name.toUpperCase().includes("DUMP") ||
+                                session.ticket_name.toUpperCase().includes("ADDON") ||
+                                session.ticket_name.toUpperCase().includes("ADD-ON")
+                              ))
+                            );
 
                                 return (
                                   <div
@@ -1333,6 +1418,100 @@ export default function DeskCheckInModal({
                   </div>
                 );
               })()}
+
+                  {/* Step 1 Quick Action: Send Payment Link to customer via WhatsApp if any unpaid session */}
+                  {(() => {
+                    const step1Unpaid = foundSessions.filter(
+                      (s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid"
+                    );
+                    const step1UnpaidTotal = step1Unpaid.reduce((sum, s) => sum + s.total_amount, 0);
+
+                    if (step1UnpaidTotal > 0) {
+                      return (
+                        <div className="p-3 sm:p-3.5 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 border border-emerald-300 flex flex-col sm:flex-row items-center justify-between gap-2.5">
+                          <div className="flex items-center gap-2">
+                            <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0">
+                              <Send className="w-3.5 h-3.5" />
+                            </div>
+                            <span className="text-xs font-semibold text-gray-800">
+                              Send payment link for {formatInr(step1UnpaidTotal)} ({step1Unpaid.length} pass) to customer
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handleSendPaymentLinkWhatsApp}
+                            disabled={isSendingPaymentLink}
+                            className="w-full sm:w-auto px-3.5 py-1.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSendingPaymentLink ? (
+                              <>
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>Generating...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Share2 className="w-3 h-3" />
+                                <span>Send Payment Link</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      );
+                    }
+                    return null;
+                  })()}
+
+                  {/* Payment Link Notice & Quick Actions in Step 1 */}
+                  {paymentLinkNotice && (
+                    <div className={`p-3 rounded-xl border text-xs space-y-2 animate-in fade-in ${
+                      paymentLinkNotice.type === "success" 
+                        ? "bg-emerald-50 border-emerald-300 text-emerald-900" 
+                        : "bg-red-50 border-red-300 text-red-900"
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {paymentLinkNotice.type === "success" ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                        )}
+                        <div className="flex-1 font-medium">
+                          <span>{paymentLinkNotice.message}</span>
+                        </div>
+                      </div>
+
+                      {paymentLinkNotice.type === "success" && (
+                        <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-emerald-200/60">
+                          {paymentLinkNotice.waMeUrl && (
+                            <a
+                              href={paymentLinkNotice.waMeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors"
+                            >
+                              <span>Open WhatsApp Chat</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          )}
+                          {paymentLinkNotice.paymentUrl && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof navigator !== "undefined" && navigator.clipboard) {
+                                  navigator.clipboard.writeText(paymentLinkNotice.paymentUrl!);
+                                  setCopiedLink(true);
+                                  setTimeout(() => setCopiedLink(false), 2000);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-800 font-bold text-[11px] transition-colors"
+                            >
+                              <Copy className="w-3 h-3 text-emerald-700" />
+                              <span>{copiedLink ? "✓ Copied Link!" : "Copy Payment Link"}</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Actions Bar: Direct Check-In vs Full Walkout Cancellation */}
                   <div className="pt-2 space-y-2.5">
@@ -1529,6 +1708,15 @@ export default function DeskCheckInModal({
                               (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
                               (session.fulfillment_status || "").toLowerCase() === "fulfilled";
                             const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
+                            const isAddonActivity = Boolean(
+                              session.is_addon === 1 || 
+                              (session.ticket_name && (
+                                session.ticket_name.toUpperCase().includes("EXCAVATOR") || 
+                                session.ticket_name.toUpperCase().includes("DUMP") ||
+                                session.ticket_name.toUpperCase().includes("ADDON") ||
+                                session.ticket_name.toUpperCase().includes("ADD-ON")
+                              ))
+                            );
 
                             return (
                               <div
@@ -1686,7 +1874,7 @@ export default function DeskCheckInModal({
                                       {session.simulator_name ? <span>• {session.simulator_name} ({session.simulator_slot || "Auto"})</span> : null}
 
                                       {/* Wristband Number in Check-In session */}
-                                      {!isCanceled && (
+                                      {!isCanceled && !isAddonActivity && (
                                         editingBandId === session.id ? (
                                           <div className="inline-flex flex-col gap-1 bg-white border border-blue-400 rounded-lg p-2 shadow-sm min-w-[220px]">
                                             <div className="flex items-center justify-between text-[9px] font-bold text-gray-700 uppercase tracking-wide border-b border-gray-100 pb-1">
@@ -1936,6 +2124,96 @@ export default function DeskCheckInModal({
                           </span>
                         </div>
                       </div>
+
+                      {/* WhatsApp Payment Link Action Banner */}
+                      <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 border border-emerald-300 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                            <Send className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">
+                              Send Payment Link to Customer
+                            </span>
+                            <span className="text-[11px] text-gray-600 block">
+                              Dispatches secure online payment link directly to {countryCode} {phoneNumber} via WhatsApp.
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                          <button
+                            type="button"
+                            onClick={handleSendPaymentLinkWhatsApp}
+                            disabled={isSendingPaymentLink}
+                            className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                          >
+                            {isSendingPaymentLink ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                <span>Generating Link...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Share2 className="w-3.5 h-3.5" />
+                                <span>Send Link via WhatsApp</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Payment Link Notice & Quick Actions */}
+                      {paymentLinkNotice && (
+                        <div className={`p-3.5 rounded-xl border text-xs space-y-2 animate-in fade-in ${
+                          paymentLinkNotice.type === "success" 
+                            ? "bg-emerald-50 border-emerald-300 text-emerald-900" 
+                            : "bg-red-50 border-red-300 text-red-900"
+                        }`}>
+                          <div className="flex items-start gap-2">
+                            {paymentLinkNotice.type === "success" ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                            ) : (
+                              <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" />
+                            )}
+                            <div className="flex-1 font-medium">
+                              <span>{paymentLinkNotice.message}</span>
+                            </div>
+                          </div>
+
+                          {paymentLinkNotice.type === "success" && (
+                            <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-emerald-200/60">
+                              {paymentLinkNotice.waMeUrl && (
+                                <a
+                                  href={paymentLinkNotice.waMeUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors"
+                                >
+                                  <span>Open WhatsApp Chat</span>
+                                  <ExternalLink className="w-3 h-3" />
+                                </a>
+                              )}
+                              {paymentLinkNotice.paymentUrl && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (typeof navigator !== "undefined" && navigator.clipboard) {
+                                      navigator.clipboard.writeText(paymentLinkNotice.paymentUrl!);
+                                      setCopiedLink(true);
+                                      setTimeout(() => setCopiedLink(false), 2000);
+                                    }
+                                  }}
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-800 font-bold text-[11px] transition-colors"
+                                >
+                                  <Copy className="w-3 h-3 text-emerald-700" />
+                                  <span>{copiedLink ? "✓ Copied Link!" : "Copy Payment Link"}</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <form onSubmit={handleCollectAndFulfill} className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">

@@ -215,6 +215,20 @@ export function initDB() {
       created_at TEXT DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS desk_payment_links (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE NOT NULL,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      country_code TEXT DEFAULT '+91',
+      total_amount REAL NOT NULL,
+      booking_ids TEXT NOT NULL,
+      status TEXT DEFAULT 'pending', -- 'pending' | 'completed' | 'expired'
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      paid_at DATETIME,
+      payment_ref TEXT
+    );
   `);
   
   // Seed default site settings
@@ -264,6 +278,8 @@ export function initDB() {
   try { db.exec('ALTER TABLE tickets ADD COLUMN benefits TEXT'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_created ON online_checkout_holds(created_at)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_token ON desk_payment_links(token)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_created ON desk_payment_links(created_at)'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -703,7 +719,7 @@ export function getAllBookings() {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
-      COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
@@ -718,7 +734,7 @@ export function getBookingById(id: number) {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
-      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
@@ -733,7 +749,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
-      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
@@ -752,7 +768,7 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
-      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price,
+      b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b
     LEFT JOIN tickets t ON b.ticket_id = t.id
@@ -1129,6 +1145,55 @@ export function getOnlineCheckoutHold(txn_id: string): OnlineCheckoutHoldRow | u
 
 export function deleteOnlineCheckoutHold(txn_id: string) {
   return db.prepare('DELETE FROM online_checkout_holds WHERE txn_id = ?').run(txn_id);
+}
+
+export interface DeskPaymentLinkRow {
+  id: number;
+  token: string;
+  customer_name: string;
+  customer_phone: string;
+  country_code: string;
+  total_amount: number;
+  booking_ids: string; // JSON array of numbers e.g. "[1, 2]"
+  status: 'pending' | 'completed' | 'expired';
+  created_at: string;
+  paid_at?: string | null;
+  payment_ref?: string | null;
+}
+
+export function createDeskPaymentLink(data: {
+  token: string;
+  customer_name: string;
+  customer_phone: string;
+  country_code?: string;
+  total_amount: number;
+  booking_ids: number[];
+}) {
+  const stmt = db.prepare(`
+    INSERT INTO desk_payment_links (
+      token, customer_name, customer_phone, country_code, total_amount, booking_ids, status, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', datetime('now'))
+  `);
+  return stmt.run(
+    data.token,
+    data.customer_name,
+    data.customer_phone,
+    data.country_code || '+91',
+    data.total_amount,
+    JSON.stringify(data.booking_ids)
+  );
+}
+
+export function getDeskPaymentLinkByToken(token: string): DeskPaymentLinkRow | undefined {
+  return db.prepare('SELECT * FROM desk_payment_links WHERE token = ?').get(token) as DeskPaymentLinkRow | undefined;
+}
+
+export function markDeskPaymentLinkCompleted(token: string, paymentRef: string) {
+  return db.prepare(`
+    UPDATE desk_payment_links 
+    SET status = 'completed', paid_at = datetime('now'), payment_ref = ?
+    WHERE token = ?
+  `).run(paymentRef, token);
 }
 
 export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {

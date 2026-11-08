@@ -542,6 +542,15 @@ export default function OrderDetailPage() {
                 const isDiscounted = hasItemTotal && itemLineEffective < catalogLineTotalWithGst;
                 const itemIsPaid = (item.payment_status || booking.payment_status || "Paid").toLowerCase() === "paid";
                 const itemIsFulfilled = (item.fulfillment_status || booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
+                const isAddonActivity = Boolean(
+                  item.is_addon === 1 || 
+                  (item.ticket_name && (
+                    item.ticket_name.toUpperCase().includes("EXCAVATOR") || 
+                    item.ticket_name.toUpperCase().includes("DUMP") ||
+                    item.ticket_name.toUpperCase().includes("ADDON") ||
+                    item.ticket_name.toUpperCase().includes("ADD-ON")
+                  ))
+                );
 
                 return (
                   <div key={item.id || idx} className="flex flex-col sm:flex-row sm:items-start justify-between pb-6 border-b border-gray-100 gap-4 last:pb-0 last:border-0">
@@ -693,117 +702,125 @@ export default function OrderDetailPage() {
                       <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2 pt-0.5">
                         <span>Select Time Slot:</span>
                         <strong className="text-gray-900 font-bold">{item.time_slot}</strong>
-                        {item.time_slot && (() => {
-                          const band = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
-                          const badgeStyle = getWristbandBadgeStyle(band.hex);
-                          return (
-                            <span 
-                              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
-                              style={{
-                                backgroundColor: badgeStyle.backgroundColor,
-                                borderColor: badgeStyle.borderColor,
-                                color: badgeStyle.color
-                              }}
-                            >
-                              <span 
-                                className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
-                                style={{ 
-                                  backgroundColor: band.hex,
-                                  borderColor: badgeStyle.dotBorderColor
-                                }}
-                              />
-                              <span>{band.name} Slot Band</span>
-                            </span>
-                          );
-                        })()}
-
-                        {/* Slot Wristband Number Section */}
-                        {editingBand?.id === item.id && editingBand?.type === 'slot' ? (
-                          <div className="inline-flex flex-col gap-1.5 bg-gray-50 border border-blue-400 rounded-xl p-2 shadow-xs">
-                            <div className="flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wide border-b border-gray-200 pb-1">
-                              <span>Assign Slot Band #{bandInputs.length > 1 ? ` (1 to ${bandInputs.length})` : ''}:</span>
-                              <div className="flex items-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveWristbandNumber(item, 'slot')}
-                                  disabled={isSavingBand}
-                                  className="text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-xs"
-                                  title="Save All Bands"
+                        {isAddonActivity ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Add-on Activity (No Slot Band Required)
+                          </span>
+                        ) : (
+                          <>
+                            {item.time_slot && (() => {
+                              const band = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
+                              const badgeStyle = getWristbandBadgeStyle(band.hex);
+                              return (
+                                <span 
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
+                                  style={{
+                                    backgroundColor: badgeStyle.backgroundColor,
+                                    borderColor: badgeStyle.borderColor,
+                                    color: badgeStyle.color
+                                  }}
                                 >
-                                  <Check className="w-3 h-3" />
-                                  <span>Save</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEditingBand(null)}
-                                  disabled={isSavingBand}
-                                  className="text-gray-500 hover:text-gray-700 p-0.5 hover:bg-gray-200 rounded"
-                                  title="Cancel"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
-                              {bandInputs.map((val, idx) => (
-                                <div key={idx} className="flex items-center gap-1">
-                                  {bandInputs.length > 1 && (
-                                    <span className="text-[10px] font-black text-gray-400 font-mono">
-                                      #{idx + 1}:
-                                    </span>
-                                  )}
-                                  <input
-                                    type="text"
-                                    value={val}
-                                    onChange={(e) => {
-                                      const next = [...bandInputs];
-                                      next[idx] = e.target.value;
-                                      setBandInputs(next);
-                                    }}
-                                    placeholder={`Band ${idx + 1}`}
-                                    className="w-24 text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
-                                    autoFocus={idx === 0}
-                                    onKeyDown={(e) => {
-                                      if (e.key === "Enter") handleSaveWristbandNumber(item, 'slot');
-                                      if (e.key === "Escape") setEditingBand(null);
+                                  <span 
+                                    className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
+                                    style={{ 
+                                      backgroundColor: band.hex,
+                                      borderColor: badgeStyle.dotBorderColor
                                     }}
                                   />
+                                  <span>{band.name} Slot Band</span>
+                                </span>
+                              );
+                            })()}
+
+                            {/* Slot Wristband Number Section */}
+                            {editingBand?.id === item.id && editingBand?.type === 'slot' ? (
+                              <div className="inline-flex flex-col gap-1.5 bg-gray-50 border border-blue-400 rounded-xl p-2 shadow-xs">
+                                <div className="flex items-center justify-between text-[10px] font-bold text-gray-500 uppercase tracking-wide border-b border-gray-200 pb-1">
+                                  <span>Assign Slot Band #{bandInputs.length > 1 ? ` (1 to ${bandInputs.length})` : ''}:</span>
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveWristbandNumber(item, 'slot')}
+                                      disabled={isSavingBand}
+                                      className="text-white bg-green-600 hover:bg-green-700 px-2 py-0.5 rounded text-[10px] font-bold flex items-center gap-1 shadow-xs"
+                                      title="Save All Bands"
+                                    >
+                                      <Check className="w-3 h-3" />
+                                      <span>Save</span>
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingBand(null)}
+                                      disabled={isSavingBand}
+                                      className="text-gray-500 hover:text-gray-700 p-0.5 hover:bg-gray-200 rounded"
+                                      title="Cancel"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
                                 </div>
-                              ))}
-                            </div>
-                            {bandAssignError && (
-                              <div className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1 leading-tight flex items-start gap-1">
-                                <span className="font-black text-red-500">⚠️</span>
-                                <span>{bandAssignError}</span>
+                                <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                                  {bandInputs.map((val, idx) => (
+                                    <div key={idx} className="flex items-center gap-1">
+                                      {bandInputs.length > 1 && (
+                                        <span className="text-[10px] font-black text-gray-400 font-mono">
+                                          #{idx + 1}:
+                                        </span>
+                                      )}
+                                      <input
+                                        type="text"
+                                        value={val}
+                                        onChange={(e) => {
+                                          const next = [...bandInputs];
+                                          next[idx] = e.target.value;
+                                          setBandInputs(next);
+                                        }}
+                                        placeholder={`Band ${idx + 1}`}
+                                        className="w-24 text-xs font-semibold text-gray-900 bg-white border border-gray-300 rounded px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 font-mono"
+                                        autoFocus={idx === 0}
+                                        onKeyDown={(e) => {
+                                          if (e.key === "Enter") handleSaveWristbandNumber(item, 'slot');
+                                          if (e.key === "Escape") setEditingBand(null);
+                                        }}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                                {bandAssignError && (
+                                  <div className="text-[10px] font-bold text-red-600 bg-red-50 border border-red-200 rounded px-2 py-1 mt-1 leading-tight flex items-start gap-1">
+                                    <span className="font-black text-red-500">⚠️</span>
+                                    <span>{bandAssignError}</span>
+                                  </div>
+                                )}
                               </div>
+                            ) : item.wristband_number ? (
+                              <div className="inline-flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                                  Slot Band:
+                                </span>
+                                {item.wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
+                                  <span key={bIdx} className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full text-[11px] font-bold shadow-xs">
+                                    <span className="text-amber-600 text-xs font-black">#</span>
+                                    <span><strong className="text-amber-950 font-black font-mono">{bCode}</strong></span>
+                                  </span>
+                                ))}
+                                <button
+                                  onClick={() => handleStartEditBand(item, 'slot')}
+                                  className="text-amber-700 hover:text-amber-950 p-1 hover:bg-amber-100 rounded-full transition-colors"
+                                  title="Edit Assigned Slot Bands"
+                                >
+                                  <Edit2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => handleStartEditBand(item, 'slot')}
+                                className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 border-dashed px-2.5 py-0.5 rounded-full transition-all shadow-2xs"
+                              >
+                                <span>+ Assign Slot Band # ({Math.max(1, item.quantity || 1)})</span>
+                              </button>
                             )}
-                          </div>
-                        ) : item.wristband_number ? (
-                          <div className="inline-flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
-                              Slot Band:
-                            </span>
-                            {item.wristband_number.split(/[\s,]+/).filter(Boolean).map((bCode: string, bIdx: number) => (
-                              <span key={bIdx} className="inline-flex items-center gap-1 bg-amber-50 border border-amber-300 text-amber-900 px-2 py-0.5 rounded-full text-[11px] font-bold shadow-xs">
-                                <span className="text-amber-600 text-xs font-black">#</span>
-                                <span><strong className="text-amber-950 font-black font-mono">{bCode}</strong></span>
-                              </span>
-                            ))}
-                            <button
-                              onClick={() => handleStartEditBand(item, 'slot')}
-                              className="text-amber-700 hover:text-amber-950 p-1 hover:bg-amber-100 rounded-full transition-colors"
-                              title="Edit Assigned Slot Bands"
-                            >
-                              <Edit2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleStartEditBand(item, 'slot')}
-                            className="inline-flex items-center gap-1 text-[11px] font-bold text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 border border-blue-200 border-dashed px-2.5 py-0.5 rounded-full transition-all shadow-2xs"
-                          >
-                            <span>+ Assign Slot Band # ({Math.max(1, item.quantity || 1)})</span>
-                          </button>
+                          </>
                         )}
                       </div>
                       <div className="max-w-md">

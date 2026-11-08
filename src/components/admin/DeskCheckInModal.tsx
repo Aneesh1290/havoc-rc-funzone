@@ -31,6 +31,7 @@ import {
   Share2,
   ExternalLink,
   Copy,
+  RefreshCw,
 } from "lucide-react";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
@@ -148,6 +149,8 @@ export default function DeskCheckInModal({
   // WhatsApp Payment Link State
   const [isSendingPaymentLink, setIsSendingPaymentLink] = useState(false);
   const [isPaymentLinkEnabled, setIsPaymentLinkEnabled] = useState(true);
+  const [activePaymentToken, setActivePaymentToken] = useState<string | null>(null);
+  const [isCheckingPaymentStatus, setIsCheckingPaymentStatus] = useState(false);
   const [paymentLinkNotice, setPaymentLinkNotice] = useState<{
     type: "success" | "error";
     message: string;
@@ -177,6 +180,7 @@ export default function DeskCheckInModal({
       setEditingBandId(null);
       setBandInputs([]);
       setPaymentLinkNotice(null);
+      setActivePaymentToken(null);
 
       // Load settings
       getDeskPaymentLinkSettingsAction().then(res => {
@@ -519,6 +523,8 @@ export default function DeskCheckInModal({
         return;
       }
 
+      setActivePaymentToken(data.token || null);
+
       setPaymentLinkNotice({
         type: "success",
         message: `Payment link generated for ₹${Number(data.total_amount).toLocaleString("en-IN")}. Click 'Open WhatsApp Chat' to message customer immediately if not auto-sent.`,
@@ -540,6 +546,77 @@ export default function DeskCheckInModal({
       setIsSendingPaymentLink(false);
     }
   };
+
+  // Poll / Check Payment Link Status: when customer pays on phone, instantly reflect PAID & ref in Desk
+  const handleCheckPaymentStatus = async (tokenToCheck?: string) => {
+    const token = tokenToCheck || activePaymentToken;
+    if (!token) return;
+
+    setIsCheckingPaymentStatus(true);
+    try {
+      const res = await fetch(`/api/pay/${token}`);
+      if (!res.ok) return;
+
+      const data = await res.json();
+      if (data.status === "completed") {
+        // Customer paid! Mark sessions as Paid with their transaction reference
+        const paidRef = data.payment_ref || "ICICI_ONLINE";
+        const paidBookings: any[] = data.bookings || [];
+        const paidBookingIds = paidBookings.map((b) => b.id);
+
+        setVerifiedSessions((prev) =>
+          prev.map((s) => {
+            if (paidBookingIds.includes(s.id) || paidBookingIds.length === 0) {
+              return {
+                ...s,
+                payment_status: "Paid",
+                payment_ref: s.payment_ref || paidRef,
+              };
+            }
+            return s;
+          })
+        );
+
+        setFoundSessions((prev) =>
+          prev.map((s) => {
+            if (paidBookingIds.includes(s.id) || paidBookingIds.length === 0) {
+              return {
+                ...s,
+                payment_status: "Paid",
+                payment_ref: s.payment_ref || paidRef,
+              };
+            }
+            return s;
+          })
+        );
+
+        setTotalDue(0);
+        setUnpaidCount(0);
+        setPaymentLinkNotice({
+          type: "success",
+          message: `✓ Payment Received! Ref #${paidRef}. Status updated to Paid.`,
+        });
+
+        // Trigger dashboard reload
+        onSuccess();
+      }
+    } catch (err) {
+      console.error("Check payment status error:", err);
+    } finally {
+      setIsCheckingPaymentStatus(false);
+    }
+  };
+
+  // Background auto-polling for payment confirmation while payment link notice is open
+  useEffect(() => {
+    if (!activePaymentToken) return;
+
+    const interval = setInterval(() => {
+      handleCheckPaymentStatus(activePaymentToken);
+    }, 4000); // Check every 4 seconds
+
+    return () => clearInterval(interval);
+  }, [activePaymentToken]);
 
   // Toggle active/interested status for an individual session
   const toggleSessionActive = (sessionId: number) => {
@@ -1516,6 +1593,18 @@ export default function DeskCheckInModal({
                               <span>{copiedLink ? "✓ Copied Link!" : "Copy Payment Link"}</span>
                             </button>
                           )}
+                          {activePaymentToken && (
+                            <button
+                              type="button"
+                              onClick={() => handleCheckPaymentStatus(activePaymentToken)}
+                              disabled={isCheckingPaymentStatus}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-[11px] transition-colors disabled:opacity-50"
+                              title="Check if customer completed online payment"
+                            >
+                              <RefreshCw className={`w-3 h-3 text-emerald-800 ${isCheckingPaymentStatus ? "animate-spin" : ""}`} />
+                              <span>{isCheckingPaymentStatus ? "Checking..." : "Check Payment Status"}</span>
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2218,6 +2307,18 @@ export default function DeskCheckInModal({
                                 >
                                   <Copy className="w-3 h-3 text-emerald-700" />
                                   <span>{copiedLink ? "✓ Copied Link!" : "Copy Payment Link"}</span>
+                                </button>
+                              )}
+                              {activePaymentToken && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCheckPaymentStatus(activePaymentToken)}
+                                  disabled={isCheckingPaymentStatus}
+                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-[11px] transition-colors disabled:opacity-50"
+                                  title="Check if customer completed online payment"
+                                >
+                                  <RefreshCw className={`w-3 h-3 text-emerald-800 ${isCheckingPaymentStatus ? "animate-spin" : ""}`} />
+                                  <span>{isCheckingPaymentStatus ? "Checking..." : "Check Payment Status"}</span>
                                 </button>
                               )}
                             </div>

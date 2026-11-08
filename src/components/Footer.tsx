@@ -8,7 +8,10 @@ export default function Footer() {
         <div className="flex flex-col lg:flex-row gap-12 lg:gap-16 mb-12">
           <div className="lg:w-1/3 shrink-0 flex flex-col items-center lg:items-start text-center lg:text-left">
             <div className="mb-6 inline-block bg-white p-4 rounded-2xl shadow-lg border border-gray-100">
-              <img src="/logo.png" alt="Havoc RC Funzone Logo" className="h-[64px] sm:h-[80px] w-auto object-contain" />
+              <picture>
+                <source srcSet="/logo.webp" type="image/webp" />
+                <img src="/logo.png" alt="Havoc RC Funzone Logo" width="206" height="61" loading="lazy" decoding="async" className="h-[64px] sm:h-[80px] w-auto object-contain" />
+              </picture>
             </div>
             <p className="text-gray-400 text-sm sm:text-base leading-relaxed max-w-sm">
               India's premier RC destination. High-speed racing, precision drifting, mining zones &amp; miniature worlds.

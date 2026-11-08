@@ -255,11 +255,16 @@ export default async function TicketTypePage() {
                             </div>
                             <div className="flex items-start gap-4 pt-1">
                               <div className="shrink-0 w-12 h-10 flex items-center justify-center">
-                                <img 
-                                  src="/rc_car.png" 
-                                  alt="RC Car" 
-                                  className="w-full h-full object-contain filter grayscale contrast-125" 
-                                />
+                                <picture>
+                                  <source srcSet="/rc_car.webp" type="image/webp" />
+                                  <img 
+                                    src="/rc_car.png" 
+                                    alt="RC Car" 
+                                    loading="lazy"
+                                    decoding="async"
+                                    className="w-full h-full object-contain filter grayscale contrast-125" 
+                                  />
+                                </picture>
                               </div>
                               <p className="text-sm sm:text-base font-bold text-black leading-snug">
                                 • + {ticket.perk_duration_mins || 30} minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.
@@ -498,11 +503,16 @@ export default async function TicketTypePage() {
                         </div>
                         <div className="flex items-start gap-2.5 pt-1">
                           <div className="shrink-0 w-8 h-7 flex items-center justify-center">
-                            <img 
-                              src="/rc_car.png" 
-                              alt="RC Car" 
-                              className="w-full h-full object-contain filter grayscale contrast-125" 
-                            />
+                            <picture>
+                              <source srcSet="/rc_car.webp" type="image/webp" />
+                              <img 
+                                src="/rc_car.png" 
+                                alt="RC Car" 
+                                loading="lazy"
+                                decoding="async"
+                                className="w-full h-full object-contain filter grayscale contrast-125" 
+                              />
+                            </picture>
                           </div>
                           <p className="text-[11px] font-bold text-black leading-snug">
                             • + {ticket.perk_duration_mins || 30} minutes additional activity for any 1 simulator in the Havoc Sim Podium. Subject to availability, waiting period may apply.

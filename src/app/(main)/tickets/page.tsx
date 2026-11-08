@@ -48,7 +48,7 @@ export default function TicketsPage() {
   return (
     <div 
       className="py-24 flex-grow relative overflow-hidden bg-cover bg-center bg-fixed min-h-[80vh]"
-      style={{ backgroundImage: "url('/background.png')" }}
+      style={{ backgroundImage: "url('/background.webp')" }}
     >
       {/* Light overlay for readability while keeping the image bright */}
       <div className="absolute inset-0 bg-white/60 backdrop-blur-[2px]"></div>

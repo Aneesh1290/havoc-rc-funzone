@@ -10,7 +10,16 @@ export default function Home() {
         
         {/* Full Background Image */}
         <div className="absolute inset-0 z-0">
-          <img src="/rc_car.png" alt="Havoc RC Funzone" className="w-full h-full object-cover object-[75%_center] lg:object-center" />
+          <picture>
+            <source srcSet="/rc_car.webp" type="image/webp" />
+            <img 
+              src="/rc_car.png" 
+              alt="Havoc RC Funzone" 
+              fetchPriority="high"
+              decoding="async"
+              className="w-full h-full object-cover object-[75%_center] lg:object-center" 
+            />
+          </picture>
           
           {/* Mobile Overlay: Smooth gradient fade to integrate text and image */}
           <div className="absolute inset-0 bg-gradient-to-b from-white via-white/100 to-transparent h-[90svh] lg:hidden"></div>
@@ -90,18 +99,30 @@ export default function Home() {
               <div className="grid grid-cols-2 gap-3 sm:gap-4 relative z-10">
                 <div className="space-y-3 sm:space-y-4 pt-4 sm:pt-12">
                   <div className="w-full aspect-[4/5] rounded-2xl bg-gray-200 overflow-hidden shadow-lg transform -rotate-2 hover:rotate-0 transition-transform">
-                    <img src="/child_playing.png" alt="Child playing" className="w-full h-full object-cover" />
+                    <picture>
+                      <source srcSet="/child_playing.webp" type="image/webp" />
+                      <img src="/child_playing.png" alt="Child playing" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </picture>
                   </div>
                   <div className="w-full aspect-[3/2] rounded-2xl bg-gray-200 overflow-hidden shadow-lg transform rotate-2 hover:rotate-0 transition-transform">
-                    <img src="/train.png" alt="Miniature Train" className="w-full h-full object-cover" />
+                    <picture>
+                      <source srcSet="/train.webp" type="image/webp" />
+                      <img src="/train.png" alt="Miniature Train" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </picture>
                   </div>
                 </div>
                 <div className="space-y-3 sm:space-y-4">
                   <div className="w-full aspect-[3/2] rounded-2xl bg-gray-200 overflow-hidden shadow-lg transform rotate-1 hover:rotate-0 transition-transform">
-                    <img src="/drone.png" alt="Drone" className="w-full h-full object-cover" />
+                    <picture>
+                      <source srcSet="/drone.webp" type="image/webp" />
+                      <img src="/drone.png" alt="Drone" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </picture>
                   </div>
                   <div className="w-full aspect-[4/5] rounded-2xl bg-gray-200 overflow-hidden shadow-lg transform -rotate-1 hover:rotate-0 transition-transform">
-                    <img src="/racing.png" alt="Sim Racing" className="w-full h-full object-cover" />
+                    <picture>
+                      <source srcSet="/racing.webp" type="image/webp" />
+                      <img src="/racing.png" alt="Sim Racing" loading="lazy" decoding="async" className="w-full h-full object-cover" />
+                    </picture>
                   </div>
                 </div>
               </div>

@@ -32,7 +32,10 @@ export default function Header() {
             }
           }}
         >
-          <img src="/logo.png" alt="Havoc RC Funzone Logo" className="h-[64px] sm:h-[80px] md:h-[96px] w-auto max-w-[75vw] sm:max-w-none object-contain" />
+          <picture>
+            <source srcSet="/logo.webp" type="image/webp" />
+            <img src="/logo.png" alt="Havoc RC Funzone Logo" width="206" height="61" className="h-[64px] sm:h-[80px] md:h-[96px] w-auto max-w-[75vw] sm:max-w-none object-contain" />
+          </picture>
         </Link>
         
         <nav className="hidden lg:flex items-center gap-10 font-sans text-[17px] font-bold text-gray-700">

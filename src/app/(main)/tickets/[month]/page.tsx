@@ -454,7 +454,16 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
           {/* Left: Product Image & Notes */}
           <div className="flex flex-col gap-8">
             <div className="w-full aspect-square flex flex-col items-center justify-center relative bg-white rounded-3xl p-8 shadow-sm border border-gray-100">
-              <img src="/ticket1.png" alt="RC Adventure Ticket" className="w-full h-full object-contain drop-shadow-xl hover:scale-105 transition-transform duration-500" />
+              <picture>
+                <source srcSet="/ticket1.webp" type="image/webp" />
+                <img 
+                  src="/ticket1.png" 
+                  alt="RC Adventure Ticket" 
+                  fetchPriority="high"
+                  decoding="async"
+                  className="w-full h-full object-contain drop-shadow-xl hover:scale-105 transition-transform duration-500" 
+                />
+              </picture>
             </div>
 
             <div className="bg-white rounded-3xl p-8 shadow-sm border border-gray-100 space-y-6">

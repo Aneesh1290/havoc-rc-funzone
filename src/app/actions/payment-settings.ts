@@ -192,7 +192,12 @@ export async function getDeskPaymentLinkSettingsAction(): Promise<DeskPaymentLin
 export async function updateDeskPaymentLinkSettingsAction(settings: DeskPaymentLinkSettings) {
   try {
     const session = await checkSessionAction();
-    if (!session || session.role !== "Administrator") {
+    const isSuperAdmin = session && (
+      session.role === "super_admin" || 
+      session.role === "Administrator" || 
+      session.username?.toLowerCase() === "admin"
+    );
+    if (!session || !isSuperAdmin) {
       return { success: false, error: "Unauthorized: Only administrators can update settings." };
     }
 
@@ -236,7 +241,12 @@ export async function getGoogleReviewSettingsAction(): Promise<GoogleReviewSetti
 export async function updateGoogleReviewSettingsAction(settings: GoogleReviewSettings) {
   try {
     const session = await checkSessionAction();
-    if (!session || session.role !== "Administrator") {
+    const isSuperAdmin = session && (
+      session.role === "super_admin" || 
+      session.role === "Administrator" || 
+      session.username?.toLowerCase() === "admin"
+    );
+    if (!session || !isSuperAdmin) {
       return { success: false, error: "Unauthorized: Only administrators can update settings." };
     }
 

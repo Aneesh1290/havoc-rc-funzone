@@ -193,6 +193,18 @@ export default function DeskCheckInModal({
     }
   }, [isOpen]);
 
+  // Background auto-polling for payment confirmation while payment link notice is open
+  // NOTE: Must be declared BEFORE any early return to obey React Rules of Hooks!
+  useEffect(() => {
+    if (!isOpen || !activePaymentToken) return;
+
+    const interval = setInterval(() => {
+      handleCheckPaymentStatus(activePaymentToken);
+    }, 4000); // Check every 4 seconds
+
+    return () => clearInterval(interval);
+  }, [isOpen, activePaymentToken]);
+
   const handleClose = () => {
     onSuccess();
     onClose();
@@ -606,17 +618,6 @@ export default function DeskCheckInModal({
       setIsCheckingPaymentStatus(false);
     }
   };
-
-  // Background auto-polling for payment confirmation while payment link notice is open
-  useEffect(() => {
-    if (!activePaymentToken) return;
-
-    const interval = setInterval(() => {
-      handleCheckPaymentStatus(activePaymentToken);
-    }, 4000); // Check every 4 seconds
-
-    return () => clearInterval(interval);
-  }, [activePaymentToken]);
 
   // Toggle active/interested status for an individual session
   const toggleSessionActive = (sessionId: number) => {

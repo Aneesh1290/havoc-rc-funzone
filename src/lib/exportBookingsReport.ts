@@ -235,7 +235,8 @@ function simplifySimulatorName(name: string): string {
 function calculateBookingRowHeight(
   order: OrderData,
   simPodiumDisplay: string,
-  colWidths: { simPodium?: number; deskRef?: number; gatewayTxn?: number } = {}
+  colWidths: { simPodium?: number; deskRef?: number; gatewayTxn?: number } = {},
+  customDeskRef?: string
 ): number {
   const simWidth = colWidths.simPodium || 30;
   const deskWidth = colWidths.deskRef || 30;
@@ -255,7 +256,7 @@ function calculateBookingRowHeight(
   }
 
   // 2. Desk Ref / UTR visual lines (Column S)
-  const deskRef = (order.payment_ref || "").trim();
+  const deskRef = (customDeskRef !== undefined ? customDeskRef : (order.payment_ref || "")).trim();
   if (deskRef && deskRef !== "-") {
     const lines = deskRef.split(/\r?\n/);
     let count = 0;
@@ -752,9 +753,6 @@ function renderDaySheet(
         const simPodiumDisplay = isOrgOrder
           ? `[RESERVATION: ${order.organization_type || "GROUP"}]${order.expected_guests ? ` Headcount: ${order.expected_guests}` : ""}${order.special_requests ? ` | ${order.special_requests}` : ""}`
           : formatSimPodiumForExport(order);
-        // Dynamic row height calculated across ALL visual columns (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name)
-        const rowHeight = calculateBookingRowHeight(order, simPodiumDisplay, { simPodium: 30, deskRef: 30, gatewayTxn: 24 });
-
         // Format coupon tag display if a coupon was used
         const couponCode = order.applied_coupon || order.coupon_code || "";
         let couponLabel = "";
@@ -771,8 +769,11 @@ function renderDaySheet(
           cleanDeskRef = cleanDeskRef === "-" ? couponLabel : `${cleanDeskRef}\n${couponLabel}`;
         }
 
-        // Order code display: show order code and if coupon used, show coupon badge line
-        const orderDisplayCode = couponLabel ? `${order.orderCode}\n[${couponLabel}]` : order.orderCode;
+        // Dynamic row height calculated across ALL visual columns (Simulator, Desk Ref / UTR, Gateway Txn, Email, Name)
+        const rowHeight = calculateBookingRowHeight(order, simPodiumDisplay, { simPodium: 30, deskRef: 30, gatewayTxn: 24 }, cleanDeskRef);
+
+        // Order code display: show only clean order code (coupon details are in DESK REF / UTR)
+        const orderDisplayCode = order.orderCode;
 
         const dataRow = worksheet.addRow([
           currentSl,

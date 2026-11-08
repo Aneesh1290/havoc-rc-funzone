@@ -35,6 +35,7 @@ import {
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { updateBookingWristbandNumberAction } from "@/app/actions/tickets";
 import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
+import { getDeskPaymentLinkSettingsAction } from "@/app/actions/payment-settings";
 import { parseSimPerkDisplay, ParsedSimSlot } from "@/components/SimPerkBadgeList";
 
 interface DeskCheckInModalProps {
@@ -146,6 +147,7 @@ export default function DeskCheckInModal({
 
   // WhatsApp Payment Link State
   const [isSendingPaymentLink, setIsSendingPaymentLink] = useState(false);
+  const [isPaymentLinkEnabled, setIsPaymentLinkEnabled] = useState(true);
   const [paymentLinkNotice, setPaymentLinkNotice] = useState<{
     type: "success" | "error";
     message: string;
@@ -174,6 +176,12 @@ export default function DeskCheckInModal({
       setPaymentSuccess(false);
       setEditingBandId(null);
       setBandInputs([]);
+      setPaymentLinkNotice(null);
+
+      // Load settings
+      getDeskPaymentLinkSettingsAction().then(res => {
+        setIsPaymentLinkEnabled(res.enabled);
+      }).catch(() => {});
 
       setTimeout(() => {
         phoneInputRef.current?.focus();
@@ -1420,7 +1428,7 @@ export default function DeskCheckInModal({
               })()}
 
                   {/* Step 1 Quick Action: Send Payment Link to customer via WhatsApp if any unpaid session */}
-                  {(() => {
+                  {isPaymentLinkEnabled && (() => {
                     const step1Unpaid = foundSessions.filter(
                       (s) => activeSessionIds.includes(s.id) && (s.payment_status || "").toLowerCase() !== "paid"
                     );
@@ -2126,42 +2134,44 @@ export default function DeskCheckInModal({
                       </div>
 
                       {/* WhatsApp Payment Link Action Banner */}
-                      <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 border border-emerald-300 flex flex-col sm:flex-row items-center justify-between gap-3">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
-                            <Send className="w-4 h-4" />
+                      {isPaymentLinkEnabled && (
+                        <div className="p-3.5 sm:p-4 rounded-xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-green-500/10 border border-emerald-300 flex flex-col sm:flex-row items-center justify-between gap-3">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm">
+                              <Send className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <span className="text-xs font-bold text-gray-900 block">
+                                Send Payment Link to Customer
+                              </span>
+                              <span className="text-[11px] text-gray-600 block">
+                                Dispatches secure online payment link directly to {countryCode} {phoneNumber} via WhatsApp.
+                              </span>
+                            </div>
                           </div>
-                          <div>
-                            <span className="text-xs font-bold text-gray-900 block">
-                              Send Payment Link to Customer
-                            </span>
-                            <span className="text-[11px] text-gray-600 block">
-                              Dispatches secure online payment link directly to {countryCode} {phoneNumber} via WhatsApp.
-                            </span>
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
-                          <button
-                            type="button"
-                            onClick={handleSendPaymentLinkWhatsApp}
-                            disabled={isSendingPaymentLink}
-                            className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isSendingPaymentLink ? (
-                              <>
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>Generating Link...</span>
-                              </>
-                            ) : (
-                              <>
-                                <Share2 className="w-3.5 h-3.5" />
-                                <span>Send Link via WhatsApp</span>
-                              </>
-                            )}
-                          </button>
+                          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+                            <button
+                              type="button"
+                              onClick={handleSendPaymentLinkWhatsApp}
+                              disabled={isSendingPaymentLink}
+                              className="w-full sm:w-auto px-4 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition-all shadow-sm flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                            >
+                              {isSendingPaymentLink ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  <span>Generating Link...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Share2 className="w-3.5 h-3.5" />
+                                  <span>Send Link via WhatsApp</span>
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* Payment Link Notice & Quick Actions */}
                       {paymentLinkNotice && (

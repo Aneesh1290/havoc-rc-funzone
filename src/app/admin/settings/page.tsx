@@ -31,6 +31,9 @@ import {
   GatewayProvider, 
   GatewayEnvironment,
   DefaultPaymentMethod,
+  getDeskPaymentLinkSettingsAction,
+  updateDeskPaymentLinkSettingsAction,
+  DeskPaymentLinkSettings
 } from "@/app/actions/payment-settings";
 
 export default function SettingsPage() {
@@ -83,12 +86,26 @@ export default function SettingsPage() {
 
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({});
 
+  // WhatsApp Desk Payment Link Settings State
+  const [deskPaySettings, setDeskPaySettings] = useState<DeskPaymentLinkSettings>({
+    enabled: true,
+    brandName: "Havoc RC Fun Zone",
+    templateName: "havoc_payment_link",
+  });
+  const [isDeskPaySaving, setIsDeskPaySaving] = useState(false);
+  const [deskPaySuccessMsg, setDeskPaySuccessMsg] = useState<string | null>(null);
+  const [deskPayErrorMsg, setDeskPayErrorMsg] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadAllSettings() {
       try {
         setIsPaymentLoading(true);
-        const paymentData = await getAdminPaymentSettingsAction();
+        const [paymentData, deskPayData] = await Promise.all([
+          getAdminPaymentSettingsAction(),
+          getDeskPaymentLinkSettingsAction(),
+        ]);
         setPaymentSettings(paymentData);
+        setDeskPaySettings(deskPayData);
       } catch (err: any) {
         console.error("Failed to load settings:", err);
       } finally {
@@ -97,6 +114,27 @@ export default function SettingsPage() {
     }
     loadAllSettings();
   }, []);
+
+  const handleSaveDeskPaySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsDeskPaySaving(true);
+    setDeskPaySuccessMsg(null);
+    setDeskPayErrorMsg(null);
+
+    try {
+      const res = await updateDeskPaymentLinkSettingsAction(deskPaySettings);
+      if (res.success) {
+        setDeskPaySuccessMsg("WhatsApp payment link settings saved successfully!");
+        setTimeout(() => setDeskPaySuccessMsg(null), 4000);
+      } else {
+        setDeskPayErrorMsg(res.error || "Failed to save settings.");
+      }
+    } catch (err: any) {
+      setDeskPayErrorMsg(err?.message || "An unexpected error occurred.");
+    } finally {
+      setIsDeskPaySaving(false);
+    }
+  };
 
   const handleSavePaymentSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -623,7 +661,109 @@ export default function SettingsPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* 2. BUSINESS INFORMATION                                                   */}
+        {/* 2. WHATSAPP DESK PAYMENT LINK CONFIGURATION                              */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4 mb-6">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200">
+                <Send className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Desk WhatsApp Payment Link</h3>
+                <p className="text-xs text-gray-500">
+                  Allow check-in desk staff to generate and dispatch secure online payment links directly to customers via WhatsApp.
+                </p>
+              </div>
+            </div>
+
+            {/* Enable/Disable Toggle */}
+            <button
+              type="button"
+              onClick={() => setDeskPaySettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                deskPaySettings.enabled 
+                  ? "bg-emerald-50 text-emerald-700 border-emerald-300" 
+                  : "bg-gray-100 text-gray-500 border-gray-300"
+              }`}
+            >
+              {deskPaySettings.enabled ? <ToggleRight className="w-4 h-4 text-emerald-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
+              <span>{deskPaySettings.enabled ? "Feature Enabled" : "Feature Disabled"}</span>
+            </button>
+          </div>
+
+          {deskPaySuccessMsg && (
+            <div className="mb-4 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{deskPaySuccessMsg}</span>
+            </div>
+          )}
+
+          {deskPayErrorMsg && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{deskPayErrorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveDeskPaySettings} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Brand Name (Variable &#123;&#123;2&#125;&#125;)
+                </label>
+                <input
+                  type="text"
+                  value={deskPaySettings.brandName}
+                  onChange={(e) => setDeskPaySettings(prev => ({ ...prev, brandName: e.target.value }))}
+                  placeholder="Havoc RC Fun Zone"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Sent as the brand name in the WhatsApp message (e.g. <code>Havoc RC Fun Zone</code> or <code>Havoc Sim Podium</code>).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Interakt Template Name
+                </label>
+                <input
+                  type="text"
+                  value={deskPaySettings.templateName}
+                  onChange={(e) => setDeskPaySettings(prev => ({ ...prev, templateName: e.target.value }))}
+                  placeholder="havoc_payment_link"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  The approved template name in Interakt (e.g. <code>havoc_payment_link</code>).
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl text-[11px] text-gray-600 space-y-1">
+              <span className="font-bold text-gray-800 block">Template Variables Mapping:</span>
+              <div>&#123;&#123;1&#125;&#125; &rarr; Customer Name</div>
+              <div>&#123;&#123;2&#125;&#125; &rarr; Brand Name ({deskPaySettings.brandName || "Havoc RC Fun Zone"})</div>
+              <div>&#123;&#123;3&#125;&#125; &rarr; Amount Due (e.g. 2,950.00)</div>
+              <div>&#123;&#123;4&#125;&#125; &rarr; Secure Payment Link URL</div>
+            </div>
+
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="submit"
+                disabled={isDeskPaySaving}
+                className="bg-emerald-600 text-white px-6 py-2 rounded-xl text-xs font-bold hover:bg-emerald-700 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+              >
+                {isDeskPaySaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{isDeskPaySaving ? "Saving..." : "Save Payment Link Settings"}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 3. BUSINESS INFORMATION                                                   */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
           <div className="flex items-center gap-3 border-b border-gray-100 pb-3 mb-4">

@@ -216,37 +216,52 @@ export interface PaymentLinkWhatsAppParams {
   countryCode?: string;
   totalAmount: number;
   paymentUrl: string;
+  brandName?: string;
   orderSummary?: string;
 }
 
 /**
  * Dispatches a payment link to customer via WhatsApp.
  * Supports:
- * 1. Interakt API Template (if INTERAKT_PAYMENT_LINK_TEMPLATE is set)
+ * 1. Interakt API Template with 4 body values:
+ *    {{1}}: Customer Name
+ *    {{2}}: Brand Name (e.g. "Havoc RC Fun Zone")
+ *    {{3}}: Amount Due (e.g. "2,950")
+ *    {{4}}: Payment Link URL (e.g. "https://havocrcfunzone.com/pay/xyz")
  * 2. WhatsApp Cloud API
  * 3. Direct wa.me fallback URL generation
  */
 export async function sendPaymentLinkWhatsApp(
   params: PaymentLinkWhatsAppParams
 ): Promise<{ success: boolean; message: string; waMeUrl: string; error?: string }> {
-  const { countryCode: rawCountryCode, customerPhone, customerName, totalAmount, paymentUrl, orderSummary } = params;
+  const { 
+    countryCode: rawCountryCode, 
+    customerPhone, 
+    customerName, 
+    totalAmount, 
+    paymentUrl, 
+    brandName = "Havoc RC Fun Zone",
+    orderSummary 
+  } = params;
   const { countryCode, phoneNumber } = parsePhoneAndCountryCode(rawCountryCode ? `${rawCountryCode}${customerPhone}` : customerPhone);
   const cleanCountryCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
 
-  const messageText = `Hi ${customerName || "Racer"}! 👋\n\nYour payment link for Havoc RC Fun Zone is ready:\n💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n${orderSummary ? `📋 Details: ${orderSummary}\n` : ""}🔗 Pay Now: ${paymentUrl}\n\nPlease complete your payment to proceed to the track. See you soon! 🏁`;
+  const messageText = `Hi ${customerName || "Racer"}! 👋\n\nYour payment link for ${brandName} is ready:\n💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n${orderSummary ? `📋 Details: ${orderSummary}\n` : ""}🔗 Pay Now: ${paymentUrl}\n\nPlease tap the link above to complete your payment online. See you on the track! 🏁`;
   const digitsOnlyCountry = cleanCountryCode.replace(/\D/g, "");
   const waMeUrl = `https://wa.me/${digitsOnlyCountry}${phoneNumber}?text=${encodeURIComponent(messageText)}`;
 
-  const interaktApiKey = process.env.INTERAKT_API_KEY;
-  const templateName = process.env.INTERAKT_PAYMENT_LINK_TEMPLATE;
+  const interaktApiKey = getSiteSetting("interakt_api_key", process.env.INTERAKT_API_KEY || "");
+  const templateName = getSiteSetting("desk_payment_link_template", process.env.INTERAKT_PAYMENT_LINK_TEMPLATE || "havoc_payment_link");
 
-  // If Interakt template is configured, try sending via Interakt
+  // If Interakt API key & template name are available, send via Interakt
   if (interaktApiKey && templateName) {
     try {
       let authHeader = interaktApiKey.trim();
       if (!authHeader.toLowerCase().startsWith("basic ")) {
         authHeader = `Basic ${authHeader}`;
       }
+
+      const formattedAmount = Number(totalAmount).toLocaleString("en-IN");
 
       const response = await fetch("https://api.interakt.ai/v1/public/message/", {
         method: "POST",
@@ -262,9 +277,10 @@ export async function sendPaymentLinkWhatsApp(
             name: templateName,
             languageCode: "en",
             bodyValues: [
-              customerName || "Racer",
-              `₹${Number(totalAmount).toLocaleString("en-IN")}`,
-              paymentUrl,
+              customerName || "Racer",        // {{1}}: Name
+              brandName || "Havoc RC Fun Zone", // {{2}}: Brand Name
+              formattedAmount,                // {{3}}: Amount Due
+              paymentUrl,                     // {{4}}: Direct Payment Link
             ],
           },
         }),

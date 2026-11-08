@@ -5,7 +5,8 @@ import {
   createDeskPaymentLink, 
   getDeskPaymentLinkByToken, 
   createOnlineCheckoutHold, 
-  getTickets 
+  getTickets,
+  getSiteSetting
 } from "@/lib/db";
 import { sendPaymentLinkWhatsApp } from "@/lib/whatsapp";
 import { getIciciMerchantId, getIciciAggregatorId, getIciciBaseUrl, generateIciciHash } from "@/lib/icici";
@@ -13,6 +14,14 @@ import { formatOrderNumber } from "@/lib/order-utils";
 
 export async function POST(req: NextRequest) {
   try {
+    const isEnabled = getSiteSetting("desk_payment_link_enabled", "1") !== "0";
+    if (!isEnabled) {
+      return NextResponse.json(
+        { success: false, error: "WhatsApp payment link feature is currently disabled in Admin Settings." },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const { order_ids, phone, country_code, customer_name } = body;
 
@@ -119,6 +128,9 @@ export async function POST(req: NextRequest) {
     // Prepare item summary
     const orderSummary = holdItems.map(i => `${i.quantity}x ${i.ticketName} (${i.timeSlot})`).join(", ");
 
+    // Fetch custom brand name from site settings (defaults to "Havoc RC Fun Zone")
+    const brandName = getSiteSetting("desk_payment_brand_name", "Havoc RC Fun Zone");
+
     // Send WhatsApp notification
     const waResult = await sendPaymentLinkWhatsApp({
       customerName: custName,
@@ -126,6 +138,7 @@ export async function POST(req: NextRequest) {
       countryCode: country_code || "+91",
       totalAmount: totalDue,
       paymentUrl: paymentPageUrl,
+      brandName: brandName,
       orderSummary: orderSummary,
     });
 

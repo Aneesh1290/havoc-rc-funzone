@@ -175,6 +175,39 @@ export async function updateAdminPaymentSettingsAction(data: AdminPaymentSetting
   }
 }
 
+export interface DeskPaymentLinkSettings {
+  enabled: boolean;
+  brandName: string;
+  templateName: string;
+}
+
+export async function getDeskPaymentLinkSettingsAction(): Promise<DeskPaymentLinkSettings> {
+  return {
+    enabled: getSiteSetting("desk_payment_link_enabled", "1") !== "0",
+    brandName: getSiteSetting("desk_payment_brand_name", "Havoc RC Fun Zone"),
+    templateName: getSiteSetting("desk_payment_link_template", process.env.INTERAKT_PAYMENT_LINK_TEMPLATE || "havoc_payment_link"),
+  };
+}
+
+export async function updateDeskPaymentLinkSettingsAction(settings: DeskPaymentLinkSettings) {
+  try {
+    const session = await checkSessionAction();
+    if (!session || session.role !== "Administrator") {
+      return { success: false, error: "Unauthorized: Only administrators can update settings." };
+    }
+
+    setSiteSetting("desk_payment_link_enabled", settings.enabled ? "1" : "0", "Enable sending payment links via WhatsApp at check-in desk");
+    setSiteSetting("desk_payment_brand_name", (settings.brandName || "Havoc RC Fun Zone").trim(), "Brand name sent in payment link WhatsApp template (Variable 2)");
+    setSiteSetting("desk_payment_link_template", (settings.templateName || "havoc_payment_link").trim(), "Interakt Template Name for Desk Payment Link");
+
+    revalidatePath("/admin/settings");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Failed to update desk payment link settings:", err);
+    return { success: false, error: err.message || "Failed to save payment link settings" };
+  }
+}
+
 export interface GoogleReviewSettings {
   enabled: boolean;
   reviewUrl: string;

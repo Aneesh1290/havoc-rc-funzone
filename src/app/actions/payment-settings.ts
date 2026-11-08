@@ -213,6 +213,48 @@ export async function updateDeskPaymentLinkSettingsAction(settings: DeskPaymentL
   }
 }
 
+export interface AdvanceNotificationSettings {
+  enabled: boolean;
+  hoursBefore: number; // e.g. 24 hours or 2 hours
+  brandName: string;
+  templateName: string;
+}
+
+export async function getAdvanceNotificationSettingsAction(): Promise<AdvanceNotificationSettings> {
+  return {
+    enabled: getSiteSetting("advance_notify_enabled", "1") !== "0",
+    hoursBefore: parseInt(getSiteSetting("advance_notify_hours_before", "24"), 10) || 24,
+    brandName: getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone"),
+    templateName: getSiteSetting("advance_notify_template", process.env.INTERAKT_ADVANCE_NOTIFY_TEMPLATE || "havoc_payment_link"),
+  };
+}
+
+export async function updateAdvanceNotificationSettingsAction(settings: AdvanceNotificationSettings) {
+  try {
+    const session = await checkSessionAction();
+    const isSuperAdmin = session && (
+      session.role === "super_admin" || 
+      session.role === "Administrator" || 
+      session.username?.toLowerCase() === "admin"
+    );
+    if (!session || !isSuperAdmin) {
+      return { success: false, error: "Unauthorized: Only administrators can update settings." };
+    }
+
+    setSiteSetting("advance_notify_enabled", settings.enabled ? "1" : "0", "Enable advance booking notifications with payment links");
+    setSiteSetting("advance_notify_hours_before", String(settings.hoursBefore || 24), "Target hours before booking to send advance notification");
+    setSiteSetting("advance_notify_brand_name", (settings.brandName || "Havoc RC Fun Zone").trim(), "Brand name sent in advance notification WhatsApp message");
+    setSiteSetting("advance_notify_template", (settings.templateName || "havoc_payment_link").trim(), "Interakt template name for advance booking notification");
+
+    revalidatePath("/admin/settings");
+    revalidatePath("/admin/bookings");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Failed to update advance notification settings:", err);
+    return { success: false, error: err.message || "Failed to save advance notification settings" };
+  }
+}
+
 export interface GoogleReviewSettings {
   enabled: boolean;
   reviewUrl: string;

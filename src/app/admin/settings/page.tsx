@@ -21,7 +21,8 @@ import {
   Sparkles,
   ExternalLink,
   Send,
-  FileText
+  FileText,
+  BellRing,
 } from "lucide-react";
 import { changePasswordAction } from "@/app/login/actions";
 import { 
@@ -33,7 +34,10 @@ import {
   DefaultPaymentMethod,
   getDeskPaymentLinkSettingsAction,
   updateDeskPaymentLinkSettingsAction,
-  DeskPaymentLinkSettings
+  DeskPaymentLinkSettings,
+  getAdvanceNotificationSettingsAction,
+  updateAdvanceNotificationSettingsAction,
+  AdvanceNotificationSettings
 } from "@/app/actions/payment-settings";
 
 export default function SettingsPage() {
@@ -96,16 +100,29 @@ export default function SettingsPage() {
   const [deskPaySuccessMsg, setDeskPaySuccessMsg] = useState<string | null>(null);
   const [deskPayErrorMsg, setDeskPayErrorMsg] = useState<string | null>(null);
 
+  // Advance Booking Notifications Settings State
+  const [advanceNotifySettings, setAdvanceNotifySettings] = useState<AdvanceNotificationSettings>({
+    enabled: true,
+    hoursBefore: 24,
+    brandName: "Havoc RC Fun Zone",
+    templateName: "havoc_payment_link",
+  });
+  const [isAdvanceSaving, setIsAdvanceSaving] = useState(false);
+  const [advanceSuccessMsg, setAdvanceSuccessMsg] = useState<string | null>(null);
+  const [advanceErrorMsg, setAdvanceErrorMsg] = useState<string | null>(null);
+
   useEffect(() => {
     async function loadAllSettings() {
       try {
         setIsPaymentLoading(true);
-        const [paymentData, deskPayData] = await Promise.all([
+        const [paymentData, deskPayData, advanceData] = await Promise.all([
           getAdminPaymentSettingsAction(),
           getDeskPaymentLinkSettingsAction(),
+          getAdvanceNotificationSettingsAction(),
         ]);
         setPaymentSettings(paymentData);
         setDeskPaySettings(deskPayData);
+        setAdvanceNotifySettings(advanceData);
       } catch (err: any) {
         console.error("Failed to load settings:", err);
       } finally {
@@ -114,6 +131,27 @@ export default function SettingsPage() {
     }
     loadAllSettings();
   }, []);
+
+  const handleSaveAdvanceNotifySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAdvanceSaving(true);
+    setAdvanceSuccessMsg(null);
+    setAdvanceErrorMsg(null);
+
+    try {
+      const res = await updateAdvanceNotificationSettingsAction(advanceNotifySettings);
+      if (res.success) {
+        setAdvanceSuccessMsg("Advance booking notification settings saved successfully!");
+        setTimeout(() => setAdvanceSuccessMsg(null), 4000);
+      } else {
+        setAdvanceErrorMsg(res.error || "Failed to save settings.");
+      }
+    } catch (err: any) {
+      setAdvanceErrorMsg(err?.message || "An unexpected error occurred.");
+    } finally {
+      setIsAdvanceSaving(false);
+    }
+  };
 
   const handleSaveDeskPaySettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -763,7 +801,121 @@ export default function SettingsPage() {
         </div>
 
         {/* ========================================================================= */}
-        {/* 3. BUSINESS INFORMATION                                                   */}
+        {/* 3. ADVANCE BOOKING NOTIFICATIONS CONFIGURATION                           */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4 mb-6">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-blue-50 text-blue-600 border border-blue-200">
+                <BellRing className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Advance Booking Notifications</h3>
+                <p className="text-xs text-gray-500">
+                  Send advance reminder notifications with secure payment links to customers with prior bookings before their arrival.
+                </p>
+              </div>
+            </div>
+
+            {/* Enable/Disable Toggle */}
+            <button
+              type="button"
+              onClick={() => setAdvanceNotifySettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                advanceNotifySettings.enabled 
+                  ? "bg-blue-50 text-blue-700 border-blue-300" 
+                  : "bg-gray-100 text-gray-500 border-gray-300"
+              }`}
+            >
+              {advanceNotifySettings.enabled ? <ToggleRight className="w-4 h-4 text-blue-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
+              <span>{advanceNotifySettings.enabled ? "Notifications Enabled" : "Notifications Disabled"}</span>
+            </button>
+          </div>
+
+          {advanceSuccessMsg && (
+            <div className="mb-4 bg-blue-50 border border-blue-200 text-blue-800 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <Check className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>{advanceSuccessMsg}</span>
+            </div>
+          )}
+
+          {advanceErrorMsg && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{advanceErrorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveAdvanceNotifySettings} className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Send Before (Hours)
+                </label>
+                <select
+                  value={advanceNotifySettings.hoursBefore}
+                  onChange={(e) => setAdvanceNotifySettings(prev => ({ ...prev, hoursBefore: Number(e.target.value) }))}
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                >
+                  <option value={2}>2 Hours Before Slot</option>
+                  <option value={4}>4 Hours Before Slot</option>
+                  <option value={12}>12 Hours Before Slot</option>
+                  <option value={24}>24 Hours (1 Day) Before</option>
+                  <option value={48}>48 Hours (2 Days) Before</option>
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  When advance payment reminders are dispatched.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Brand Name (Variable &#123;&#123;2&#125;&#125;)
+                </label>
+                <input
+                  type="text"
+                  value={advanceNotifySettings.brandName}
+                  onChange={(e) => setAdvanceNotifySettings(prev => ({ ...prev, brandName: e.target.value }))}
+                  placeholder="Havoc RC Fun Zone"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Brand name in WhatsApp text (e.g. <code>Havoc RC Fun Zone</code>).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Interakt Template Name
+                </label>
+                <input
+                  type="text"
+                  value={advanceNotifySettings.templateName}
+                  onChange={(e) => setAdvanceNotifySettings(prev => ({ ...prev, templateName: e.target.value }))}
+                  placeholder="havoc_payment_link"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Template slug in Interakt (e.g. <code>havoc_payment_link</code>).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="submit"
+                disabled={isAdvanceSaving}
+                className="bg-blue-600 text-white px-6 py-2 rounded-xl text-xs font-bold hover:bg-blue-700 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+              >
+                {isAdvanceSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{isAdvanceSaving ? "Saving..." : "Save Notification Settings"}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 4. BUSINESS INFORMATION                                                   */}
         {/* ========================================================================= */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
           <div className="flex items-center gap-3 border-b border-gray-100 pb-3 mb-4">

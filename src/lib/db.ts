@@ -280,6 +280,7 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_token ON desk_payment_links(token)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_created ON desk_payment_links(created_at)'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN advance_notified_at TEXT'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -718,6 +719,7 @@ export function getAllBookings() {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
@@ -733,6 +735,7 @@ export function getBookingById(id: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
@@ -748,6 +751,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
@@ -1194,6 +1198,16 @@ export function markDeskPaymentLinkCompleted(token: string, paymentRef: string) 
     SET status = 'completed', paid_at = datetime('now'), payment_ref = ?
     WHERE token = ?
   `).run(paymentRef, token);
+}
+
+export function markBookingsAdvanceNotified(bookingIds: number[]) {
+  if (!bookingIds || bookingIds.length === 0) return;
+  const placeholders = bookingIds.map(() => '?').join(',');
+  return db.prepare(`
+    UPDATE bookings 
+    SET advance_notified_at = datetime('now')
+    WHERE id IN (${placeholders})
+  `).run(...bookingIds);
 }
 
 export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {

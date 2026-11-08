@@ -15,7 +15,7 @@ import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -49,6 +49,10 @@ export default function OrderDetailPage() {
   const [bandInputs, setBandInputs] = useState<string[]>([]);
   const [isSavingBand, setIsSavingBand] = useState(false);
   const [bandAssignError, setBandAssignError] = useState<string | null>(null);
+
+  // Advance Payment Notification State
+  const [isSendingAdvance, setIsSendingAdvance] = useState(false);
+  const [advanceStatusMsg, setAdvanceStatusMsg] = useState<{ type: "success" | "error"; text: string; paymentUrl?: string; waDirectUrl?: string } | null>(null);
 
   useEffect(() => {
     getSubcategoryBandsAction()
@@ -251,6 +255,57 @@ export default function OrderDetailPage() {
     }
   };
 
+  const handleSendAdvancePaymentNotification = async () => {
+    if (!booking.customer_phone) {
+      alert("This booking does not have a customer phone number.");
+      return;
+    }
+    const unpaidItemIds = orderItems.filter(i => (i.payment_status || "").toLowerCase() !== "paid").map(i => i.id);
+    const targetIds = unpaidItemIds.length > 0 ? unpaidItemIds : [booking.id];
+
+    if (!confirm(`Send advance WhatsApp payment link notification to ${booking.customer_name || 'Customer'} (${booking.customer_phone}) for ₹${amountDue.toFixed(2)}?`)) {
+      return;
+    }
+
+    setIsSendingAdvance(true);
+    setAdvanceStatusMsg(null);
+
+    try {
+      const res = await fetch("/api/admin/advance-notifications", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          order_number: effectiveOrderNumber,
+          booking_ids: targetIds,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (data.success) {
+        setAdvanceStatusMsg({
+          type: "success",
+          text: data.message || "Advance payment notification sent successfully via WhatsApp!",
+          paymentUrl: data.paymentUrl,
+          waDirectUrl: data.waDirectUrl,
+        });
+        loadBooking();
+      } else {
+        setAdvanceStatusMsg({
+          type: "error",
+          text: data.error || "Failed to send advance payment notification.",
+        });
+      }
+    } catch (err: any) {
+      setAdvanceStatusMsg({
+        type: "error",
+        text: err.message || "Network error while sending notification.",
+      });
+    } finally {
+      setIsSendingAdvance(false);
+    }
+  };
+
   const handleSaveTags = async () => {
     await updateBookingTagsAction(booking.id, tagsInput);
     setIsEditingTags(false);
@@ -393,8 +448,77 @@ export default function OrderDetailPage() {
               )}
             </div>
           )}
+
+          {/* Advance Booking Notification Button (when unpaid/partially paid) */}
+          {!isPaid && !isCanceled && !isRefunded && (
+            <button
+              onClick={handleSendAdvancePaymentNotification}
+              disabled={isSendingAdvance}
+              className="px-4 py-2.5 rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition-all disabled:opacity-60"
+              title="Send WhatsApp payment link notification so customer can pay before arrival"
+            >
+              {isSendingAdvance ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Sending...</span>
+                </>
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  <span>Send Advance Payment Link</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Notification Feedback Banner */}
+      {advanceStatusMsg && (
+        <div className={`p-4 rounded-2xl border text-sm flex items-start justify-between gap-3 ${
+          advanceStatusMsg.type === "success" 
+            ? "bg-emerald-50 border-emerald-200 text-emerald-900" 
+            : "bg-red-50 border-red-200 text-red-900"
+        }`}>
+          <div className="space-y-1">
+            <p className="font-bold flex items-center gap-2">
+              <span>{advanceStatusMsg.type === "success" ? "✓" : "✕"}</span>
+              <span>{advanceStatusMsg.text}</span>
+            </p>
+            {advanceStatusMsg.paymentUrl && (
+              <p className="text-xs">
+                Payment Link: <a href={advanceStatusMsg.paymentUrl} target="_blank" rel="noreferrer" className="underline font-mono font-bold">{advanceStatusMsg.paymentUrl}</a>
+              </p>
+            )}
+            {advanceStatusMsg.waDirectUrl && (
+              <p className="text-xs">
+                WhatsApp Direct Link: <a href={advanceStatusMsg.waDirectUrl} target="_blank" rel="noreferrer" className="underline font-bold text-teal-800">Open in WhatsApp Web</a>
+              </p>
+            )}
+          </div>
+          <button 
+            onClick={() => setAdvanceStatusMsg(null)}
+            className="text-gray-400 hover:text-gray-600 p-1"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Advance Notification Timestamp Banner (if already sent) */}
+      {booking.advance_notified_at && (
+        <div className="p-3.5 rounded-2xl border border-teal-200 bg-teal-50/70 text-teal-900 text-xs font-medium flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">🔔</span>
+            <span>
+              <strong>Advance Payment Link sent:</strong> Customer received the advance payment notification on <strong className="font-semibold">{formatDateTime(booking.advance_notified_at)}</strong>.
+            </span>
+          </div>
+          <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-800 font-bold text-[11px] border border-teal-300">
+            Advance Notified
+          </span>
+        </div>
+      )}
 
       {/* Main Two-Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">

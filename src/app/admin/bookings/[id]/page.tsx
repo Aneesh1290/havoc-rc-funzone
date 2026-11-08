@@ -198,8 +198,38 @@ export default function OrderDetailPage() {
 
   const effectiveOrderNumber = booking.order_number || booking.id;
   const orderCode = formatOrderNumber(effectiveOrderNumber, booking.created_at, booking.payment_status);
-  const isPaid = (booking.payment_status || "Paid").toLowerCase() === "paid";
-  const isFulfilled = (booking.fulfillment_status || "").toLowerCase() === "fulfilled" || (booking.fulfillment_status || "").toLowerCase() === "attended";
+
+  // Group-level statuses: aggregate across all items in order
+  const allItems = orderItems.length > 0 ? orderItems : [booking];
+  const allPaid = allItems.every((item) => (item.payment_status || "").toLowerCase() === "paid");
+  const anyPaid = allItems.some((item) => (item.payment_status || "").toLowerCase() === "paid");
+  const anyPartiallyPaid = allItems.some((item) => (item.payment_status || "").toLowerCase() === "partially paid");
+
+  const allCanceled = allItems.every((item) => {
+    const f = (item.fulfillment_status || "").toLowerCase();
+    const p = (item.payment_status || "").toLowerCase();
+    return f === "canceled" || f === "cancelled" || p === "refunded";
+  });
+  const nonCanceledItems = allItems.filter((item) => {
+    const f = (item.fulfillment_status || "").toLowerCase();
+    const p = (item.payment_status || "").toLowerCase();
+    return f !== "canceled" && f !== "cancelled" && p !== "refunded";
+  });
+  const anyFulfilled = allItems.some((item) => {
+    const f = (item.fulfillment_status || "").toLowerCase();
+    return f === "fulfilled" || f === "attended";
+  });
+  const allActiveFulfilled = nonCanceledItems.length > 0 && nonCanceledItems.every((item) => {
+    const f = (item.fulfillment_status || "").toLowerCase();
+    return f === "fulfilled" || f === "attended";
+  });
+
+  const isPaid = allPaid;
+  const isPartiallyPaid = !allPaid && (anyPaid || anyPartiallyPaid);
+  const isRefunded = allItems.every((item) => (item.payment_status || "").toLowerCase() === "refunded");
+  const isCanceled = allCanceled;
+  const isFulfilled = !allCanceled && allActiveFulfilled;
+  const isPartiallyFulfilled = !allCanceled && !allActiveFulfilled && anyFulfilled;
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
   
@@ -312,9 +342,6 @@ export default function OrderDetailPage() {
     loadBooking();
   };
 
-  const isRefunded = (booking.payment_status || "").toLowerCase() === "refunded";
-  const isCanceled = (booking.fulfillment_status || "").toLowerCase() === "canceled" || (booking.fulfillment_status || "").toLowerCase() === "cancelled";
-
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
       {/* Breadcrumb: Orders > Order #PAYDUE_... */}
@@ -344,6 +371,10 @@ export default function OrderDetailPage() {
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-green-50 text-green-700 border border-green-200">
                 PAID
               </span>
+            ) : isPartiallyPaid ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-yellow-50 text-yellow-800 border border-yellow-300">
+                PARTIALLY PAID
+              </span>
             ) : (
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-50 text-amber-700 border border-amber-200">
                 UNPAID
@@ -358,6 +389,10 @@ export default function OrderDetailPage() {
             ) : isFulfilled ? (
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
                 FULFILLED
+              </span>
+            ) : isPartiallyFulfilled ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200">
+                PARTIALLY FULFILLED
               </span>
             ) : (
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-orange-50 text-orange-700 border border-orange-200">
@@ -664,8 +699,11 @@ export default function OrderDetailPage() {
                 const itemEffectiveSubtotalBeforeTax = Math.round((itemLineEffective / 1.18) * 100) / 100;
                 const itemUnitPrice = itemQty > 0 ? (itemEffectiveSubtotalBeforeTax / itemQty) : 0;
                 const isDiscounted = hasItemTotal && itemLineEffective < catalogLineTotalWithGst;
-                const itemIsPaid = (item.payment_status || booking.payment_status || "Paid").toLowerCase() === "paid";
-                const itemIsFulfilled = (item.fulfillment_status || booking.fulfillment_status || "Fulfilled").toLowerCase() === "fulfilled";
+                const itemIsPaid = (item.payment_status || "").toLowerCase() === "paid";
+                const itemIsPartiallyPaid = (item.payment_status || "").toLowerCase() === "partially paid";
+                const itemIsRefunded = (item.payment_status || "").toLowerCase() === "refunded";
+                const itemIsCanceled = (item.fulfillment_status || "").toLowerCase() === "canceled" || (item.fulfillment_status || "").toLowerCase() === "cancelled";
+                const itemIsFulfilled = (item.fulfillment_status || "").toLowerCase() === "fulfilled" || (item.fulfillment_status || "").toLowerCase() === "attended";
                 const isAddonActivity = Boolean(
                   item.is_addon === 1 || 
                   (item.ticket_name && (
@@ -715,14 +753,37 @@ export default function OrderDetailPage() {
                           return null;
                         })()}
 
-                        {itemIsPaid && (
+                        {/* Item Payment Status Badge */}
+                        {itemIsRefunded ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-50 text-rose-700 border border-rose-200">
+                            REFUNDED
+                          </span>
+                        ) : itemIsPaid ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-green-50 text-green-700 border border-green-200">
                             PAID
                           </span>
+                        ) : itemIsPartiallyPaid ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-yellow-50 text-yellow-800 border border-yellow-300">
+                            PARTIALLY PAID
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-50 text-amber-700 border border-amber-200">
+                            UNPAID
+                          </span>
                         )}
-                        {itemIsFulfilled && (
+
+                        {/* Item Fulfillment Status Badge */}
+                        {itemIsCanceled ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-red-50 text-red-600 border border-red-200">
+                            CANCELED
+                          </span>
+                        ) : itemIsFulfilled ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
                             FULFILLED
+                          </span>
+                        ) : (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-orange-50 text-orange-700 border border-orange-200">
+                            UNFULFILLED
                           </span>
                         )}
 

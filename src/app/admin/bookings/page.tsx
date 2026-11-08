@@ -159,12 +159,6 @@ export default function BookingsPage() {
         if (b.applied_coupon && !existing.applied_coupon) {
           existing.applied_coupon = b.applied_coupon;
         }
-        const isItemFulfilled = 
-          (b.fulfillment_status || "").toLowerCase() === "fulfilled" || 
-          (b.fulfillment_status || "").toLowerCase() === "attended";
-        if (isItemFulfilled) {
-          existing.fulfillment_status = "Fulfilled";
-        }
         if (b.tags && !existing.tags.includes(b.tags)) {
           existing.tags = existing.tags ? `${existing.tags}, ${b.tags}` : b.tags;
         }
@@ -175,6 +169,55 @@ export default function BookingsPage() {
           }
         }
       }
+    }
+
+    // Pass across all grouped orders to compute consistent group-level payment & fulfillment status
+    for (const order of map.values()) {
+      const items = order.items;
+      
+      const allRefunded = items.length > 0 && items.every(i => (i.payment_status || "").toLowerCase() === "refunded");
+      const allPaid = items.length > 0 && items.every(i => (i.payment_status || "").toLowerCase() === "paid");
+      const anyPaid = items.some(i => (i.payment_status || "").toLowerCase() === "paid");
+      const anyPartiallyPaid = items.some(i => (i.payment_status || "").toLowerCase() === "partially paid");
+
+      if (allRefunded) {
+        order.payment_status = "Refunded";
+      } else if (allPaid) {
+        order.payment_status = "Paid";
+      } else if (anyPaid || anyPartiallyPaid) {
+        order.payment_status = "Partially paid";
+      } else {
+        order.payment_status = "Unpaid";
+      }
+
+      const allCanceled = items.length > 0 && items.every(i => {
+        const f = (i.fulfillment_status || "").toLowerCase();
+        return f === "canceled" || f === "cancelled";
+      });
+      const nonCanceledItems = items.filter(i => {
+        const f = (i.fulfillment_status || "").toLowerCase();
+        return f !== "canceled" && f !== "cancelled";
+      });
+      const anyFulfilled = items.some(i => {
+        const f = (i.fulfillment_status || "").toLowerCase();
+        return f === "fulfilled" || f === "attended";
+      });
+      const allActiveFulfilled = nonCanceledItems.length > 0 && nonCanceledItems.every(i => {
+        const f = (i.fulfillment_status || "").toLowerCase();
+        return f === "fulfilled" || f === "attended";
+      });
+
+      if (allCanceled) {
+        order.fulfillment_status = "Canceled";
+      } else if (allActiveFulfilled) {
+        order.fulfillment_status = "Fulfilled";
+      } else if (anyFulfilled) {
+        order.fulfillment_status = "Partially fulfilled";
+      } else {
+        order.fulfillment_status = "Unfulfilled";
+      }
+
+      order.orderCode = formatOrderNumber(order.orderNumber, order.created_at, order.payment_status);
     }
 
     return Array.from(map.values());
@@ -973,10 +1016,9 @@ export default function BookingsPage() {
               ) : (
                 filteredOrders.map((order) => {
                   const isSelected = selectedIds.includes(order.primaryId);
-                  const isPaid = (order.payment_status || "Paid").toLowerCase() === "paid";
-                  const isFulfilled = 
-                    (order.fulfillment_status || "").toLowerCase() === "fulfilled" ||
-                    (order.fulfillment_status || "").toLowerCase() === "attended";
+                  const isPaid = (order.payment_status || "").toLowerCase() === "paid";
+                  const isFulfilled = (order.fulfillment_status || "").toLowerCase() === "fulfilled";
+                  const isPartiallyFulfilled = (order.fulfillment_status || "").toLowerCase() === "partially fulfilled";
                   const totalFormatted = order.total_amount > 0 ? `₹${order.total_amount.toFixed(2)}` : "₹0.00";
 
                   return (
@@ -1119,6 +1161,10 @@ export default function BookingsPage() {
                         ) : isFulfilled ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
                             Fulfilled
+                          </span>
+                        ) : isPartiallyFulfilled ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                            Partially Fulfilled
                           </span>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-orange-50 text-orange-700 border border-orange-200">

@@ -2,6 +2,7 @@
 
 import { getSiteSetting, setSiteSetting } from "@/lib/db";
 import { checkSessionAction } from "@/app/login/actions";
+import { hasUserPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
 
 export type GatewayProvider = "icici" | "razorpay" | "phonepe" | "cashfree";
@@ -192,12 +193,14 @@ export async function getDeskPaymentLinkSettingsAction(): Promise<DeskPaymentLin
 export async function updateDeskPaymentLinkSettingsAction(settings: DeskPaymentLinkSettings) {
   try {
     const session = await checkSessionAction();
-    const isSuperAdmin = session && (
+    const canManageSettings = session && (
+      hasUserPermission(session, "settings") ||
       session.role === "super_admin" || 
       session.role === "Administrator" || 
+      session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
-    if (!session || !isSuperAdmin) {
+    if (!session || !canManageSettings) {
       return { success: false, error: "Unauthorized: Only administrators can update settings." };
     }
 
@@ -232,12 +235,14 @@ export async function getAdvanceNotificationSettingsAction(): Promise<AdvanceNot
 export async function updateAdvanceNotificationSettingsAction(settings: AdvanceNotificationSettings) {
   try {
     const session = await checkSessionAction();
-    const isSuperAdmin = session && (
+    const canManageSettings = session && (
+      hasUserPermission(session, "settings") ||
       session.role === "super_admin" || 
       session.role === "Administrator" || 
+      session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
-    if (!session || !isSuperAdmin) {
+    if (!session || !canManageSettings) {
       return { success: false, error: "Unauthorized: Only administrators can update settings." };
     }
 
@@ -283,12 +288,14 @@ export async function getGoogleReviewSettingsAction(): Promise<GoogleReviewSetti
 export async function updateGoogleReviewSettingsAction(settings: GoogleReviewSettings) {
   try {
     const session = await checkSessionAction();
-    const isSuperAdmin = session && (
+    const canManageSettings = session && (
+      hasUserPermission(session, "settings") ||
       session.role === "super_admin" || 
       session.role === "Administrator" || 
+      session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
-    if (!session || !isSuperAdmin) {
+    if (!session || !canManageSettings) {
       return { success: false, error: "Unauthorized: Only administrators can update settings." };
     }
 

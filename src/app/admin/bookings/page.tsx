@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2 } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -9,6 +9,7 @@ import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
 import { hasUserPermission } from "@/lib/permissions";
 import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
 import OrganisationBookingModal from "@/components/admin/OrganisationBookingModal";
+import AdvanceNotificationsModal from "@/components/admin/AdvanceNotificationsModal";
 import type { TimeSlotRow, TicketRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -33,6 +34,7 @@ export interface GroupedOrder {
   deposit_amount?: number;
   expected_guests?: number;
   special_requests?: string;
+  advance_notified_at?: string;
   bookingIds: number[];
   primaryId: number;
   items: any[];
@@ -52,6 +54,7 @@ export default function BookingsPage() {
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
   const [isOrgBookingOpen, setIsOrgBookingOpen] = useState(false);
+  const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
 
@@ -133,6 +136,7 @@ export default function BookingsPage() {
           bookingIds: [b.id],
           primaryId: b.id,
           items: [b],
+          advance_notified_at: b.advance_notified_at || undefined,
           slots: b.time_slot ? [{ slot: b.time_slot, color: b.slot_color, color_name: b.slot_color_name, date: b.booking_date }] : []
         });
       } else {
@@ -145,6 +149,9 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
+        if (b.advance_notified_at && !existing.advance_notified_at) {
+          existing.advance_notified_at = b.advance_notified_at;
+        }
         if (b.organization_name && !existing.organization_name) {
           existing.organization_name = b.organization_name;
           existing.organization_type = b.organization_type;
@@ -568,6 +575,17 @@ export default function BookingsPage() {
             </button>
           )}
 
+          {/* Advance Booking Notifications Button */}
+          <button
+            type="button"
+            onClick={() => setIsAdvanceModalOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-sm shadow-blue-600/20 whitespace-nowrap active:scale-[0.98]"
+            title="Send advance payment reminder with WhatsApp payment link to prior bookings"
+          >
+            <BellRing className="w-4 h-4" />
+            <span>Advance Notifications</span>
+          </button>
+
           {/* 3. Export Report Excel Button - blue pill */}
           {canExport && (
             <button
@@ -669,6 +687,13 @@ export default function BookingsPage() {
       <DeskCheckInModal
         isOpen={isDeskCheckInOpen}
         onClose={() => setIsDeskCheckInOpen(false)}
+        onSuccess={() => loadBookings()}
+      />
+
+      {/* Advance Booking Notifications Modal */}
+      <AdvanceNotificationsModal
+        isOpen={isAdvanceModalOpen}
+        onClose={() => setIsAdvanceModalOpen(false)}
         onSuccess={() => loadBookings()}
       />
 
@@ -1085,6 +1110,15 @@ export default function BookingsPage() {
                           {order.applied_coupon && (
                             <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-800 border border-amber-300">
                               VIP Band Guest
+                            </span>
+                          )}
+                          {order.advance_notified_at && (
+                            <span 
+                              className="inline-flex items-center gap-1 text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-teal-50 text-teal-800 border border-teal-200"
+                              title={`Advance Payment Link sent: ${formatDateTime(order.advance_notified_at)}`}
+                            >
+                              <BellRing className="w-2.5 h-2.5 text-teal-600" />
+                              <span>Notified</span>
                             </span>
                           )}
                         </div>

@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { order_numbers, booking_ids } = body;
+    const { order_numbers, booking_ids, auto } = body;
 
     let targetBookingIds: number[] = [];
 
@@ -115,11 +115,21 @@ export async function POST(req: NextRequest) {
       targetBookingIds = allBookings
         .filter(b => order_numbers.includes(b.order_number || b.id))
         .map(b => b.id);
+    } else if (auto) {
+      const allBookings = getAllBookings() as any[];
+      targetBookingIds = allBookings
+        .filter(b => {
+          const isPaid = (b.payment_status || "").toLowerCase() === "paid";
+          const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.payment_status || "").toLowerCase() === "refunded";
+          const isNotified = Boolean(b.advance_notified_at);
+          return !isPaid && !isCanceled && !isNotified && Boolean(b.customer_phone);
+        })
+        .map(b => b.id);
     }
 
     if (targetBookingIds.length === 0) {
       return NextResponse.json(
-        { success: false, error: "Please provide order_numbers or booking_ids to dispatch advance notifications." },
+        { success: false, error: auto ? "No eligible unpaid bookings found waiting for advance notification." : "Please provide order_numbers or booking_ids to dispatch advance notifications." },
         { status: 400 }
       );
     }
@@ -149,6 +159,7 @@ export async function POST(req: NextRequest) {
     }
 
     const brandName = getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone");
+    const templateName = getSiteSetting("advance_notify_template", "havoc_payment_link");
     const returnBase = process.env.ICICI_RETURN_BASE 
       || process.env.NEXT_PUBLIC_APP_URL 
       || (process.env.NODE_ENV === 'production' 
@@ -227,6 +238,7 @@ export async function POST(req: NextRequest) {
         paymentUrl: paymentPageUrl,
         brandName: brandName,
         orderSummary: orderSummary,
+        templateName: templateName,
       });
 
       // Mark advance notified in DB

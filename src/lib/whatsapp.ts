@@ -218,6 +218,7 @@ export interface PaymentLinkWhatsAppParams {
   paymentUrl: string;
   brandName?: string;
   orderSummary?: string;
+  templateName?: string;
 }
 
 /**
@@ -251,7 +252,7 @@ export async function sendPaymentLinkWhatsApp(
   const waMeUrl = `https://wa.me/${digitsOnlyCountry}${phoneNumber}?text=${encodeURIComponent(messageText)}`;
 
   const interaktApiKey = getSiteSetting("interakt_api_key", process.env.INTERAKT_API_KEY || "");
-  const templateName = getSiteSetting("desk_payment_link_template", process.env.INTERAKT_PAYMENT_LINK_TEMPLATE || "havoc_payment_link");
+  const templateName = params.templateName || getSiteSetting("desk_payment_link_template", process.env.INTERAKT_PAYMENT_LINK_TEMPLATE || "havoc_payment_link");
 
   // If Interakt API key & template name are available, send via Interakt
   if (interaktApiKey && templateName) {

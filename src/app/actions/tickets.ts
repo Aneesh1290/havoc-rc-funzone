@@ -73,7 +73,10 @@ import {
   updateStaffRoleAndPerms,
   resetStaffUserPassword,
   deleteStaffUser,
-  cleanupExpiredHolds
+  cleanupExpiredHolds,
+  getAvailableAddonTickets,
+  addAddonToOrder,
+  removeBookingItem
 } from "@/lib/db";
 import {
   getTakenSimulatorSlots,
@@ -620,6 +623,46 @@ export async function deleteBookingsAction(ids: number[]) {
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true, count: orderNumsToDelete.size };
+}
+
+export async function fetchAvailableAddonsAction() {
+  return getAvailableAddonTickets();
+}
+
+export async function addAddonToOrderAction(params: {
+  orderNumber: number;
+  ticketId: number;
+  quantity: number;
+}) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status") && !hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to modify order items." };
+  }
+
+  try {
+    const result = addAddonToOrder(params.orderNumber, params.ticketId, params.quantity);
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${params.orderNumber}`);
+    return { success: true, ...result };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to add addon to order." };
+  }
+}
+
+export async function removeOrderItemAction(bookingItemId: number, orderNumber: number) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: You do not have permission to remove order items." };
+  }
+
+  try {
+    removeBookingItem(bookingItemId);
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${orderNumber}`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to remove item." };
+  }
 }
 
 export async function toggleTicketStatusAction(id: number, active: boolean) {

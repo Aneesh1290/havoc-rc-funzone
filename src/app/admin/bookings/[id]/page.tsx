@@ -9,13 +9,16 @@ import {
   updateBookingPaymentRefAction,
   updateBookingTagsAction,
   updateBookingWristbandNumberAction,
-  cancelBookingAction
+  cancelBookingAction,
+  fetchAvailableAddonsAction,
+  addAddonToOrderAction,
+  removeOrderItemAction
 } from "@/app/actions/tickets";
 import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -53,6 +56,15 @@ export default function OrderDetailPage() {
   // Advance Payment Notification State
   const [isSendingAdvance, setIsSendingAdvance] = useState(false);
   const [advanceStatusMsg, setAdvanceStatusMsg] = useState<{ type: "success" | "error"; text: string; paymentUrl?: string; waDirectUrl?: string } | null>(null);
+
+  // Add Add-on / Activity State
+  const [isAddAddonModalOpen, setIsAddAddonModalOpen] = useState(false);
+  const [availableAddons, setAvailableAddons] = useState<any[]>([]);
+  const [selectedAddonId, setSelectedAddonId] = useState<number | string>("");
+  const [addonQuantity, setAddonQuantity] = useState<number>(2);
+  const [isSubmittingAddon, setIsSubmittingAddon] = useState(false);
+  const [addonError, setAddonError] = useState<string | null>(null);
+  const [isDeletingItemId, setIsDeletingItemId] = useState<number | null>(null);
 
   useEffect(() => {
     getSubcategoryBandsAction()
@@ -158,6 +170,67 @@ export default function OrderDetailPage() {
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleOpenAddAddonModal = async () => {
+    setIsAddAddonModalOpen(true);
+    setAddonError(null);
+    try {
+      const addons = await fetchAvailableAddonsAction();
+      setAvailableAddons(addons || []);
+      if (addons && addons.length > 0) {
+        // Prefer excavator if available, otherwise first item
+        const exc = addons.find((a: any) => a.name && a.name.toUpperCase().includes("EXCAVATOR"));
+        setSelectedAddonId(exc ? exc.id : addons[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to load addons:", err);
+    }
+  };
+
+  const handleAddAddonSubmit = async () => {
+    if (!selectedAddonId) {
+      setAddonError("Please select an add-on activity.");
+      return;
+    }
+    setIsSubmittingAddon(true);
+    setAddonError(null);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await addAddonToOrderAction({
+        orderNumber: targetOrderNum,
+        ticketId: Number(selectedAddonId),
+        quantity: addonQuantity
+      });
+      if (!res.success) {
+        setAddonError(res.error || "Failed to add add-on.");
+        return;
+      }
+      setIsAddAddonModalOpen(false);
+      await loadBooking();
+    } catch (err: any) {
+      setAddonError(err.message || "Failed to add add-on.");
+    } finally {
+      setIsSubmittingAddon(false);
+    }
+  };
+
+  const handleRemoveItem = async (itemId: number) => {
+    if (!window.confirm("Are you sure you want to remove this item from the order?")) return;
+    setIsDeletingItemId(itemId);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await removeOrderItemAction(itemId, targetOrderNum);
+      if (!res.success) {
+        alert(res.error || "Failed to remove item.");
+        return;
+      }
+      await loadBooking();
+    } catch (err: any) {
+      alert(err.message || "Failed to remove item.");
+    } finally {
+      setIsDeletingItemId(null);
     }
   };
 
@@ -681,10 +754,20 @@ export default function OrderDetailPage() {
           <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm">
             <h2 className="text-lg font-bold text-gray-900 mb-6 border-b border-gray-100 pb-3 flex items-center justify-between">
               <span>{booking?.organization_name ? "Reserved Arena Slots" : "Items"} ({booking?.organization_name ? orderItems.length : totalQuantity})</span>
-              {booking?.organization_name && (
+              {booking?.organization_name ? (
                 <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-orange-50 text-orange-700 border border-orange-200">
                   Fixed Quotation / Pure Reservation
                 </span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleOpenAddAddonModal}
+                  className="px-3.5 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-bold text-xs flex items-center gap-1.5 shadow-sm transition-all"
+                  title="Add an activity or addon (e.g. RC Excavator Activity) to this booking"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Add-On</span>
+                </button>
               )}
             </h2>
 
@@ -1044,6 +1127,23 @@ export default function OrderDetailPage() {
                           </div>
                         </>
                       )}
+
+                      {/* Remove item button for unpaid orders when multiple items exist */}
+                      {orderItems.length > 1 && !isPaid && canManageStatus && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.id)}
+                          disabled={isDeletingItemId === item.id}
+                          className="text-gray-300 hover:text-red-600 p-1 rounded-md hover:bg-red-50 transition-colors ml-1"
+                          title="Remove this item from the order"
+                        >
+                          {isDeletingItemId === item.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                          ) : (
+                            <Trash2 className="w-4 h-4" />
+                          )}
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -1254,6 +1354,107 @@ export default function OrderDetailPage() {
         </div>
 
       </div>
+
+      {/* Add Add-On / Activity Modal */}
+      {isAddAddonModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-orange-100 text-orange-600">
+                  <Plus className="w-4 h-4 font-black" />
+                </span>
+                <h3 className="font-bold text-gray-900 text-base">Add Activity / Add-On</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddAddonModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Select Activity / Add-On
+                </label>
+                {availableAddons.length > 0 ? (
+                  <select
+                    value={selectedAddonId}
+                    onChange={(e) => setSelectedAddonId(Number(e.target.value))}
+                    className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  >
+                    {availableAddons.map((addon) => {
+                      const withGst = Math.round(Number(addon.price || 0) * 1.18);
+                      return (
+                        <option key={addon.id} value={addon.id}>
+                          {addon.name} — ₹{addon.price} (+ 18% GST = ₹{withGst})
+                        </option>
+                      );
+                    })}
+                  </select>
+                ) : (
+                  <p className="text-xs text-gray-500 italic">No add-ons found in catalog.</p>
+                )}
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">
+                  Quantity
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={addonQuantity}
+                    onChange={(e) => setAddonQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-24 text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                  />
+                  <span className="text-xs text-gray-600 font-medium">
+                    Total with GST:{" "}
+                    <strong className="text-gray-900 font-bold">
+                      ₹{(() => {
+                        const sel = availableAddons.find(a => a.id === Number(selectedAddonId));
+                        const p = sel ? Number(sel.price || 0) : 300;
+                        return Math.round(p * addonQuantity * 1.18).toLocaleString('en-IN');
+                      })()}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {addonError && (
+                <div className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 p-2.5 rounded-xl flex items-start gap-1.5">
+                  <span>⚠️</span>
+                  <span>{addonError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsAddAddonModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleAddAddonSubmit}
+                disabled={isSubmittingAddon || !selectedAddonId}
+                className="px-4 py-2 rounded-xl text-xs font-bold bg-orange-500 hover:bg-orange-600 text-white shadow-sm disabled:opacity-50 transition-all flex items-center gap-1.5 active:scale-95"
+              >
+                {isSubmittingAddon && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Add to Order</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

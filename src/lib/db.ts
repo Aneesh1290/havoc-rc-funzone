@@ -504,6 +504,205 @@ export function initDB() {
   } catch (e) {
     // ignore
   }
+
+  // Auto-seed/add 2 excavator activities to Order #139 if present
+  try {
+    autoAddExcavatorAddonToOrder139();
+  } catch (e) {
+    // ignore
+  }
+}
+
+// Auto-run schema migrations and initializations on module load
+try {
+  initDB();
+} catch (e) {
+  console.error("Database init error:", e);
+}
+
+let hasCheckedOrder139Excavator = false;
+
+export function autoAddExcavatorAddonToOrder139() {
+  if (hasCheckedOrder139Excavator) return;
+  try {
+    // Find Order 139
+    const order139 = db.prepare(`
+      SELECT * FROM bookings 
+      WHERE order_number = 139 OR (order_number IS NULL AND id = 139)
+      ORDER BY id ASC 
+      LIMIT 1
+    `).get() as any;
+
+    if (!order139) return;
+
+    // Check if Order 139 already has an excavator activity addon
+    const existingExcavator = db.prepare(`
+      SELECT b.id FROM bookings b
+      JOIN tickets t ON b.ticket_id = t.id
+      WHERE (b.order_number = 139 OR (b.order_number IS NULL AND b.id = 139))
+        AND UPPER(t.name) LIKE '%EXCAVATOR%'
+    `).get();
+
+    if (existingExcavator) {
+      hasCheckedOrder139Excavator = true;
+      return;
+    }
+
+    // Find excavator ticket in tickets table
+    let excTicket = db.prepare(`
+      SELECT * FROM tickets 
+      WHERE UPPER(name) LIKE '%EXCAVATOR%'
+      ORDER BY active DESC, id DESC 
+      LIMIT 1
+    `).get() as any;
+
+    if (!excTicket) {
+      excTicket = db.prepare(`
+        SELECT * FROM tickets 
+        WHERE is_addon = 1 
+        ORDER BY id DESC 
+        LIMIT 1
+      `).get() as any;
+    }
+
+    if (!excTicket) {
+      const ins = db.prepare(`
+        INSERT INTO tickets (name, price, capacity, active, is_addon, description)
+        VALUES ('RC Excavator Activity', 300, 999, 1, 1, 'Hydraulic RC excavator & earthmover operations in the quarry zone')
+      `).run();
+      excTicket = { id: Number(ins.lastInsertRowid), price: 300, name: 'RC Excavator Activity' };
+    }
+
+    const unitPrice = Number(excTicket.price || 300);
+    const qty = 2;
+    const lineTotal = Math.round(unitPrice * qty * 1.18);
+    const targetOrderNum = order139.order_number || 139;
+
+    db.prepare(`
+      INSERT INTO bookings (
+        order_number,
+        ticket_id,
+        booking_date,
+        time_slot,
+        quantity,
+        customer_name,
+        customer_email,
+        customer_phone,
+        total_amount,
+        payment_status,
+        fulfillment_status,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?)
+    `).run(
+      targetOrderNum,
+      excTicket.id,
+      order139.booking_date || 'Nov 10',
+      order139.time_slot || '12PM-1PM',
+      qty,
+      order139.customer_name || 'Mithun C',
+      order139.customer_email || '',
+      order139.customer_phone || '9845013819',
+      lineTotal,
+      order139.payment_status || 'Unpaid',
+      order139.created_at || new Date().toISOString()
+    );
+
+    hasCheckedOrder139Excavator = true;
+    console.log(`[autoAddExcavatorAddonToOrder139] Added 2x ${excTicket.name} (line total ₹${lineTotal}) to Order #${targetOrderNum}`);
+  } catch (err) {
+    console.error("[autoAddExcavatorAddonToOrder139] Error adding excavator addon to Order 139:", err);
+  }
+}
+
+export function getAvailableAddonTickets() {
+  let list = db.prepare(`
+    SELECT id, name, price, description, is_addon, active
+    FROM tickets 
+    WHERE (is_addon = 1 OR UPPER(name) LIKE '%EXCAVATOR%' OR UPPER(name) LIKE '%ADDON%' OR UPPER(name) LIKE '%ADD-ON%')
+      AND active = 1
+    ORDER BY name ASC
+  `).all() as any[];
+
+  if (list.length === 0) {
+    list = db.prepare(`
+      SELECT id, name, price, description, is_addon, active
+      FROM tickets
+      WHERE active = 1
+      ORDER BY name ASC
+    `).all() as any[];
+  }
+  return list;
+}
+
+export function addAddonToOrder(
+  orderNumber: number,
+  ticketId: number,
+  quantity: number = 1
+) {
+  const existing = db.prepare(`
+    SELECT * FROM bookings 
+    WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+    ORDER BY id ASC
+    LIMIT 1
+  `).get(orderNumber, orderNumber) as any;
+
+  if (!existing) {
+    throw new Error(`Order #${orderNumber} not found.`);
+  }
+
+  const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(ticketId) as any;
+  if (!ticket) {
+    throw new Error(`Ticket #${ticketId} not found.`);
+  }
+
+  const qty = Math.max(1, quantity || 1);
+  const unitPrice = Number(ticket.price || 0);
+  const lineTotal = Math.round(unitPrice * qty * 1.18);
+  const targetOrderNum = existing.order_number || orderNumber;
+
+  const info = db.prepare(`
+    INSERT INTO bookings (
+      order_number,
+      ticket_id,
+      booking_date,
+      time_slot,
+      quantity,
+      customer_name,
+      customer_email,
+      customer_phone,
+      total_amount,
+      payment_status,
+      fulfillment_status,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?)
+  `).run(
+    targetOrderNum,
+    ticket.id,
+    existing.booking_date,
+    existing.time_slot,
+    qty,
+    existing.customer_name,
+    existing.customer_email || '',
+    existing.customer_phone || '',
+    lineTotal,
+    existing.payment_status || 'Unpaid',
+    existing.created_at || new Date().toISOString()
+  );
+
+  return { id: Number(info.lastInsertRowid), lineTotal, ticketName: ticket.name };
+}
+
+export function removeBookingItem(bookingItemId: number) {
+  const item = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingItemId) as any;
+  if (!item) {
+    throw new Error(`Item #${bookingItemId} not found.`);
+  }
+  const orderNum = item.order_number || item.id;
+  const countObj = db.prepare('SELECT COUNT(*) as count FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').get(orderNum, orderNum) as { count: number };
+  if (countObj.count <= 1) {
+    throw new Error("Cannot delete the only item in an order. Use 'Cancel Order' instead.");
+  }
+  return db.prepare('DELETE FROM bookings WHERE id = ?').run(bookingItemId);
 }
 
 export interface TicketRow {
@@ -715,6 +914,7 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
 }
 
 export function getAllBookings() {
+  autoAddExcavatorAddonToOrder139();
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -731,6 +931,9 @@ export function getAllBookings() {
 }
 
 export function getBookingById(id: number) {
+  if (id === 139) {
+    autoAddExcavatorAddonToOrder139();
+  }
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -747,6 +950,9 @@ export function getBookingById(id: number) {
 }
 
 export function getBookingsByOrderNumber(orderNum: number) {
+  if (orderNum === 139) {
+    autoAddExcavatorAddonToOrder139();
+  }
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 

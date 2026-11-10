@@ -705,6 +705,159 @@ export function removeBookingItem(bookingItemId: number) {
   return db.prepare('DELETE FROM bookings WHERE id = ?').run(bookingItemId);
 }
 
+export function upgradeBookingItem(params: {
+  bookingItemId: number;
+  targetTicketId: number;
+  paymentConfirmed: boolean;
+  paymentMode?: string;
+  paymentRef?: string;
+  customDiffAmount?: number | null;
+}) {
+  const current = db.prepare(`
+    SELECT b.*, t.name as current_ticket_name, t.price as current_ticket_price, t.is_addon
+    FROM bookings b
+    JOIN tickets t ON b.ticket_id = t.id
+    WHERE b.id = ?
+  `).get(params.bookingItemId) as any;
+
+  if (!current) {
+    throw new Error(`Booking item #${params.bookingItemId} not found.`);
+  }
+
+  const target = db.prepare('SELECT * FROM tickets WHERE id = ?').get(params.targetTicketId) as any;
+  if (!target) {
+    throw new Error(`Target ticket #${params.targetTicketId} not found.`);
+  }
+
+  const qty = Math.max(1, current.quantity || 1);
+  const currentPrice = Number(current.current_ticket_price || 0);
+  const targetPrice = Number(target.price || 0);
+
+  // Price difference per unit and total with 18% GST
+  const unitDiff = Math.max(0, targetPrice - currentPrice);
+  const subtotalDiff = unitDiff * qty;
+  const standardDiffWithGst = Math.round(subtotalDiff * 1.18);
+  const lineDiffWithGst = params.customDiffAmount !== undefined && params.customDiffAmount !== null 
+    ? Number(params.customDiffAmount) 
+    : standardDiffWithGst;
+
+  const currentTotalAmount = Number(current.total_amount || 0);
+  const targetStandardLineTotal = Math.round(targetPrice * qty * 1.18);
+  const newTotalAmount = currentTotalAmount > 0 
+    ? (currentTotalAmount + lineDiffWithGst) 
+    : targetStandardLineTotal;
+
+  const isCurrentPaid = (current.payment_status || '').toLowerCase() === 'paid';
+  let newPaymentStatus = current.payment_status || 'Unpaid';
+  if (params.paymentConfirmed && isCurrentPaid) {
+    newPaymentStatus = 'Paid';
+  }
+
+  const tagNote = `[Upgraded from ${current.current_ticket_name} to ${target.name} (Qty ${qty}): diff ₹${lineDiffWithGst} (${params.paymentConfirmed ? `Paid via ${params.paymentMode || 'Cash'}` : 'Added to Due'})${params.paymentRef ? ` Ref: ${params.paymentRef}` : ''}]`;
+
+  db.prepare(`
+    UPDATE bookings 
+    SET ticket_id = ?,
+        total_amount = ?,
+        payment_status = ?,
+        category_wristband_number = NULL, -- Reset category wristband so staff issues upgraded band
+        tags = CASE 
+          WHEN tags IS NULL OR tags = '' THEN ?
+          ELSE tags || ' ' || ?
+        END,
+        payment_ref = CASE
+          WHEN ? IS NOT NULL AND ? != '' AND (payment_ref IS NULL OR payment_ref = '') THEN ?
+          ELSE payment_ref
+        END
+    WHERE id = ?
+  `).run(
+    target.id,
+    newTotalAmount,
+    newPaymentStatus,
+    tagNote,
+    tagNote,
+    params.paymentRef || null,
+    params.paymentRef || '',
+    params.paymentRef || null,
+    params.bookingItemId
+  );
+
+  return {
+    success: true,
+    previousTicket: current.current_ticket_name,
+    upgradedTicket: target.name,
+    unitDifference: unitDiff,
+    totalDifferenceWithGst: lineDiffWithGst,
+    newTotalAmount
+  };
+}
+
+export function updateBookingScheduleAndContact(params: {
+  orderNumber: number;
+  bookingItemId?: number;
+  scope?: 'order' | 'item';
+  newDate?: string;
+  newTimeSlot?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+}) {
+  const targetOrderNum = params.orderNumber;
+  const isItemScope = params.scope === 'item' && params.bookingItemId;
+
+  // 1. Update customer contact details across all items under this order
+  if (params.customerName !== undefined || params.customerPhone !== undefined || params.customerEmail !== undefined) {
+    db.prepare(`
+      UPDATE bookings 
+      SET customer_name = COALESCE(?, customer_name),
+          customer_phone = COALESCE(?, customer_phone),
+          customer_email = COALESCE(?, customer_email)
+      WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+    `).run(
+      params.customerName ? params.customerName.trim() : null,
+      params.customerPhone ? params.customerPhone.trim() : null,
+      params.customerEmail ? params.customerEmail.trim() : null,
+      targetOrderNum,
+      targetOrderNum
+    );
+  }
+
+  // 2. Update date and/or time slot
+  if (params.newDate || params.newTimeSlot) {
+    const cleanDate = params.newDate ? params.newDate.trim() : null;
+    const cleanSlot = params.newTimeSlot ? params.newTimeSlot.trim() : null;
+    const tagNote = `[Rescheduled to ${cleanDate || 'same date'} ${cleanSlot || 'same slot'}]`;
+
+    if (isItemScope && params.bookingItemId) {
+      db.prepare(`
+        UPDATE bookings 
+        SET booking_date = COALESCE(?, booking_date),
+            time_slot = COALESCE(?, time_slot),
+            wristband_number = NULL, -- Reset slot wristband for new slot
+            tags = CASE 
+              WHEN tags IS NULL OR tags = '' THEN ?
+              ELSE tags || ' ' || ?
+            END
+        WHERE id = ?
+      `).run(cleanDate, cleanSlot, tagNote, tagNote, params.bookingItemId);
+    } else {
+      db.prepare(`
+        UPDATE bookings 
+        SET booking_date = COALESCE(?, booking_date),
+            time_slot = COALESCE(?, time_slot),
+            wristband_number = NULL, -- Reset slot wristband for new slot
+            tags = CASE 
+              WHEN tags IS NULL OR tags = '' THEN ?
+              ELSE tags || ' ' || ?
+            END
+        WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+      `).run(cleanDate, cleanSlot, tagNote, tagNote, targetOrderNum, targetOrderNum);
+    }
+  }
+
+  return { success: true };
+}
+
 export interface TicketRow {
   id: number;
   name: string;

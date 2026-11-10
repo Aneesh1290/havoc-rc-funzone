@@ -12,13 +12,17 @@ import {
   cancelBookingAction,
   fetchAvailableAddonsAction,
   addAddonToOrderAction,
-  removeOrderItemAction
+  removeOrderItemAction,
+  upgradeBookingItemAction,
+  updateBookingScheduleAndContactAction,
+  fetchTicketsAction,
+  fetchTimeSlotsAction
 } from "@/app/actions/tickets";
 import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -65,6 +69,36 @@ export default function OrderDetailPage() {
   const [isSubmittingAddon, setIsSubmittingAddon] = useState(false);
   const [addonError, setAddonError] = useState<string | null>(null);
   const [isDeletingItemId, setIsDeletingItemId] = useState<number | null>(null);
+
+  // Upgrade Package State
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradingItem, setUpgradingItem] = useState<any | null>(null);
+  const [upgradeTicketsList, setUpgradeTicketsList] = useState<any[]>([]);
+  const [targetUpgradeTicketId, setTargetUpgradeTicketId] = useState<number | string>("");
+  const [upgradePaymentConfirmed, setUpgradePaymentConfirmed] = useState(true);
+  const [upgradePaymentMode, setUpgradePaymentMode] = useState<string>("Cash");
+  const [upgradePaymentRef, setUpgradePaymentRef] = useState<string>("");
+  const [customDiffAmount, setCustomDiffAmount] = useState<string>("");
+  const [isSubmittingUpgrade, setIsSubmittingUpgrade] = useState(false);
+  const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
+  // Reschedule (Date & Slot) State
+  const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
+  const [rescheduleTargetItem, setRescheduleTargetItem] = useState<any | null>(null);
+  const [rescheduleScope, setRescheduleScope] = useState<'order' | 'item'>('order');
+  const [rescheduleDate, setRescheduleDate] = useState<string>("");
+  const [rescheduleTimeSlot, setRescheduleTimeSlot] = useState<string>("");
+  const [availableTimeSlots, setAvailableTimeSlots] = useState<any[]>([]);
+  const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
+  const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+
+  // Contact Details Edit State
+  const [isEditingContact, setIsEditingContact] = useState(false);
+  const [contactNameInput, setContactNameInput] = useState<string>("");
+  const [contactPhoneInput, setContactPhoneInput] = useState<string>("");
+  const [contactEmailInput, setContactEmailInput] = useState<string>("");
+  const [isSavingContact, setIsSavingContact] = useState(false);
+  const [contactError, setContactError] = useState<string | null>(null);
 
   useEffect(() => {
     getSubcategoryBandsAction()
@@ -159,6 +193,9 @@ export default function OrderDetailPage() {
         setBooking(data);
         if (data.tags) setTagsInput(data.tags);
         if (data.payment_ref) setPaymentRefInput(data.payment_ref);
+        setContactNameInput(data.customer_name || "");
+        setContactPhoneInput(data.customer_phone || "");
+        setContactEmailInput(data.customer_email || "");
         const orderNum = data.order_number || data.id;
         const allItems: any[] = await fetchBookingsByOrderNumberAction(orderNum);
         setOrderItems(allItems && allItems.length > 0 ? allItems : [data]);
@@ -231,6 +268,142 @@ export default function OrderDetailPage() {
       alert(err.message || "Failed to remove item.");
     } finally {
       setIsDeletingItemId(null);
+    }
+  };
+
+  // Upgrade Handlers
+  const handleOpenUpgradeModal = async (item: any) => {
+    setUpgradingItem(item);
+    setUpgradeError(null);
+    setUpgradePaymentConfirmed(true);
+    setUpgradePaymentMode("Cash");
+    setUpgradePaymentRef("");
+    setCustomDiffAmount("");
+    setIsUpgradeModalOpen(true);
+    try {
+      const allTickets = await fetchTicketsAction();
+      const validTargets = (allTickets || []).filter(
+        (t: any) => t.id !== item.ticket_id && t.active && !t.is_addon && !t.name.toUpperCase().includes("ORGANISATION")
+      );
+      setUpgradeTicketsList(validTargets);
+      if (validTargets.length > 0) {
+        const higher = validTargets.find((t: any) => Number(t.price) > Number(item.ticket_price || 0));
+        setTargetUpgradeTicketId(higher ? higher.id : validTargets[0].id);
+      }
+    } catch (err) {
+      console.error("Failed to load tickets for upgrade:", err);
+    }
+  };
+
+  const handleConfirmUpgrade = async () => {
+    if (!upgradingItem || !targetUpgradeTicketId) {
+      setUpgradeError("Please select a target ticket package to upgrade to.");
+      return;
+    }
+    setIsSubmittingUpgrade(true);
+    setUpgradeError(null);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await upgradeBookingItemAction({
+        orderNumber: targetOrderNum,
+        bookingItemId: upgradingItem.id,
+        targetTicketId: Number(targetUpgradeTicketId),
+        paymentConfirmed: upgradePaymentConfirmed,
+        paymentMode: upgradePaymentMode,
+        paymentRef: upgradePaymentRef.trim() || undefined,
+        customDiffAmount: customDiffAmount !== "" && !isNaN(Number(customDiffAmount)) ? Number(customDiffAmount) : undefined
+      });
+
+      if (!res.success) {
+        setUpgradeError(res.error || "Failed to process upgrade.");
+        return;
+      }
+
+      setIsUpgradeModalOpen(false);
+      setUpgradingItem(null);
+      await loadBooking();
+    } catch (err: any) {
+      setUpgradeError(err.message || "Failed to process upgrade.");
+    } finally {
+      setIsSubmittingUpgrade(false);
+    }
+  };
+
+  // Reschedule Handlers
+  const handleOpenRescheduleModal = async (item?: any) => {
+    setRescheduleTargetItem(item || null);
+    setRescheduleScope(item ? "item" : "order");
+    setRescheduleDate(item?.booking_date || booking?.booking_date || "");
+    setRescheduleTimeSlot(item?.time_slot || booking?.time_slot || "");
+    setRescheduleError(null);
+    setIsRescheduleModalOpen(true);
+    try {
+      const slots = await fetchTimeSlotsAction(true);
+      setAvailableTimeSlots(slots || []);
+    } catch (err) {
+      console.error("Failed to load time slots:", err);
+    }
+  };
+
+  const handleConfirmReschedule = async () => {
+    if (!rescheduleDate.trim() || !rescheduleTimeSlot.trim()) {
+      setRescheduleError("Please select both a booking date and a time slot.");
+      return;
+    }
+    setIsSubmittingReschedule(true);
+    setRescheduleError(null);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await updateBookingScheduleAndContactAction({
+        orderNumber: targetOrderNum,
+        bookingItemId: rescheduleTargetItem?.id,
+        scope: rescheduleScope,
+        newDate: rescheduleDate.trim(),
+        newTimeSlot: rescheduleTimeSlot.trim()
+      });
+
+      if (!res.success) {
+        setRescheduleError(res.error || "Failed to reschedule booking.");
+        return;
+      }
+
+      setIsRescheduleModalOpen(false);
+      await loadBooking();
+    } catch (err: any) {
+      setRescheduleError(err.message || "Failed to reschedule booking.");
+    } finally {
+      setIsSubmittingReschedule(false);
+    }
+  };
+
+  // Contact Info Handlers
+  const handleSaveContact = async () => {
+    if (!contactNameInput.trim()) {
+      setContactError("Customer name cannot be empty.");
+      return;
+    }
+    setIsSavingContact(true);
+    setContactError(null);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await updateBookingScheduleAndContactAction({
+        orderNumber: targetOrderNum,
+        customerName: contactNameInput.trim(),
+        customerPhone: contactPhoneInput.trim(),
+        customerEmail: contactEmailInput.trim()
+      });
+
+      if (!res.success) {
+        setContactError(res.error || "Failed to save contact details.");
+        return;
+      }
+
+      setIsEditingContact(false);
+      await loadBooking();
+    } catch (err: any) {
+      setContactError(err.message || "Failed to save contact details.");
+    } finally {
+      setIsSavingContact(false);
     }
   };
 
@@ -497,6 +670,16 @@ export default function OrderDetailPage() {
               {actionMenuOpen && (
                 <div className="absolute right-0 mt-2 w-52 bg-[#1c2433] border border-gray-700/80 rounded-2xl shadow-2xl z-30 py-2 text-sm overflow-hidden animate-in fade-in zoom-in-95 duration-150">
                   <button
+                    onClick={() => {
+                      setActionMenuOpen(false);
+                      handleOpenRescheduleModal();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-indigo-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-b border-gray-700/50"
+                  >
+                    <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                    <span>Reschedule Date & Slot</span>
+                  </button>
+                  <button
                     onClick={() => handleToggleFulfillment("Fulfilled")}
                     className="w-full text-left px-4 py-2.5 text-white hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
                   >
@@ -520,6 +703,18 @@ export default function OrderDetailPage() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Direct Reschedule Order Button */}
+          {canManageStatus && !isCanceled && (
+            <button
+              onClick={() => handleOpenRescheduleModal()}
+              className="px-4 py-2.5 rounded-full bg-white hover:bg-gray-50 text-gray-700 font-bold text-xs flex items-center gap-1.5 shadow-xs transition-all border border-gray-200"
+              title="Reschedule booking date and time slot"
+            >
+              <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Reschedule</span>
+            </button>
           )}
 
           {/* Collect Payment dropdown matching screenshot - only if user has payment permission */}
@@ -836,6 +1031,19 @@ export default function OrderDetailPage() {
                           return null;
                         })()}
 
+                        {/* Upgrade Package Button */}
+                        {!isOrgReservation && !isAddonActivity && canManageStatus && !itemIsCanceled && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenUpgradeModal(item)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-indigo-50 to-violet-50 hover:from-indigo-100 hover:to-violet-100 text-indigo-700 border border-indigo-200 hover:border-indigo-300 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            title={`Upgrade ${item.ticket_name} to higher package`}
+                          >
+                            <Sparkles className="w-3 h-3 text-indigo-600" />
+                            <span>Upgrade</span>
+                          </button>
+                        )}
+
                         {/* Item Payment Status Badge */}
                         {itemIsRefunded ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-50 text-rose-700 border border-rose-200">
@@ -962,14 +1170,36 @@ export default function OrderDetailPage() {
                       </div>
 
                       {/* Date Row */}
-                      <p className="text-xs text-gray-500">
-                        Select Date: <strong className="text-gray-700 font-semibold">{item.booking_date}</strong>
-                      </p>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>Select Date:</span>
+                        <strong className="text-gray-900 font-semibold">{item.booking_date}</strong>
+                        {canManageStatus && !itemIsCanceled && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRescheduleModal(item)}
+                            className="text-gray-400 hover:text-indigo-600 p-0.5 rounded hover:bg-gray-100 transition-colors flex items-center gap-1"
+                            title="Reschedule Date / Time Slot"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            <span className="text-[10px] text-indigo-600 font-bold hover:underline">Reschedule</span>
+                          </button>
+                        )}
+                      </div>
 
                       {/* Time Slot & Slot Band Row */}
                       <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2 pt-0.5">
                         <span>Select Time Slot:</span>
                         <strong className="text-gray-900 font-bold">{item.time_slot}</strong>
+                        {canManageStatus && !itemIsCanceled && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenRescheduleModal(item)}
+                            className="text-gray-400 hover:text-indigo-600 p-0.5 rounded hover:bg-gray-100 transition-colors"
+                            title="Reschedule Time Slot"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
                         {isAddonActivity ? (
                           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
                             Add-on Activity (No Slot Band Required)
@@ -1280,27 +1510,103 @@ export default function OrderDetailPage() {
             </h2>
 
             <div className="space-y-3.5">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Contact info</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider">Contact info</p>
+                {canManageStatus && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsEditingContact(!isEditingContact);
+                      setContactNameInput(booking.customer_name || "");
+                      setContactPhoneInput(booking.customer_phone || "");
+                      setContactEmailInput(booking.customer_email || "");
+                      setContactError(null);
+                    }}
+                    className="text-xs font-bold text-[#ff5a1f] hover:underline flex items-center gap-1"
+                  >
+                    <Edit2 className="w-3 h-3" />
+                    <span>{isEditingContact ? "Cancel" : "Edit"}</span>
+                  </button>
+                )}
+              </div>
               
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-full bg-[#ff5a1f]/10 text-[#ff5a1f] font-black text-xs flex items-center justify-center shrink-0 border border-[#ff5a1f]/20">
-                  {booking.customer_name ? booking.customer_name.charAt(0).toUpperCase() : "G"}
+              {isEditingContact ? (
+                <div className="space-y-3 pt-1">
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Customer Name</label>
+                    <input
+                      type="text"
+                      value={contactNameInput}
+                      onChange={(e) => setContactNameInput(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                      placeholder="Customer Name"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Phone Number</label>
+                    <input
+                      type="text"
+                      value={contactPhoneInput}
+                      onChange={(e) => setContactPhoneInput(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                      placeholder="e.g. 9845013819"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-bold text-gray-700 block mb-1">Email (Optional)</label>
+                    <input
+                      type="email"
+                      value={contactEmailInput}
+                      onChange={(e) => setContactEmailInput(e.target.value)}
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                      placeholder="e.g. customer@example.com"
+                    />
+                  </div>
+                  {contactError && (
+                    <p className="text-[11px] text-red-600 font-bold bg-red-50 p-2 rounded-lg border border-red-200">{contactError}</p>
+                  )}
+                  <div className="flex gap-2 justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingContact(false)}
+                      className="text-xs text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveContact}
+                      disabled={isSavingContact}
+                      className="text-xs bg-[#ff5a1f] hover:bg-[#e04812] text-white px-3.5 py-1.5 rounded-xl font-bold flex items-center gap-1 shadow-xs disabled:opacity-50"
+                    >
+                      {isSavingContact && <Loader2 className="w-3 h-3 animate-spin" />}
+                      <span>Save Contact</span>
+                    </button>
+                  </div>
                 </div>
-                <div className="font-bold text-gray-900 text-sm">
-                  {booking.customer_name || "Guest Customer"}
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-[#ff5a1f]/10 text-[#ff5a1f] font-black text-xs flex items-center justify-center shrink-0 border border-[#ff5a1f]/20">
+                      {booking.customer_name ? booking.customer_name.charAt(0).toUpperCase() : "G"}
+                    </div>
+                    <div className="font-bold text-gray-900 text-sm">
+                      {booking.customer_name || "Guest Customer"}
+                    </div>
+                  </div>
 
-              <div className="text-xs text-gray-600 space-y-1.5 pt-1 border-t border-gray-100">
-                <p className="flex items-center gap-2">
-                  <span className="text-gray-400">Email:</span>
-                  <span className="font-medium text-gray-900">{booking.customer_email || "No email"}</span>
-                </p>
-                <p className="flex items-center gap-2">
-                  <span className="text-gray-400">Phone:</span>
-                  <span className="font-medium text-gray-900">{booking.customer_phone || "No phone"}</span>
-                </p>
-              </div>
+                  <div className="text-xs text-gray-600 space-y-1.5 pt-1 border-t border-gray-100">
+                    <p className="flex items-center gap-2">
+                      <span className="text-gray-400">Email:</span>
+                      <span className="font-medium text-gray-900">{booking.customer_email || "No email"}</span>
+                    </p>
+                    <p className="flex items-center gap-2">
+                      <span className="text-gray-400">Phone:</span>
+                      <span className="font-medium text-gray-900">{booking.customer_phone || "No phone"}</span>
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -1450,6 +1756,401 @@ export default function OrderDetailPage() {
               >
                 {isSubmittingAddon && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Add to Order</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade Package Modal */}
+      {isUpgradeModalOpen && upgradingItem && (() => {
+        const currentQty = Math.max(1, upgradingItem.quantity || 1);
+        const currentUnitPrice = Number(upgradingItem.ticket_price || 0);
+        const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
+        const targetUnitPrice = selectedTarget ? Number(selectedTarget.price || 0) : 0;
+        
+        const unitDiff = Math.max(0, targetUnitPrice - currentUnitPrice);
+        const subtotalDiff = unitDiff * currentQty;
+        const autoDiffWithGst = Math.round(subtotalDiff * 1.18);
+        const finalPayableDiff = customDiffAmount !== "" && !isNaN(Number(customDiffAmount))
+          ? Number(customDiffAmount)
+          : autoDiffWithGst;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+            <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-4 max-h-[90vh] overflow-y-auto">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
+                    <Sparkles className="w-4 h-4 font-black" />
+                  </span>
+                  <div>
+                    <h3 className="font-bold text-gray-900 text-base">Upgrade Ticket Package</h3>
+                    <p className="text-xs text-gray-500">Calculate tariff difference and upgrade customer session</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsUpgradeModalOpen(false)}
+                  className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Current Ticket Info Box */}
+              <div className="p-3.5 bg-gray-50 rounded-xl border border-gray-200 text-xs space-y-1">
+                <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">Current Package</span>
+                <div className="flex items-center justify-between">
+                  <span className="font-extrabold text-gray-900 text-sm uppercase">
+                    {upgradingItem.ticket_name ? upgradingItem.ticket_name.replace("_", " ") : "Ticket"}
+                  </span>
+                  <span className="font-mono font-bold text-gray-700">
+                    ₹{currentUnitPrice.toLocaleString('en-IN')} × {currentQty} = ₹{Math.round(currentUnitPrice * currentQty * 1.18).toLocaleString('en-IN')} (incl. GST)
+                  </span>
+                </div>
+              </div>
+
+              {/* Target Package Selection */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-gray-700 block">Select Upgraded Package</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {upgradeTicketsList.map((t) => {
+                    const isSelected = Number(targetUpgradeTicketId) === t.id;
+                    const tPrice = Number(t.price || 0);
+                    const diffPerPerson = tPrice - currentUnitPrice;
+                    const diffTotalWithGst = Math.round(diffPerPerson * currentQty * 1.18);
+                    return (
+                      <label
+                        key={t.id}
+                        onClick={() => setTargetUpgradeTicketId(t.id)}
+                        className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
+                          isSelected
+                            ? "border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-500"
+                            : "border-gray-200 bg-white hover:bg-gray-50"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="radio"
+                            name="upgradeTicket"
+                            checked={isSelected}
+                            onChange={() => setTargetUpgradeTicketId(t.id)}
+                            className="text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <div>
+                            <span className="font-extrabold text-gray-900 text-xs uppercase block">
+                              {t.name ? t.name.replace("_", " ") : "Package"}
+                            </span>
+                            <span className="text-[11px] text-gray-500">
+                              Base: ₹{tPrice.toLocaleString('en-IN')} (+ 18% GST = ₹{Math.round(tPrice * 1.18).toLocaleString('en-IN')})
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="text-right">
+                          <span className={`text-xs font-black font-mono ${diffTotalWithGst >= 0 ? "text-indigo-700" : "text-amber-700"}`}>
+                            {diffTotalWithGst >= 0 ? `+₹${diffTotalWithGst.toLocaleString('en-IN')}` : `-₹${Math.abs(diffTotalWithGst).toLocaleString('en-IN')}`}
+                          </span>
+                          <span className="block text-[10px] text-gray-400">Total Difference</span>
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Price Difference Breakdown Box */}
+              <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/60 rounded-xl border-2 border-indigo-200 text-xs space-y-2">
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>New Package Tariff ({currentQty} × ₹{targetUnitPrice}):</span>
+                  <span className="font-mono font-semibold">₹{(targetUnitPrice * currentQty).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>Current Package Tariff ({currentQty} × ₹{currentUnitPrice}):</span>
+                  <span className="font-mono font-semibold">−₹{(currentUnitPrice * currentQty).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-600 border-t border-indigo-100 pt-1.5">
+                  <span>Net Base Difference:</span>
+                  <span className="font-mono font-semibold">₹{subtotalDiff.toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex items-center justify-between text-gray-600">
+                  <span>GST (18%):</span>
+                  <span className="font-mono font-semibold">₹{Math.round(subtotalDiff * 0.18).toLocaleString('en-IN')}</span>
+                </div>
+                <div className="flex items-center justify-between font-bold text-gray-900 border-t-2 border-indigo-200 pt-2 text-sm">
+                  <span className="text-indigo-950 font-black">Total Upgrade Difference:</span>
+                  <span className="text-indigo-700 font-mono font-black text-base">
+                    ₹{autoDiffWithGst.toLocaleString('en-IN')}
+                  </span>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between gap-3 text-[11px] border-t border-indigo-100">
+                  <span className="text-gray-500 font-medium">Custom/Adjusted Difference (₹):</span>
+                  <input
+                    type="number"
+                    value={customDiffAmount}
+                    onChange={(e) => setCustomDiffAmount(e.target.value)}
+                    placeholder={String(autoDiffWithGst)}
+                    className="w-28 text-xs font-mono font-bold bg-white border border-indigo-300 rounded-lg px-2.5 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Payment Settlement Method */}
+              <div className="space-y-2.5 border-t border-gray-100 pt-3">
+                <span className="text-xs font-bold text-gray-800 block">Upgrade Payment Settlement</span>
+
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${
+                    upgradePaymentConfirmed ? "border-emerald-500 bg-emerald-50/50 text-emerald-950 font-bold" : "border-gray-200 text-gray-600"
+                  }`}>
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      checked={upgradePaymentConfirmed}
+                      onChange={() => setUpgradePaymentConfirmed(true)}
+                    />
+                    <span>Payment Collected</span>
+                  </label>
+
+                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${
+                    !upgradePaymentConfirmed ? "border-amber-500 bg-amber-50/50 text-amber-950 font-bold" : "border-gray-200 text-gray-600"
+                  }`}>
+                    <input
+                      type="radio"
+                      name="paymentOption"
+                      checked={!upgradePaymentConfirmed}
+                      onChange={() => setUpgradePaymentConfirmed(false)}
+                    />
+                    <span>Add to Due (Unpaid)</span>
+                  </label>
+                </div>
+
+                {upgradePaymentConfirmed && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Payment Mode</label>
+                      <select
+                        value={upgradePaymentMode}
+                        onChange={(e) => setUpgradePaymentMode(e.target.value)}
+                        className="w-full text-xs font-semibold bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      >
+                        <option value="Cash">Cash</option>
+                        <option value="UPI">UPI / QR</option>
+                        <option value="Card">Credit / Debit Card</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-bold text-gray-600 block mb-1">UTR / Ref (Optional)</label>
+                      <input
+                        type="text"
+                        value={upgradePaymentRef}
+                        onChange={(e) => setUpgradePaymentRef(e.target.value)}
+                        placeholder="e.g. UPI/TN123456"
+                        className="w-full text-xs font-mono font-semibold bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {upgradeError && (
+                <div className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 p-2.5 rounded-xl flex items-start gap-1.5">
+                  <span>⚠️</span>
+                  <span>{upgradeError}</span>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setIsUpgradeModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmUpgrade}
+                  disabled={isSubmittingUpgrade || !targetUpgradeTicketId}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+                >
+                  {isSubmittingUpgrade && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Confirm & Apply Upgrade</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Reschedule Booking (Date & Slot) Modal */}
+      {isRescheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700">
+                  <Calendar className="w-4 h-4 font-black" />
+                </span>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base">Reschedule Booking</h3>
+                  <p className="text-xs text-gray-500">Update booking date or arena time slot</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRescheduleModalOpen(false)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              {/* Scope Selector if multiple items */}
+              {orderItems.length > 1 && (
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-1">Apply Reschedule To</label>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                      rescheduleScope === 'order' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
+                    }`}>
+                      <input
+                        type="radio"
+                        name="rescheduleScope"
+                        checked={rescheduleScope === 'order'}
+                        onChange={() => setRescheduleScope('order')}
+                      />
+                      <span>All Items in Order</span>
+                    </label>
+
+                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                      rescheduleScope === 'item' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
+                    }`}>
+                      <input
+                        type="radio"
+                        name="rescheduleScope"
+                        checked={rescheduleScope === 'item'}
+                        onChange={() => setRescheduleScope('item')}
+                      />
+                      <span>Selected Item Only</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
+              {/* Date Input */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Booking Date</label>
+                <input
+                  type="text"
+                  value={rescheduleDate}
+                  onChange={(e) => setRescheduleDate(e.target.value)}
+                  placeholder="e.g. Nov 10 or 2026-11-10"
+                  className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                <div className="flex items-center gap-1.5 pt-1.5">
+                  <span className="text-[10px] text-gray-400">Quick set:</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const day = String(d.getDate()).padStart(2, '0');
+                      setRescheduleDate(`${m} ${day}`);
+                    }}
+                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const day = String(d.getDate()).padStart(2, '0');
+                      setRescheduleDate(`${m} ${day}`);
+                    }}
+                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                  >
+                    Tomorrow
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 2);
+                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const day = String(d.getDate()).padStart(2, '0');
+                      setRescheduleDate(`${m} ${day}`);
+                    }}
+                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                  >
+                    +2 Days
+                  </button>
+                </div>
+              </div>
+
+              {/* Time Slot Selector */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Time Slot</label>
+                {availableTimeSlots.length > 0 ? (
+                  <select
+                    value={rescheduleTimeSlot}
+                    onChange={(e) => setRescheduleTimeSlot(e.target.value)}
+                    className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                  >
+                    {availableTimeSlots.map((s) => (
+                      <option key={s.id} value={s.label}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={rescheduleTimeSlot}
+                    onChange={(e) => setRescheduleTimeSlot(e.target.value)}
+                    placeholder="e.g. 12PM-1PM"
+                    className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                  />
+                )}
+              </div>
+
+              <div className="p-3 bg-amber-50 rounded-xl border border-amber-200 text-[11px] text-amber-800 leading-snug">
+                <span>⚠️ Rescheduling will reset previously assigned slot wristband numbers so desk staff can issue the matching wristband for the new time slot upon arrival.</span>
+              </div>
+
+              {rescheduleError && (
+                <div className="text-xs text-red-600 font-bold bg-red-50 border border-red-200 p-2.5 rounded-xl flex items-start gap-1.5">
+                  <span>⚠️</span>
+                  <span>{rescheduleError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-100">
+              <button
+                type="button"
+                onClick={() => setIsRescheduleModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmReschedule}
+                disabled={isSubmittingReschedule}
+                className="px-5 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white shadow-md shadow-indigo-600/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+              >
+                {isSubmittingReschedule && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Save Rescheduled Slot</span>
               </button>
             </div>
           </div>

@@ -76,7 +76,9 @@ import {
   cleanupExpiredHolds,
   getAvailableAddonTickets,
   addAddonToOrder,
-  removeBookingItem
+  removeBookingItem,
+  upgradeBookingItem,
+  updateBookingScheduleAndContact
 } from "@/lib/db";
 import {
   getTakenSimulatorSlots,
@@ -662,6 +664,55 @@ export async function removeOrderItemAction(bookingItemId: number, orderNumber: 
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to remove item." };
+  }
+}
+
+export async function upgradeBookingItemAction(params: {
+  orderNumber: number;
+  bookingItemId: number;
+  targetTicketId: number;
+  paymentConfirmed: boolean;
+  paymentMode?: string;
+  paymentRef?: string;
+  customDiffAmount?: number | null;
+}) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status") && !hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to upgrade booking packages." };
+  }
+
+  try {
+    const result = upgradeBookingItem(params);
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${params.orderNumber}`);
+    return { ...result };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to upgrade package." };
+  }
+}
+
+export async function updateBookingScheduleAndContactAction(params: {
+  orderNumber: number;
+  bookingItemId?: number;
+  scope?: 'order' | 'item';
+  newDate?: string;
+  newTimeSlot?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+}) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status") && !hasUserPermission(session, "bookings:payment")) {
+    return { success: false, error: "Access denied: You do not have permission to update booking schedule or details." };
+  }
+
+  try {
+    const result = updateBookingScheduleAndContact(params);
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${params.orderNumber}`);
+    return { ...result };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update booking schedule." };
   }
 }
 

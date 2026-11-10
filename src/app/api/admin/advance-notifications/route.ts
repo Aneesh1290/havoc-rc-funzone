@@ -25,6 +25,36 @@ interface AdvanceCandidate {
   advanceNotifiedAt: string | null;
 }
 
+function parseBookingDateToMidnight(dateStr: string | null | undefined, refYear: number): Date | null {
+  if (!dateStr) return null;
+  const clean = dateStr.trim();
+  let d: Date;
+  if (/^\d{4}-\d{2}-\d{2}/.test(clean)) {
+    d = new Date(clean);
+  } else {
+    d = new Date(`${clean}, ${refYear}`);
+    if (isNaN(d.getTime())) {
+      d = new Date(clean);
+    }
+  }
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function isBookingDateBeforeToday(dateStr: string | null | undefined): boolean {
+  if (!dateStr) return false;
+  const now = new Date();
+  const istDateStr = now.toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
+  const todayIST = new Date(istDateStr);
+  todayIST.setHours(0, 0, 0, 0);
+
+  const parsed = parseBookingDateToMidnight(dateStr, todayIST.getFullYear());
+  if (!parsed) return false;
+
+  return parsed.getTime() < todayIST.getTime();
+}
+
 // GET: Returns list of upcoming advance bookings eligible for reminder notification
 export async function GET(req: NextRequest) {
   try {
@@ -33,12 +63,16 @@ export async function GET(req: NextRequest) {
 
     const allBookings = getAllBookings() as any[];
 
-    // Group unpaid / pay-at-desk bookings that are not canceled
+    // Group unpaid / pay-at-desk bookings that are not canceled, not fulfilled/done, and not in the past
     const ordersMap = new Map<number, any[]>();
     for (const b of allBookings) {
       const isPaid = (b.payment_status || "").toLowerCase() === "paid";
-      const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.payment_status || "").toLowerCase() === "refunded";
-      if (isPaid || isCanceled) continue;
+      const isFulfilled = (b.fulfillment_status || "").toLowerCase() === "fulfilled" || (b.fulfillment_status || "").toLowerCase() === "attended";
+      const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.fulfillment_status || "").toLowerCase() === "cancelled" || (b.payment_status || "").toLowerCase() === "refunded";
+      const isPast = isBookingDateBeforeToday(b.booking_date);
+
+      // Exclude paid, fulfilled/done, canceled, and past bookings
+      if (isPaid || isFulfilled || isCanceled || isPast) continue;
 
       const orderNum = b.order_number || b.id;
       if (!ordersMap.has(orderNum)) {
@@ -80,6 +114,21 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Sort candidates:
+    // 1. Closest upcoming bookingDate first (today's bookings first, then tomorrow, etc.)
+    // 2. Unnotified before notified
+    candidates.sort((a, b) => {
+      const year = new Date().getFullYear();
+      const dateA = parseBookingDateToMidnight(a.bookingDate, year)?.getTime() || 0;
+      const dateB = parseBookingDateToMidnight(b.bookingDate, year)?.getTime() || 0;
+      if (dateA !== dateB) return dateA - dateB;
+
+      if (!a.advanceNotifiedAt && b.advanceNotifiedAt) return -1;
+      if (a.advanceNotifiedAt && !b.advanceNotifiedAt) return 1;
+
+      return a.orderNumber - b.orderNumber;
+    });
+
     return NextResponse.json({
       success: true,
       enabled: isEnabled,
@@ -120,9 +169,11 @@ export async function POST(req: NextRequest) {
       targetBookingIds = allBookings
         .filter(b => {
           const isPaid = (b.payment_status || "").toLowerCase() === "paid";
-          const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.payment_status || "").toLowerCase() === "refunded";
+          const isFulfilled = (b.fulfillment_status || "").toLowerCase() === "fulfilled" || (b.fulfillment_status || "").toLowerCase() === "attended";
+          const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.fulfillment_status || "").toLowerCase() === "cancelled" || (b.payment_status || "").toLowerCase() === "refunded";
+          const isPast = isBookingDateBeforeToday(b.booking_date);
           const isNotified = Boolean(b.advance_notified_at);
-          return !isPaid && !isCanceled && !isNotified && Boolean(b.customer_phone);
+          return !isPaid && !isFulfilled && !isCanceled && !isPast && !isNotified && Boolean(b.customer_phone);
         })
         .map(b => b.id);
     }
@@ -142,7 +193,10 @@ export async function POST(req: NextRequest) {
     for (const bId of targetBookingIds) {
       const b = getBookingById(bId) as any;
       if (!b) continue;
-      if ((b.payment_status || "").toLowerCase() === "paid") continue;
+      const isPaid = (b.payment_status || "").toLowerCase() === "paid";
+      const isFulfilled = (b.fulfillment_status || "").toLowerCase() === "fulfilled" || (b.fulfillment_status || "").toLowerCase() === "attended";
+      const isCanceled = (b.fulfillment_status || "").toLowerCase() === "canceled" || (b.fulfillment_status || "").toLowerCase() === "cancelled" || (b.payment_status || "").toLowerCase() === "refunded";
+      if (isPaid || isFulfilled || isCanceled) continue;
 
       const orderNum = b.order_number || b.id;
       if (!orderGroups.has(orderNum)) {

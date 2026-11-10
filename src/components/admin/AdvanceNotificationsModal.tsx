@@ -38,6 +38,29 @@ interface AdvanceNotificationsModalProps {
   onSuccess?: () => void;
 }
 
+function getBookingDayLabel(bookingDate: string): { isToday: boolean; label: string } {
+  if (!bookingDate) return { isToday: false, label: "" };
+  const now = new Date();
+  const istDateStr = now.toLocaleDateString("en-US", { timeZone: "Asia/Kolkata" });
+  const todayIST = new Date(istDateStr);
+  todayIST.setHours(0, 0, 0, 0);
+
+  const year = todayIST.getFullYear();
+  let d: Date;
+  if (/^\d{4}-\d{2}-\d{2}/.test(bookingDate.trim())) {
+    d = new Date(bookingDate.trim());
+  } else {
+    d = new Date(`${bookingDate.trim()}, ${year}`);
+    if (isNaN(d.getTime())) d = new Date(bookingDate.trim());
+  }
+
+  if (isNaN(d.getTime())) return { isToday: false, label: bookingDate };
+  d.setHours(0, 0, 0, 0);
+
+  const isToday = d.getTime() === todayIST.getTime();
+  return { isToday, label: isToday ? `Today (${bookingDate})` : bookingDate };
+}
+
 export default function AdvanceNotificationsModal({
   isOpen,
   onClose,
@@ -362,20 +385,25 @@ export default function AdvanceNotificationsModal({
                         )}
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
-                        <span className="flex items-center gap-1">
-                          <Calendar className="w-3.5 h-3.5 text-gray-400" />
-                          <span>{candidate.bookingDate}</span>
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Clock className="w-3.5 h-3.5 text-gray-400" />
-                          <span>{candidate.timeSlot}</span>
-                        </span>
-                        <span className="text-gray-400">•</span>
-                        <span className="text-gray-500 truncate max-w-xs" title={candidate.itemsSummary}>
-                          {candidate.itemsSummary}
-                        </span>
-                      </div>
+                      {(() => {
+                        const dayInfo = getBookingDayLabel(candidate.bookingDate);
+                        return (
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-gray-600">
+                            <span className={`inline-flex items-center gap-1.5 ${dayInfo.isToday ? 'px-2 py-0.5 rounded-md bg-blue-50 text-blue-800 font-extrabold border border-blue-200' : 'font-semibold'}`}>
+                              <Calendar className={`w-3.5 h-3.5 ${dayInfo.isToday ? 'text-blue-600' : 'text-gray-400'}`} />
+                              <span>{dayInfo.label}</span>
+                            </span>
+                            <span className="flex items-center gap-1 font-semibold">
+                              <Clock className="w-3.5 h-3.5 text-gray-400" />
+                              <span>{candidate.timeSlot}</span>
+                            </span>
+                            <span className="text-gray-400">•</span>
+                            <span className="text-gray-500 truncate max-w-xs" title={candidate.itemsSummary}>
+                              {candidate.itemsSummary}
+                            </span>
+                          </div>
+                        );
+                      })()}
 
                       {isNotified && candidate.advanceNotifiedAt && (
                         <p className="text-[11px] text-teal-700 font-medium">

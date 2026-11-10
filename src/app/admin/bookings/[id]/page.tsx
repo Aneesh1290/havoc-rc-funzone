@@ -253,19 +253,19 @@ export default function OrderDetailPage() {
     }
   };
 
-  const handleRemoveItem = async (itemId: number) => {
-    if (!window.confirm("Are you sure you want to remove this item from the order?")) return;
+  const handleRemoveItem = async (itemId: number, ticketName?: string) => {
+    if (!window.confirm(`Delete "${ticketName ? ticketName.replace('_', ' ') : 'this product'}" from this order? This will remove it and update the order total.`)) return;
     setIsDeletingItemId(itemId);
     try {
       const targetOrderNum = booking.order_number || booking.id;
       const res = await removeOrderItemAction(itemId, targetOrderNum);
       if (!res.success) {
-        alert(res.error || "Failed to remove item.");
+        alert(res.error || "Failed to delete item.");
         return;
       }
       await loadBooking();
     } catch (err: any) {
-      alert(err.message || "Failed to remove item.");
+      alert(err.message || "Failed to delete item.");
     } finally {
       setIsDeletingItemId(null);
     }
@@ -1358,19 +1358,22 @@ export default function OrderDetailPage() {
                         </>
                       )}
 
-                      {/* Remove item button for unpaid orders when multiple items exist */}
-                      {orderItems.length > 1 && !isPaid && canManageStatus && (
+                      {/* Delete / Remove Product Button */}
+                      {orderItems.length > 1 && canManageStatus && (
                         <button
                           type="button"
-                          onClick={() => handleRemoveItem(item.id)}
+                          onClick={() => handleRemoveItem(item.id, item.ticket_name)}
                           disabled={isDeletingItemId === item.id}
-                          className="text-gray-300 hover:text-red-600 p-1 rounded-md hover:bg-red-50 transition-colors ml-1"
-                          title="Remove this item from the order"
+                          className="p-1.5 rounded-lg text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 transition-all ml-2 shrink-0 flex items-center gap-1 shadow-2xs active:scale-95"
+                          title={`Delete ${item.ticket_name || 'product'} from this order`}
                         >
                           {isDeletingItemId === item.id ? (
-                            <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                            <Loader2 className="w-4 h-4 animate-spin text-red-600" />
                           ) : (
-                            <Trash2 className="w-4 h-4" />
+                            <>
+                              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                              <span className="text-[11px] font-bold text-red-700">Delete</span>
+                            </>
                           )}
                         </button>
                       )}

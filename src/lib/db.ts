@@ -505,9 +505,22 @@ export function initDB() {
     // ignore
   }
 
-  // Auto-seed/add 2 excavator activities to Order #139 if present
+  // Cleanup any duplicate excavator items created for Order #139 (keep only the first one)
   try {
-    autoAddExcavatorAddonToOrder139();
+    const excItems = db.prepare(`
+      SELECT b.id FROM bookings b
+      JOIN tickets t ON b.ticket_id = t.id
+      WHERE (b.order_number = 139 OR (b.order_number IS NULL AND b.id = 139))
+        AND UPPER(t.name) LIKE '%EXCAVATOR%'
+      ORDER BY b.id ASC
+    `).all() as { id: number }[];
+
+    if (excItems.length > 1) {
+      const idsToDelete = excItems.slice(1).map(x => x.id);
+      const placeholders = idsToDelete.map(() => '?').join(',');
+      db.prepare(`DELETE FROM bookings WHERE id IN (${placeholders})`).run(...idsToDelete);
+      console.log(`[Order 139 Cleanup] Removed ${idsToDelete.length} duplicate excavator items: IDs ${idsToDelete.join(', ')}`);
+    }
   } catch (e) {
     // ignore
   }
@@ -518,100 +531,6 @@ try {
   initDB();
 } catch (e) {
   console.error("Database init error:", e);
-}
-
-let hasCheckedOrder139Excavator = false;
-
-export function autoAddExcavatorAddonToOrder139() {
-  if (hasCheckedOrder139Excavator) return;
-  try {
-    // Find Order 139
-    const order139 = db.prepare(`
-      SELECT * FROM bookings 
-      WHERE order_number = 139 OR (order_number IS NULL AND id = 139)
-      ORDER BY id ASC 
-      LIMIT 1
-    `).get() as any;
-
-    if (!order139) return;
-
-    // Check if Order 139 already has an excavator activity addon
-    const existingExcavator = db.prepare(`
-      SELECT b.id FROM bookings b
-      JOIN tickets t ON b.ticket_id = t.id
-      WHERE (b.order_number = 139 OR (b.order_number IS NULL AND b.id = 139))
-        AND UPPER(t.name) LIKE '%EXCAVATOR%'
-    `).get();
-
-    if (existingExcavator) {
-      hasCheckedOrder139Excavator = true;
-      return;
-    }
-
-    // Find excavator ticket in tickets table
-    let excTicket = db.prepare(`
-      SELECT * FROM tickets 
-      WHERE UPPER(name) LIKE '%EXCAVATOR%'
-      ORDER BY active DESC, id DESC 
-      LIMIT 1
-    `).get() as any;
-
-    if (!excTicket) {
-      excTicket = db.prepare(`
-        SELECT * FROM tickets 
-        WHERE is_addon = 1 
-        ORDER BY id DESC 
-        LIMIT 1
-      `).get() as any;
-    }
-
-    if (!excTicket) {
-      const ins = db.prepare(`
-        INSERT INTO tickets (name, price, capacity, active, is_addon, description)
-        VALUES ('RC Excavator Activity', 300, 999, 1, 1, 'Hydraulic RC excavator & earthmover operations in the quarry zone')
-      `).run();
-      excTicket = { id: Number(ins.lastInsertRowid), price: 300, name: 'RC Excavator Activity' };
-    }
-
-    const unitPrice = Number(excTicket.price || 300);
-    const qty = 2;
-    const lineTotal = Math.round(unitPrice * qty * 1.18);
-    const targetOrderNum = order139.order_number || 139;
-
-    db.prepare(`
-      INSERT INTO bookings (
-        order_number,
-        ticket_id,
-        booking_date,
-        time_slot,
-        quantity,
-        customer_name,
-        customer_email,
-        customer_phone,
-        total_amount,
-        payment_status,
-        fulfillment_status,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?)
-    `).run(
-      targetOrderNum,
-      excTicket.id,
-      order139.booking_date || 'Nov 10',
-      order139.time_slot || '12PM-1PM',
-      qty,
-      order139.customer_name || 'Mithun C',
-      order139.customer_email || '',
-      order139.customer_phone || '9845013819',
-      lineTotal,
-      order139.payment_status || 'Unpaid',
-      order139.created_at || new Date().toISOString()
-    );
-
-    hasCheckedOrder139Excavator = true;
-    console.log(`[autoAddExcavatorAddonToOrder139] Added 2x ${excTicket.name} (line total ₹${lineTotal}) to Order #${targetOrderNum}`);
-  } catch (err) {
-    console.error("[autoAddExcavatorAddonToOrder139] Error adding excavator addon to Order 139:", err);
-  }
 }
 
 export function getAvailableAddonTickets() {
@@ -1067,7 +986,6 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
 }
 
 export function getAllBookings() {
-  autoAddExcavatorAddonToOrder139();
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -1084,9 +1002,6 @@ export function getAllBookings() {
 }
 
 export function getBookingById(id: number) {
-  if (id === 139) {
-    autoAddExcavatorAddonToOrder139();
-  }
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -1103,9 +1018,6 @@ export function getBookingById(id: number) {
 }
 
 export function getBookingsByOrderNumber(orderNum: number) {
-  if (orderNum === 139) {
-    autoAddExcavatorAddonToOrder139();
-  }
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 

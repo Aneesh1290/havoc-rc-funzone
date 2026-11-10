@@ -209,8 +209,15 @@ export function getSlotInfoForColor(
   for (const s of timeSlots) {
     const sHex = (s.color || "").trim().toUpperCase();
     const sName = (s.color_name || "").trim().toLowerCase();
-    const hexMatch = Boolean(sHex && sHex === cleanHex);
-    const nameMatch = Boolean(sName && (sName === cleanName || cleanName.includes(sName)));
+    const resolved = getSlotWristbandColor(s.label, s.color, s.color_name);
+    const resolvedHex = (resolved.hex || "").trim().toUpperCase();
+    const resolvedName = (resolved.name || "").trim().toLowerCase();
+
+    const hexMatch = Boolean((sHex && sHex === cleanHex) || (resolvedHex && resolvedHex === cleanHex));
+    const nameMatch = Boolean(
+      (sName && (sName === cleanName || cleanName.includes(sName))) ||
+      (resolvedName && (resolvedName === cleanName || cleanName.includes(resolvedName)))
+    );
 
     if (hexMatch || nameMatch) {
       const sHour = s.start_hour ?? 99;

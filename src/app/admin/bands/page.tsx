@@ -557,10 +557,25 @@ export default function BandInventoryPage() {
     const findMatchedSubcat = (hex?: string, name?: string): SubcategoryBandItem | undefined => {
       const hUpper = (hex || "").trim().toUpperCase();
       const nUpper = (name || "").trim().toUpperCase();
-      if (hUpper && subcatConfigByHex.has(hUpper)) return subcatConfigByHex.get(hUpper);
-      if (nUpper && subcatConfigByName.has(nUpper)) return subcatConfigByName.get(nUpper);
 
-      // Fuzzy matching: handles "Pink" matching "VISITOR PINK", "Crystal Blue" matching "CRYSTAL BLUE EXCAVATOR"
+      // Check if this is an active time slot color by name
+      const isSlotName = timeSlots.some(ts => {
+        const tsName = (ts.color_name || "").trim().toUpperCase();
+        return Boolean(tsName && tsName === nUpper);
+      });
+
+      if (hUpper && subcatConfigByHex.has(hUpper) && !isSlotName) {
+        return subcatConfigByHex.get(hUpper);
+      }
+      if (nUpper && subcatConfigByName.has(nUpper)) {
+        return subcatConfigByName.get(nUpper);
+      }
+
+      // Fuzzy matching: ONLY if the item has explicit subcategory keywords (VIP, VISITOR, STAFF, MARSHAL, CHILD, SPECIAL, EXCAVATOR)
+      // Never fuzzy match generic time slot colors like "Pink", "Blue", "Green" to "Visitor Pink" or "Excavator Blue"
+      const hasSpecialKeyword = /VIP|VISITOR|STAFF|MARSHAL|CHILD|SPECIAL|EXCAVATOR/i.test(name || "");
+      if (!hasSpecialKeyword) return undefined;
+
       return configuredSubcategories.find(sc => {
         const scHex = (sc.color_hex || "").trim().toUpperCase();
         const scName = (sc.color_name || "").trim().toUpperCase();
@@ -574,18 +589,30 @@ export default function BandInventoryPage() {
     };
 
     const isSubcategory = (c: BandColorBreakdown, matched?: SubcategoryBandItem) => {
-      if (matched) return true;
       const nameUpper = (c.color_name || "").toUpperCase();
       const hexUpper = (c.color_hex || "").toUpperCase();
-      const inConfigured = subcatConfigByHex.has(hexUpper) || subcatConfigByName.has(nameUpper);
       const hasSpecialKeyword = 
         nameUpper.includes("VIP") || 
         nameUpper.includes("VISITOR") || 
         nameUpper.includes("STAFF") || 
         nameUpper.includes("MARSHAL") || 
         nameUpper.includes("CHILD") ||
-        nameUpper.includes("SPECIAL");
-      return inConfigured || hasSpecialKeyword;
+        nameUpper.includes("EXCAVATOR") ||
+        nameUpper.includes("SPECIAL") ||
+        Boolean(c.subcategories && c.subcategories.some(s => s.category && s.category.toUpperCase() !== 'STANDARD'));
+
+      if (hasSpecialKeyword) return true;
+
+      // If this color matches an active time slot, it belongs in general time slot rotation!
+      const isSlotColor = timeSlots.some(ts => {
+        const tsHex = (ts.color || "").trim().toUpperCase();
+        const tsName = (ts.color_name || "").trim().toUpperCase();
+        return (tsHex && tsHex === hexUpper) || (tsName && tsName === nameUpper);
+      });
+      if (isSlotColor) return false;
+
+      const inConfigured = (Boolean(hexUpper) && subcatConfigByHex.has(hexUpper)) || (Boolean(nameUpper) && subcatConfigByName.has(nameUpper));
+      return Boolean(matched && inConfigured);
     };
 
     const general: (BandColorBreakdown & { slotInfo: ReturnType<typeof getSlotInfoForColor>; matchedConfig?: SubcategoryBandItem })[] = [];
@@ -596,18 +623,23 @@ export default function BandInventoryPage() {
       const matchedConfig = findMatchedSubcat(c.color_hex, c.color_name);
       const matchedSlot = slotColorByHex.get(hexUpper);
 
-      const resolvedColorName = matchedConfig?.color_name || matchedSlot?.color_name || c.color_name;
-      const resolvedColorHex = matchedConfig?.color_hex || c.color_hex;
+      const isSub = isSubcategory(c, matchedConfig);
+      const resolvedColorName = isSub
+        ? (matchedConfig?.color_name || c.color_name)
+        : (matchedSlot?.color_name || c.color_name);
+      const resolvedColorHex = isSub
+        ? (matchedConfig?.color_hex || c.color_hex)
+        : (c.color_hex || matchedSlot?.color_name || hexUpper);
 
       const enrichedColor = {
         ...c,
         color_name: resolvedColorName,
         color_hex: resolvedColorHex,
         slotInfo: getSlotInfoForColor(resolvedColorHex, resolvedColorName, timeSlots),
-        matchedConfig
+        matchedConfig: isSub ? matchedConfig : undefined
       };
 
-      if (isSubcategory(c, matchedConfig)) {
+      if (isSub) {
         // Strict deduplication: check if already exists by matched subcategory id, hex, or normalized name
         const cleanResolvedName = (resolvedColorName || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
         const existingIdx = subcats.findIndex(
@@ -700,6 +732,64 @@ export default function BandInventoryPage() {
         existingSub.color_name = sc.color_name;
         if (sc.color_hex && !existingSub.color_hex) {
           existingSub.color_hex = sc.color_hex;
+        }
+      }
+    }
+
+    // Ensure every active time slot appears in generalSlotColors, even if 0 bands exist
+    for (const ts of timeSlots.filter(t => t.active !== 0)) {
+      const resolvedColor = getSlotWristbandColor(ts.label, ts.color, ts.color_name);
+      const slotHexUpper = (resolvedColor.hex || "").trim().toUpperCase();
+      const slotCleanName = (resolvedColor.name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+      const slotHour = ts.start_hour ?? 99;
+
+      const existingSlotIdx = general.findIndex(g => {
+        if (g.slotInfo && (g.slotInfo.slotLabel === ts.label || g.slotInfo.startHour === slotHour)) return true;
+        if (g.color_hex && slotHexUpper && g.color_hex.trim().toUpperCase() === slotHexUpper) return true;
+        const cleanGName = (g.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+        if (cleanGName && slotCleanName && cleanGName === slotCleanName) return true;
+        return false;
+      });
+
+      if (existingSlotIdx < 0) {
+        // Look up if there's any record in rawBreakdown matching this slot
+        const rawMatch = rawBreakdown.find(r => {
+          const rHex = (r.color_hex || "").trim().toUpperCase();
+          const rClean = (r.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+          return (rHex && slotHexUpper && rHex === slotHexUpper) || (rClean && slotCleanName && rClean === slotCleanName);
+        });
+
+        general.push({
+          color_name: resolvedColor.name,
+          color_hex: resolvedColor.hex,
+          total: rawMatch?.total || 0,
+          available: rawMatch?.available || 0,
+          issued: rawMatch?.issued || 0,
+          damaged: rawMatch?.damaged || 0,
+          lost: rawMatch?.lost || 0,
+          retired: rawMatch?.retired || 0,
+          in_reception: rawMatch?.in_reception || 0,
+          warehouse: rawMatch?.warehouse || rawMatch?.available || 0,
+          color_inventory_id: rawMatch?.color_inventory_id,
+          slotInfo: {
+            slotLabel: ts.label,
+            formattedSlot: formatTimeSlotLabel(ts.label),
+            sortOrder: ts.sort_order ?? slotHour,
+            startHour: slotHour
+          }
+        });
+      } else {
+        const existingSlot = general[existingSlotIdx];
+        if (!existingSlot.slotInfo) {
+          existingSlot.slotInfo = {
+            slotLabel: ts.label,
+            formattedSlot: formatTimeSlotLabel(ts.label),
+            sortOrder: ts.sort_order ?? slotHour,
+            startHour: slotHour
+          };
+        }
+        if (!existingSlot.color_name || existingSlot.color_name === existingSlot.color_hex) {
+          existingSlot.color_name = resolvedColor.name;
         }
       }
     }

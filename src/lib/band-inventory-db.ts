@@ -422,15 +422,18 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           const scName = (sc.color_name || "").trim();
           const scCat = (sc.category_name || "").trim();
 
-          let target = hex ? colorBreakdownMap.get(hex) : undefined;
-          if (!target) {
-            for (const item of colorBreakdownMap.values()) {
-              const itemUpper = (item.color_name || "").trim().toUpperCase();
-              const scUpper = scName.toUpperCase();
-              if (itemUpper === scUpper || itemUpper.includes(scUpper) || scUpper.includes(itemUpper)) {
-                target = item;
-                break;
-              }
+          let target: BandColorBreakdown | undefined = undefined;
+          for (const item of colorBreakdownMap.values()) {
+            const itemUpper = (item.color_name || "").trim().toUpperCase();
+            const scUpper = scName.toUpperCase();
+            if (itemUpper === scUpper) {
+              target = item;
+              break;
+            }
+            const itemHasKeyword = /VIP|VISITOR|STAFF|MARSHAL|CHILD|SPECIAL|EXCAVATOR/i.test(itemUpper);
+            if (itemHasKeyword && (itemUpper.includes(scUpper) || scUpper.includes(itemUpper))) {
+              target = item;
+              break;
             }
           }
           if (target) {
@@ -682,15 +685,18 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
       const scName = (sc.color_name || "").trim();
       const scCat = (sc.category_name || "").trim();
 
-      let target = hex ? colorBreakdownMap.get(hex) : undefined;
-      if (!target) {
-        for (const item of colorBreakdownMap.values()) {
-          const itemUpper = (item.color_name || "").trim().toUpperCase();
-          const scUpper = scName.toUpperCase();
-          if (itemUpper === scUpper || itemUpper.includes(scUpper) || scUpper.includes(itemUpper)) {
-            target = item;
-            break;
-          }
+      let target: BandColorBreakdown | undefined = undefined;
+      for (const item of colorBreakdownMap.values()) {
+        const itemUpper = (item.color_name || "").trim().toUpperCase();
+        const scUpper = scName.toUpperCase();
+        if (itemUpper === scUpper) {
+          target = item;
+          break;
+        }
+        const itemHasKeyword = /VIP|VISITOR|STAFF|MARSHAL|CHILD|SPECIAL|EXCAVATOR/i.test(itemUpper);
+        if (itemHasKeyword && (itemUpper.includes(scUpper) || scUpper.includes(itemUpper))) {
+          target = item;
+          break;
         }
       }
       if (target) {

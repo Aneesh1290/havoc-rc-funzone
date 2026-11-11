@@ -3193,28 +3193,6 @@ export default function BandInventoryPage() {
                 </select>
               </div>
 
-              {/* Sort Selector */}
-              <div className="flex items-center gap-1.5 self-start sm:self-auto bg-white border border-gray-300 rounded-xl px-2.5 py-1">
-                <span className="text-gray-500 font-semibold text-xs whitespace-nowrap">Sort:</span>
-                <select
-                  value={`${sortBy}_${sortOrder}`}
-                  onChange={(e) => {
-                    const [sb, so] = e.target.value.split("_");
-                    setSortBy(sb as any);
-                    setSortOrder(so as any);
-                    setCurrentPage(1);
-                  }}
-                  className="bg-transparent text-gray-900 text-xs font-bold py-1 focus:outline-none cursor-pointer"
-                >
-                  <option value="band_code_ASC">Series ID (0001 → 9999)</option>
-                  <option value="band_code_DESC">Series ID (9999 → 0001)</option>
-                  <option value="updated_at_DESC">Recently Updated</option>
-                  <option value="created_at_DESC">Recently Added</option>
-                  <option value="total_uses_DESC">Most Used</option>
-                  <option value="status_ASC">Status</option>
-                </select>
-              </div>
-
               {/* Standardize All Categories Button */}
               {canManageStock && (
                 <button

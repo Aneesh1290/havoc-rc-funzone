@@ -300,9 +300,9 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           const hex = (row.color_hex || "").trim().toUpperCase();
           const name = (row.color_name || "").trim();
           const normKey = normalizeColorKey(name);
-          const key = hex || normKey;
+          const key = normKey || hex;
 
-          let existing: BandColorBreakdown | undefined = hex ? colorBreakdownMap.get(hex) : undefined;
+          let existing: BandColorBreakdown | undefined = normKey ? colorBreakdownMap.get(normKey) : (hex ? colorBreakdownMap.get(hex) : undefined);
           if (!existing && normKey) {
             const mappedKey = nameToKeyMap.get(normKey);
             if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
@@ -367,18 +367,15 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
           const poolQty = Number(sir.quantity || 0);
           const inRec = Number(sir.in_reception || 0);
 
-          let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+          let existing: BandColorBreakdown | undefined = normKey ? colorBreakdownMap.get(normKey) : undefined;
           if (!existing && normKey) {
             const mappedKey = nameToKeyMap.get(normKey);
             if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
           }
-          if (!existing && normKey) {
-            for (const [_, item] of colorBreakdownMap.entries()) {
-              const iNorm = normalizeColorKey(item.color_name);
-              if (iNorm === normKey || (iNorm && normKey && (iNorm.includes(normKey) || normKey.includes(iNorm)))) {
-                existing = item;
-                break;
-              }
+          if (!existing && hex) {
+            const hexMatch = colorBreakdownMap.get(hex);
+            if (hexMatch && (!hexMatch.color_name || hexMatch.color_name === hexMatch.color_hex || normalizeColorKey(hexMatch.color_name) === normKey)) {
+              existing = hexMatch;
             }
           }
 
@@ -573,11 +570,11 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
     const hex = (r.color_hex || "").trim().toUpperCase();
     const name = (r.color_name || "").trim();
     const normKey = normalizeColorKey(name);
-    const key = hex || normKey;
+    const key = normKey || hex;
     const inRec = Number(r.in_reception || 0);
     const wh = Number(r.warehouse !== undefined && r.warehouse !== null ? r.warehouse : Math.max(0, Number(r.available || 0) - inRec));
 
-    let existing = hex ? colorBreakdownMap.get(hex) : undefined;
+    let existing = normKey ? colorBreakdownMap.get(normKey) : (hex ? colorBreakdownMap.get(hex) : undefined);
     if (!existing && normKey) {
       const mappedKey = nameToKeyMap.get(normKey);
       if (mappedKey) existing = colorBreakdownMap.get(mappedKey);
@@ -863,26 +860,15 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
 
       const reqColorName = (options.color_name || "").trim();
       let reqColorHex = (options.color_hex || "").trim().toUpperCase();
-      if (!reqColorHex && reqColorName && reqColorName.toLowerCase() !== "all") {
-        const resolved = resolveColorNameToHex(reqColorName);
-        if (resolved) reqColorHex = resolved.toUpperCase();
-      }
 
-      if ((reqColorName && reqColorName.toLowerCase() !== "all") || (reqColorHex && reqColorHex.toLowerCase() !== "all")) {
-        const colorConds: string[] = [];
-        if (reqColorName && reqColorName.toLowerCase() !== "all") {
-          colorConds.push(`UPPER(TRIM(color_name)) = UPPER($${pIdx})`);
-          colorConds.push(`UPPER(TRIM(color_name)) LIKE '%' || UPPER($${pIdx}) || '%'`);
-          colorConds.push(`UPPER($${pIdx}) LIKE '%' || UPPER(TRIM(color_name)) || '%'`);
-          params.push(reqColorName);
-          pIdx++;
-        }
-        if (reqColorHex) {
-          colorConds.push(`UPPER(TRIM(color_hex)) = UPPER($${pIdx})`);
-          params.push(reqColorHex);
-          pIdx++;
-        }
-        whereClauses.push(`(${colorConds.join(" OR ")})`);
+      if (reqColorName && reqColorName.toLowerCase() !== "all") {
+        whereClauses.push(`UPPER(TRIM(color_name)) = UPPER($${pIdx})`);
+        params.push(reqColorName);
+        pIdx++;
+      } else if (reqColorHex && reqColorHex.toLowerCase() !== "all") {
+        whereClauses.push(`UPPER(TRIM(color_hex)) = UPPER($${pIdx})`);
+        params.push(reqColorHex);
+        pIdx++;
       }
 
       if (options.category && options.category !== 'all') {
@@ -957,24 +943,13 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
 
   const reqColorName = (options.color_name || "").trim();
   let reqColorHex = (options.color_hex || "").trim().toUpperCase();
-  if (!reqColorHex && reqColorName && reqColorName.toLowerCase() !== "all") {
-    const resolved = resolveColorNameToHex(reqColorName);
-    if (resolved) reqColorHex = resolved.toUpperCase();
-  }
 
-  if ((reqColorName && reqColorName.toLowerCase() !== "all") || (reqColorHex && reqColorHex.toLowerCase() !== "all")) {
-    const colorConds: string[] = [];
-    if (reqColorName && reqColorName.toLowerCase() !== "all") {
-      colorConds.push("UPPER(TRIM(color_name)) = UPPER(?)");
-      colorConds.push("UPPER(TRIM(color_name)) LIKE '%' || UPPER(?) || '%'");
-      colorConds.push("UPPER(?) LIKE '%' || UPPER(TRIM(color_name)) || '%'");
-      params.push(reqColorName, reqColorName, reqColorName);
-    }
-    if (reqColorHex) {
-      colorConds.push("UPPER(TRIM(color_hex)) = UPPER(?)");
-      params.push(reqColorHex);
-    }
-    whereClauses.push(`(${colorConds.join(" OR ")})`);
+  if (reqColorName && reqColorName.toLowerCase() !== "all") {
+    whereClauses.push("UPPER(TRIM(color_name)) = UPPER(?)");
+    params.push(reqColorName);
+  } else if (reqColorHex && reqColorHex.toLowerCase() !== "all") {
+    whereClauses.push("UPPER(TRIM(color_hex)) = UPPER(?)");
+    params.push(reqColorHex);
   }
 
   if (options.category && options.category !== "all") {

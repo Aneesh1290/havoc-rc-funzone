@@ -474,10 +474,6 @@ export default function BandInventoryPage() {
       const shouldFetchTx = activeTab === "movements";
       const shouldFetchCoupon = activeTab === "coupon_bands";
 
-      const resolvedColorHex = colorFilter !== "all"
-        ? (summary?.colorBreakdown?.find(c => c.color_name.toLowerCase() === colorFilter.toLowerCase())?.color_hex || resolveColorNameToHex(colorFilter) || undefined)
-        : undefined;
-
       const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes, timeSlotsRes] = await Promise.all([
         getBandInventorySummaryAction(),
         shouldFetchItems
@@ -486,7 +482,6 @@ export default function BandInventoryPage() {
               status: statusFilter,
               location: locationFilter,
               color_name: colorFilter,
-              color_hex: resolvedColorHex,
               category: categoryFilter,
               sortBy: sortBy,
               sortOrder: sortOrder,
@@ -750,18 +745,21 @@ export default function BandInventoryPage() {
 
       const existingSlotIdx = general.findIndex(g => {
         if (g.slotInfo && (g.slotInfo.slotLabel === ts.label || g.slotInfo.startHour === slotHour)) return true;
-        if (g.color_hex && slotHexUpper && g.color_hex.trim().toUpperCase() === slotHexUpper) return true;
         const cleanGName = (g.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
         if (cleanGName && slotCleanName && cleanGName === slotCleanName) return true;
         return false;
       });
 
       if (existingSlotIdx < 0) {
-        // Look up if there's any record in rawBreakdown matching this slot
+        // Look up if there's any record in rawBreakdown matching this slot (excluding subcategory bands)
         const rawMatch = rawBreakdown.find(r => {
+          const rNameUpper = (r.color_name || "").toUpperCase();
+          if (rNameUpper.includes("EXCAVATOR") || rNameUpper.includes("VIP") || rNameUpper.includes("VISITOR") || rNameUpper.includes("STAFF") || rNameUpper.includes("MARSHAL")) {
+            return false;
+          }
           const rHex = (r.color_hex || "").trim().toUpperCase();
           const rClean = (r.color_name || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-          return (rHex && slotHexUpper && rHex === slotHexUpper) || (rClean && slotCleanName && rClean === slotCleanName);
+          return (rClean && slotCleanName && rClean === slotCleanName) || (rHex && slotHexUpper && rHex === slotHexUpper);
         });
 
         general.push({

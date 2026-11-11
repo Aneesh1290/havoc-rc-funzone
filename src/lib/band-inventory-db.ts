@@ -856,13 +856,13 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       }
 
       if (options.color_name && options.color_name !== 'all') {
-        whereClauses.push(`color_name = $${pIdx}`);
+        whereClauses.push(`UPPER(color_name) = UPPER($${pIdx})`);
         params.push(options.color_name.trim());
         pIdx++;
       }
 
       if (options.category && options.category !== 'all') {
-        whereClauses.push(`category = $${pIdx}`);
+        whereClauses.push(`UPPER(category) = UPPER($${pIdx})`);
         params.push(options.category.trim());
         pIdx++;
       }
@@ -927,12 +927,12 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
   }
 
   if (options.color_name && options.color_name !== "all") {
-    whereClauses.push("color_name = ?");
+    whereClauses.push("UPPER(color_name) = UPPER(?)");
     params.push(options.color_name.trim());
   }
 
   if (options.category && options.category !== "all") {
-    whereClauses.push("category = ?");
+    whereClauses.push("UPPER(category) = UPPER(?)");
     params.push(options.category.trim());
   }
 

@@ -808,21 +808,67 @@ export default function BandInventoryPage() {
     return { generalSlotColors: general, subcategoryColors: subcats };
   }, [summary?.colorBreakdown, configuredSubcategories, timeSlots]);
 
-  // Dynamic list of all band colors from database items, configured subcategories, and palette
+  // Dynamic list of ONLY band colors that actually exist in the inventory (total > 0), deduplicated case-insensitively
   const availableFilterColors = useMemo(() => {
-    const colorSet = new Set<string>();
+    const colorMap = new Map<string, string>();
+
+    // 1. Check colors in summary that have actual inventory (total > 0)
     (summary?.colorBreakdown || []).forEach(c => {
-      if (c.color_name && c.color_name.trim()) colorSet.add(c.color_name.trim());
+      if ((c.total || 0) <= 0) return;
+      const rawName = (c.color_name || "").trim();
+      if (!rawName) return;
+      const lower = rawName.toLowerCase();
+      if (!colorMap.has(lower)) {
+        const paletteMatch = WRISTBAND_PALETTE.find(p => p.name.toLowerCase() === lower);
+        const displayName = paletteMatch ? paletteMatch.name : (rawName.charAt(0).toUpperCase() + rawName.slice(1));
+        colorMap.set(lower, displayName);
+      }
     });
+
+    // 2. Also check loaded items in catalog (if any exist)
+    (items || []).forEach(it => {
+      const rawName = (it.color_name || "").trim();
+      if (!rawName) return;
+      const lower = rawName.toLowerCase();
+      if (!colorMap.has(lower)) {
+        const paletteMatch = WRISTBAND_PALETTE.find(p => p.name.toLowerCase() === lower);
+        const displayName = paletteMatch ? paletteMatch.name : (rawName.charAt(0).toUpperCase() + rawName.slice(1));
+        colorMap.set(lower, displayName);
+      }
+    });
+
+    return Array.from(colorMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [summary?.colorBreakdown, items]);
+
+  // Dynamic list of ONLY categories that actually exist in the inventory
+  const availableFilterCategories = useMemo(() => {
+    const catMap = new Map<string, string>();
+
+    (summary?.categoryBreakdown || []).forEach(cb => {
+      if (cb.category && (cb.total || 0) > 0) {
+        catMap.set(cb.category.trim().toLowerCase(), cb.category.trim());
+      }
+    });
+
+    (items || []).forEach(it => {
+      if (it.category && it.category.trim()) {
+        catMap.set(it.category.trim().toLowerCase(), it.category.trim());
+      }
+    });
+
     configuredSubcategories.forEach(sc => {
-      if (sc.color_name && sc.color_name.trim()) colorSet.add(sc.color_name.trim());
+      const stock = (sc.warehouse_stock || 0) + (sc.reception_stock || 0);
+      if (sc.category_name && sc.category_name.trim() && stock > 0) {
+        catMap.set(sc.category_name.trim().toLowerCase(), sc.category_name.trim());
+      }
     });
-    timeSlots.forEach(ts => {
-      if (ts.color_name && ts.color_name.trim()) colorSet.add(ts.color_name.trim());
-    });
-    WRISTBAND_PALETTE.forEach(p => colorSet.add(p.name));
-    return Array.from(colorSet).sort((a, b) => a.localeCompare(b));
-  }, [summary?.colorBreakdown, configuredSubcategories, timeSlots]);
+
+    if (catMap.size === 0) {
+      catMap.set("standard", "Standard");
+    }
+
+    return Array.from(catMap.values()).sort((a, b) => a.localeCompare(b));
+  }, [summary?.categoryBreakdown, configuredSubcategories, items]);
 
   useEffect(() => {
     loadData();
@@ -3085,7 +3131,7 @@ export default function BandInventoryPage() {
 
               {/* Color Filter */}
               <select
-                value={colorFilter}
+                value={availableFilterColors.find(c => c.toLowerCase() === colorFilter.toLowerCase()) || colorFilter}
                 onChange={(e) => setColorFilter(e.target.value)}
                 className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
               >
@@ -3095,27 +3141,36 @@ export default function BandInventoryPage() {
                     {name}
                   </option>
                 ))}
+                {colorFilter !== "all" && !availableFilterColors.some(c => c.toLowerCase() === colorFilter.toLowerCase()) && (
+                  <option value={colorFilter}>{colorFilter}</option>
+                )}
               </select>
 
               {/* Category Filter */}
               <select
-                value={categoryFilter}
+                value={availableFilterCategories.find(c => c.toLowerCase() === categoryFilter.toLowerCase()) || categoryFilter}
                 onChange={(e) => setCategoryFilter(e.target.value)}
                 className="border border-gray-300 rounded-xl px-3 py-2 text-xs sm:text-sm text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
               >
-                <option value="all">All Subcategories</option>
-                <option value="Standard">🎫 Standard (Default)</option>
-                <option value="Participant">🏎️ Participant</option>
-                <option value="Visitor">☕ Visitor</option>
-                <option value="VIP Participant">👑 VIP Participant</option>
-                <option value="VIP Visitor">⭐ VIP Visitor</option>
-                <option value="Staff / Marshal">🛡️ Staff / Marshal</option>
-                <option value="Child">🧒 Child</option>
-                {configuredSubcategories
-                  .filter(c => !["Participant", "Visitor", "VIP Participant", "VIP Visitor", "Staff / Marshal", "Standard", "Child"].includes(c.category_name))
-                  .map(c => (
-                    <option key={c.id} value={c.category_name}>🏷️ {c.category_name}</option>
-                  ))}
+                <option value="all">All Subcategories ({availableFilterCategories.length})</option>
+                {availableFilterCategories.map((cat) => {
+                  const lower = cat.toLowerCase();
+                  let icon = "🏷️ ";
+                  if (lower === "standard") icon = "🎫 ";
+                  else if (lower.includes("participant")) icon = "🏎️ ";
+                  else if (lower.includes("visitor")) icon = "☕ ";
+                  else if (lower.includes("vip")) icon = "👑 ";
+                  else if (lower.includes("staff") || lower.includes("marshal")) icon = "🛡️ ";
+                  else if (lower.includes("child")) icon = "🧒 ";
+                  return (
+                    <option key={cat} value={cat}>
+                      {icon}{cat}
+                    </option>
+                  );
+                })}
+                {categoryFilter !== "all" && !availableFilterCategories.some(c => c.toLowerCase() === categoryFilter.toLowerCase()) && (
+                  <option value={categoryFilter}>{categoryFilter}</option>
+                )}
               </select>
 
               {/* Per Page Selector */}

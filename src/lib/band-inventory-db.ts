@@ -819,6 +819,7 @@ export interface GetBandItemsOptions {
   status?: string;
   location?: string;
   color_name?: string;
+  color_hex?: string;
   category?: string;
   limit?: number;
   offset?: number;
@@ -844,21 +845,44 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
       }
 
       if (options.status && options.status !== 'all') {
-        whereClauses.push(`status = $${pIdx}`);
+        whereClauses.push(`LOWER(TRIM(status)) = $${pIdx}`);
         params.push(options.status.trim().toLowerCase());
         pIdx++;
       }
 
       if (options.location && options.location !== 'all') {
-        whereClauses.push(`location = $${pIdx}`);
-        params.push(options.location.trim().toLowerCase());
-        pIdx++;
+        const cleanLoc = options.location.trim().toLowerCase();
+        if (cleanLoc === 'warehouse') {
+          whereClauses.push(`(LOWER(TRIM(location)) = 'warehouse' OR location IS NULL OR location = '')`);
+        } else {
+          whereClauses.push(`LOWER(TRIM(location)) = $${pIdx}`);
+          params.push(cleanLoc);
+          pIdx++;
+        }
       }
 
-      if (options.color_name && options.color_name !== 'all') {
-        whereClauses.push(`UPPER(color_name) = UPPER($${pIdx})`);
-        params.push(options.color_name.trim());
-        pIdx++;
+      const reqColorName = (options.color_name || "").trim();
+      let reqColorHex = (options.color_hex || "").trim().toUpperCase();
+      if (!reqColorHex && reqColorName && reqColorName.toLowerCase() !== "all") {
+        const resolved = resolveColorNameToHex(reqColorName);
+        if (resolved) reqColorHex = resolved.toUpperCase();
+      }
+
+      if ((reqColorName && reqColorName.toLowerCase() !== "all") || (reqColorHex && reqColorHex.toLowerCase() !== "all")) {
+        const colorConds: string[] = [];
+        if (reqColorName && reqColorName.toLowerCase() !== "all") {
+          colorConds.push(`UPPER(TRIM(color_name)) = UPPER($${pIdx})`);
+          colorConds.push(`UPPER(TRIM(color_name)) LIKE '%' || UPPER($${pIdx}) || '%'`);
+          colorConds.push(`UPPER($${pIdx}) LIKE '%' || UPPER(TRIM(color_name)) || '%'`);
+          params.push(reqColorName);
+          pIdx++;
+        }
+        if (reqColorHex) {
+          colorConds.push(`UPPER(TRIM(color_hex)) = UPPER($${pIdx})`);
+          params.push(reqColorHex);
+          pIdx++;
+        }
+        whereClauses.push(`(${colorConds.join(" OR ")})`);
       }
 
       if (options.category && options.category !== 'all') {
@@ -917,18 +941,40 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
   }
 
   if (options.status && options.status !== "all") {
-    whereClauses.push("status = ?");
+    whereClauses.push("LOWER(TRIM(status)) = ?");
     params.push(options.status.trim().toLowerCase());
   }
 
   if (options.location && options.location !== "all") {
-    whereClauses.push("location = ?");
-    params.push(options.location.trim().toLowerCase());
+    const cleanLoc = options.location.trim().toLowerCase();
+    if (cleanLoc === "warehouse") {
+      whereClauses.push("(LOWER(TRIM(location)) = 'warehouse' OR location IS NULL OR location = '')");
+    } else {
+      whereClauses.push("LOWER(TRIM(location)) = ?");
+      params.push(cleanLoc);
+    }
   }
 
-  if (options.color_name && options.color_name !== "all") {
-    whereClauses.push("UPPER(color_name) = UPPER(?)");
-    params.push(options.color_name.trim());
+  const reqColorName = (options.color_name || "").trim();
+  let reqColorHex = (options.color_hex || "").trim().toUpperCase();
+  if (!reqColorHex && reqColorName && reqColorName.toLowerCase() !== "all") {
+    const resolved = resolveColorNameToHex(reqColorName);
+    if (resolved) reqColorHex = resolved.toUpperCase();
+  }
+
+  if ((reqColorName && reqColorName.toLowerCase() !== "all") || (reqColorHex && reqColorHex.toLowerCase() !== "all")) {
+    const colorConds: string[] = [];
+    if (reqColorName && reqColorName.toLowerCase() !== "all") {
+      colorConds.push("UPPER(TRIM(color_name)) = UPPER(?)");
+      colorConds.push("UPPER(TRIM(color_name)) LIKE '%' || UPPER(?) || '%'");
+      colorConds.push("UPPER(?) LIKE '%' || UPPER(TRIM(color_name)) || '%'");
+      params.push(reqColorName, reqColorName, reqColorName);
+    }
+    if (reqColorHex) {
+      colorConds.push("UPPER(TRIM(color_hex)) = UPPER(?)");
+      params.push(reqColorHex);
+    }
+    whereClauses.push(`(${colorConds.join(" OR ")})`);
   }
 
   if (options.category && options.category !== "all") {
@@ -1114,6 +1160,7 @@ export async function bulkCreateBandItems(data: {
   staff_name?: string;
   separator?: string;
   padLength?: number;
+  location?: 'warehouse' | 'reception';
 }): Promise<{ success: boolean; createdCount: number; error?: string }> {
   try {
     await ensureBandInventorySeeded();
@@ -1146,6 +1193,8 @@ export async function bulkCreateBandItems(data: {
       return `${prefix}${sep}${formattedNum}`;
     };
 
+    const targetLocation = data.location === "reception" ? "reception" : "warehouse";
+
     if (isPostgresActive()) {
       try {
         const client = await simulatorPool.connect();
@@ -1170,9 +1219,9 @@ export async function bulkCreateBandItems(data: {
             const valueRows: string[] = [];
 
             chunk.forEach((code, idx) => {
-              const baseIdx = idx * 5;
-              valueRows.push(`($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, 'available', 0, $${baseIdx + 5}, 'warehouse')`);
-              valueParams.push(code, data.color_name.trim(), data.color_hex.trim(), category, notes);
+              const baseIdx = idx * 6;
+              valueRows.push(`($${baseIdx + 1}, $${baseIdx + 2}, $${baseIdx + 3}, $${baseIdx + 4}, 'available', 0, $${baseIdx + 5}, $${baseIdx + 6})`);
+              valueParams.push(code, data.color_name.trim(), data.color_hex.trim(), category, notes, targetLocation);
             });
 
             const insertQuery = `
@@ -1215,12 +1264,22 @@ export async function bulkCreateBandItems(data: {
 
           // Sync with color inventory stock count
           try {
-            await client.query(
-              `UPDATE wristband_color_inventory 
-               SET quantity = quantity + $1, updated_at = NOW() 
-               WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $3`,
-              [createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase()]
-            );
+            if (targetLocation === "warehouse") {
+              await client.query(
+                `UPDATE wristband_color_inventory 
+                 SET quantity = quantity + $1, updated_at = NOW() 
+                 WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $3`,
+                [createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase()]
+              );
+            } else {
+              // Creating directly into reception desk: ensure in_reception reflects stock
+              await client.query(
+                `UPDATE wristband_color_inventory 
+                 SET in_reception = GREATEST(in_reception, in_reception + $1), updated_at = NOW() 
+                 WHERE UPPER(color_hex) = $2 OR UPPER(color_name) = $3`,
+                [createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase()]
+              );
+            }
           } catch (colSyncErr) {
             console.warn("[Bulk Create Bands] Color inventory counter sync notice:", colSyncErr);
           }
@@ -1240,7 +1299,7 @@ export async function bulkCreateBandItems(data: {
     // SQLite fallback
     const insertItem = db.prepare(`
       INSERT INTO band_items (band_code, color_name, color_hex, category, status, total_uses, notes, location)
-      VALUES (?, ?, ?, ?, 'available', 0, ?, 'warehouse')
+      VALUES (?, ?, ?, ?, 'available', 0, ?, ?)
       ON CONFLICT(band_code, color_name) DO NOTHING
     `);
 
@@ -1254,7 +1313,7 @@ export async function bulkCreateBandItems(data: {
       for (let i = 0; i < count; i++) {
         const code = formatBandCode(i);
 
-        const info = insertItem.run(code, data.color_name.trim(), data.color_hex.trim(), category, notes);
+        const info = insertItem.run(code, data.color_name.trim(), data.color_hex.trim(), category, notes, targetLocation);
         if (info.changes > 0) {
           insertTx.run(Number(info.lastInsertRowid), code, data.color_name.trim(), data.color_hex.trim(), staffName, notes);
           createdCount++;

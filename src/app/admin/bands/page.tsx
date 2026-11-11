@@ -38,7 +38,7 @@ import {
   Shuffle,
   ArrowUpDown
 } from "lucide-react";
-import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle, formatTimeSlotLabel, getSlotInfoForColor } from "@/lib/slotColors";
+import { WRISTBAND_PALETTE, getSlotWristbandColor, getWristbandBadgeStyle, formatTimeSlotLabel, getSlotInfoForColor, resolveColorNameToHex } from "@/lib/slotColors";
 import { 
   BAND_SUBCATEGORIES,
   normalizeBandCategory,
@@ -474,6 +474,10 @@ export default function BandInventoryPage() {
       const shouldFetchTx = activeTab === "movements";
       const shouldFetchCoupon = activeTab === "coupon_bands";
 
+      const resolvedColorHex = colorFilter !== "all"
+        ? (summary?.colorBreakdown?.find(c => c.color_name.toLowerCase() === colorFilter.toLowerCase())?.color_hex || resolveColorNameToHex(colorFilter) || undefined)
+        : undefined;
+
       const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes, timeSlotsRes] = await Promise.all([
         getBandInventorySummaryAction(),
         shouldFetchItems
@@ -482,6 +486,7 @@ export default function BandInventoryPage() {
               status: statusFilter,
               location: locationFilter,
               color_name: colorFilter,
+              color_hex: resolvedColorHex,
               category: categoryFilter,
               sortBy: sortBy,
               sortOrder: sortOrder,
@@ -3351,8 +3356,72 @@ export default function BandInventoryPage() {
               <tbody className="divide-y divide-gray-100">
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-gray-500">
-                      No wristbands found matching your filter criteria.
+                    <td colSpan={10} className="py-12 px-4 text-center">
+                      {(() => {
+                        const filterHex = colorFilter !== "all" ? resolveColorNameToHex(colorFilter)?.toUpperCase() : null;
+                        const activeColorBreakdown = colorFilter !== "all"
+                          ? (summary?.colorBreakdown?.find(c => 
+                              c.color_name.toLowerCase() === colorFilter.toLowerCase() ||
+                              (filterHex && c.color_hex.toUpperCase() === filterHex)
+                            ))
+                          : null;
+
+                        if (activeColorBreakdown && ((activeColorBreakdown.in_reception || 0) > 0 || (activeColorBreakdown.total || 0) > 0)) {
+                          const inRec = activeColorBreakdown.in_reception || 0;
+                          const inStock = activeColorBreakdown.available || 0;
+                          const total = activeColorBreakdown.total || (inRec + inStock);
+                          return (
+                            <div className="max-w-md mx-auto bg-amber-50/90 border border-amber-200/90 rounded-2xl p-6 shadow-sm text-center">
+                              <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center mx-auto mb-3 shadow-2xs">
+                                <Package className="w-6 h-6" />
+                              </div>
+                              <h4 className="font-extrabold text-gray-900 text-sm mb-1">
+                                {inRec > 0 
+                                  ? `${inRec} ${activeColorBreakdown.color_name} Wristbands Logged at Reception`
+                                  : `${total} ${activeColorBreakdown.color_name} Wristbands Logged in Stock`
+                                }
+                              </h4>
+                              <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+                                {inRec > 0 
+                                  ? `These ${inRec} wristbands are accounted for at the Reception Desk, but individual barcode serial numbers (e.g. 0001 - ${String(inRec).padStart(4, "0")}) have not yet been generated in the catalog.`
+                                  : `These ${total} wristbands are in the stock pool, but individual barcode serial numbers have not yet been generated in the catalog.`
+                                }
+                              </p>
+                              {canManageStock && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    const matchedP = WRISTBAND_PALETTE.find(p => p.name.toLowerCase() === activeColorBreakdown.color_name.toLowerCase()) || {
+                                      name: activeColorBreakdown.color_name,
+                                      hex: activeColorBreakdown.color_hex,
+                                      bgClass: "bg-blue-100",
+                                      textClass: "text-blue-800",
+                                      borderClass: "border-blue-300",
+                                      ringClass: "ring-blue-400"
+                                    };
+                                    setSelectedColor(matchedP);
+                                    setIsBulkMode(true);
+                                    setBulkCount(inRec > 0 ? inRec : total);
+                                    setBulkPrefix("");
+                                    setBulkStartNum("0001");
+                                    setIsStockInModalOpen(true);
+                                  }}
+                                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#ff5a1f] hover:bg-[#e04810] text-white text-xs font-bold shadow-md hover:shadow-lg transition-all cursor-pointer"
+                                >
+                                  <Sparkles className="w-4 h-4" />
+                                  <span>+ Generate Barcode Series (1 to {inRec > 0 ? inRec : total})</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div className="text-gray-500 py-6">
+                            No wristbands found matching your filter criteria.
+                          </div>
+                        );
+                      })()}
                     </td>
                   </tr>
                 ) : (

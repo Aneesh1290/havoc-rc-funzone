@@ -21,7 +21,7 @@ export default function TermsPage() {
           
           <div className="space-y-10 text-gray-600 leading-relaxed text-[15px]">
             <p className="text-base text-gray-700 leading-relaxed">
-              Welcome to <strong>Havoc RC Funzone &amp; Miniature World</strong> (&ldquo;Havoc&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;), operated by Havoc Hobby Center Pvt. Ltd. These Terms and Conditions govern your access to and use of our website (<code className="text-[#ff5a1f]">https://havocrcfunzone.com</code>), online ticketing portal, payment gateway checkout, premises, equipment, racing simulators, and all associated recreation facilities.
+              Welcome to <strong>Havoc RC Funzone &amp; Miniature World</strong> (&ldquo;Havoc&rdquo;, &ldquo;we&rdquo;, &ldquo;us&rdquo;, or &ldquo;our&rdquo;), operated by Havoc Hobby Center Pvt. Ltd. These Terms and Conditions govern your access to and use of our website (<code className="text-[#ff5a1f]">https://havocrcfunzone.in</code>), online ticketing portal, payment gateway checkout, premises, equipment, racing simulators, and all associated recreation facilities.
             </p>
 
             <div className="bg-amber-50 border-l-4 border-amber-500 p-5 rounded-r-2xl text-sm text-amber-900 leading-relaxed">

@@ -71,11 +71,11 @@ export function getIciciReturnBase(reqOrigin?: string): string {
   if (!isIciciUat()) {
     // If request origin is localhost or insecure HTTP, default to the production whitelisted domain
     if (!reqOrigin || reqOrigin.includes('localhost') || reqOrigin.startsWith('http:')) {
-      return 'https://havocrcfunzone.com';
+      return 'https://havocrcfunzone.in';
     }
   }
 
-  return reqOrigin ? reqOrigin.replace(/\/$/, '') : 'https://havocrcfunzone.com';
+  return reqOrigin ? reqOrigin.replace(/\/$/, '') : 'https://havocrcfunzone.in';
 }
 
 /**

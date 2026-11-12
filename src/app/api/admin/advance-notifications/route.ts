@@ -217,7 +217,7 @@ export async function POST(req: NextRequest) {
     const returnBase = process.env.ICICI_RETURN_BASE 
       || process.env.NEXT_PUBLIC_APP_URL 
       || (process.env.NODE_ENV === 'production' 
-          ? 'https://havocrcfunzone.com' 
+          ? 'https://havocrcfunzone.in' 
           : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
 
     let sentCount = 0;

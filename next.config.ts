@@ -31,6 +31,43 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'havocrcfunzone.com',
+          },
+        ],
+        destination: 'https://havocrcfunzone.in/:path*',
+        permanent: true,
+      },
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'www.havocrcfunzone.com',
+          },
+        ],
+        destination: 'https://havocrcfunzone.in/:path*',
+        permanent: true,
+      },
+      {
+        source: '/:path*',
+        has: [
+          {
+            type: 'host',
+            value: 'www.havocrcfunzone.in',
+          },
+        ],
+        destination: 'https://havocrcfunzone.in/:path*',
+        permanent: true,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

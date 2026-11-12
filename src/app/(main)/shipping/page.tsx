@@ -41,7 +41,7 @@ export default function ShippingPolicyPage() {
                 1. Nature of Products &amp; Services
               </h2>
               <p className="mb-3">
-                All purchases made on this website (<span>https://havocrcfunzone.com</span> or authorized booking portals) are for time-based entertainment service access passes (&ldquo;PlayPasses&rdquo;, &ldquo;Podium Sim Slots&rdquo;, or event registrations) at our venue:
+                All purchases made on this website (<span>https://havocrcfunzone.in</span> or authorized booking portals) are for time-based entertainment service access passes (&ldquo;PlayPasses&rdquo;, &ldquo;Podium Sim Slots&rdquo;, or event registrations) at our venue:
               </p>
               <div className="bg-gray-50 rounded-xl p-4 border border-gray-200/80 mb-3 text-sm text-gray-800">
                 <strong>Venue Address:</strong> No 21 First Floor, KH Double Road Opposite Shantinagar Bus Stand, Bangalore 560027, India.

@@ -10,7 +10,8 @@ import {
   getIciciMerchantId, 
   getIciciAggregatorId, 
   getIciciInitiateSaleUrl, 
-  generateIciciHash 
+  generateIciciHash,
+  getIciciReturnBase
 } from "@/lib/icici";
 
 // GET: Retrieve payment link details for customer UI
@@ -146,11 +147,8 @@ export async function POST(
     const digitsOnly = custPhone.replace(/\D/g, '');
     const cleanMobile = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : (digitsOnly || '9999999999');
 
-    const returnBase = process.env.ICICI_RETURN_BASE 
-      || process.env.NEXT_PUBLIC_APP_URL 
-      || (process.env.NODE_ENV === 'production' 
-          ? 'https://havocrcfunzone.com' 
-          : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
+    const reqOrigin = `${req.nextUrl.protocol}//${req.nextUrl.host}`;
+    const returnBase = getIciciReturnBase(reqOrigin);
 
     const aggregatorId = getIciciAggregatorId();
     const payload: Record<string, any> = {
@@ -159,7 +157,7 @@ export async function POST(
       amount: Number(link.total_amount).toFixed(2),
       currencyCode: "356",
       payType: "0",
-      customerEmailID: custEmail || "guest@havocrcfunzone.com",
+      customerEmailID: custEmail || "guest@havocrcfunzone.in",
       transactionType: "SALE",
       txnDate: txnDate,
       returnURL: `${returnBase}/api/payment/icici/callback`,

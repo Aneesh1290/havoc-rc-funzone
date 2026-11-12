@@ -354,7 +354,7 @@ export default function OrganisationBookingModal({
                   <div>
                     <h3 className="text-lg font-bold">Reservation Confirmed & Slots Locked!</h3>
                     <p className="text-xs text-emerald-700">
-                      Reserved slots are blocked for public checkout on havocrcfunzone.com
+                      Reserved slots are blocked for public checkout on havocrcfunzone.in
                     </p>
                   </div>
                 </div>
@@ -784,7 +784,7 @@ export default function OrganisationBookingModal({
                         Block Selected Slots from Public Online Booking
                       </div>
                       <p className="text-[11px] text-neutral-500">
-                        Instantly prevents public customers on havocrcfunzone.com from booking these slots for this date.
+                        Instantly prevents public customers on havocrcfunzone.in from booking these slots for this date.
                       </p>
                     </div>
                   </div>

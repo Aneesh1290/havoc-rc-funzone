@@ -72,4 +72,67 @@ export function generateIciciHash(payload: Record<string, any>, customSecret?: s
   return hmac.digest('hex');
 }
 
+/**
+ * Initiates a server-to-server refund request to ICICI Bank Direct PG (application/x-www-form-urlencoded).
+ */
+export async function processIciciRefund(params: {
+  originalTxnNo: string;
+  refundAmount: number;
+  refundTxnNo?: string;
+  reason?: string;
+}): Promise<{
+  success: boolean;
+  responseCode?: string;
+  description?: string;
+  refundTxnId?: string;
+  data?: any;
+}> {
+  const merchantTxnNo = (params.refundTxnNo || `REF_${Date.now().toString().slice(-10)}`).slice(0, 20);
+  const aggregatorId = getIciciAggregatorId();
+
+  const payload: Record<string, string> = {
+    merchantId: getIciciMerchantId(),
+    transactionType: "REFUND",
+    merchantTxnNo: merchantTxnNo,
+    originalTxnNo: params.originalTxnNo,
+    amount: Number(params.refundAmount).toFixed(2),
+  };
+
+  if (aggregatorId) {
+    payload.aggregatorID = aggregatorId;
+  }
+  if (params.reason) {
+    payload.addlParam1 = params.reason.slice(0, 64);
+  }
+
+  payload.secureHash = generateIciciHash(payload);
+
+  const formParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(payload)) {
+    formParams.append(key, value);
+  }
+
+  const res = await fetch(getIciciCommandUrl(), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    body: formParams.toString()
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  // ICICI returns R1000, 0000, or 000 for successful operations
+  const isSuccess = data.responseCode === "R1000" || data.responseCode === "0000" || data.responseCode === "000";
+
+  return {
+    success: isSuccess,
+    responseCode: data.responseCode,
+    description: data.respDescription || data.responseDescription,
+    refundTxnId: data.txnID || data.paymentID || merchantTxnNo,
+    data
+  };
+}
+
+
 

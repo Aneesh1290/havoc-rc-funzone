@@ -44,6 +44,7 @@ import {
   updateOrderGroupTags,
   cancelBooking,
   cancelOrderGroup,
+  refundOrderGroup,
   deleteBookings,
   deleteOrderGroup,
   getVipPerks,
@@ -104,6 +105,7 @@ import {
 } from "@/lib/ticket-guidelines";
 import { issueBandItem, getBandItemByCode } from "@/lib/band-inventory-db";
 import { decrementColorStockByHex } from "@/lib/color-inventory-db";
+import { processIciciRefund } from "@/lib/icici";
 
 // Ensure DB is initialized
 initDB();
@@ -588,6 +590,104 @@ export async function cancelBookingAction(id: number) {
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true };
+}
+
+export async function issueRefundAction(params: {
+  orderNumberOrId: number;
+  refundAmount: number;
+  refundMethod: 'icici' | 'manual';
+  reason?: string;
+  cancelBooking?: boolean;
+}) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:payment") && !hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: You do not have permission to process refunds." };
+  }
+
+  const booking = getBookingById(params.orderNumberOrId) as any;
+  const targetNum = (booking && booking.order_number) ? booking.order_number : params.orderNumberOrId;
+  const groupRows = (getBookingsByOrderNumber(targetNum) || []) as any[];
+  const mainBooking = groupRows.length > 0 ? groupRows[0] : booking;
+
+  if (!mainBooking) {
+    return { success: false, error: "Booking or order not found." };
+  }
+
+  const totalOrderAmount = groupRows.reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
+  const refundAmount = Number(params.refundAmount) || totalOrderAmount;
+
+  if (refundAmount <= 0) {
+    return { success: false, error: "Refund amount must be greater than zero." };
+  }
+
+  let refundRef = `REF_${Date.now().toString().slice(-8)}`;
+
+  // Process via ICICI Direct Payment Gateway if requested
+  if (params.refundMethod === 'icici') {
+    const originalTxnNo = mainBooking.icici_txn_id || mainBooking.payment_ref;
+    if (!originalTxnNo) {
+      return { 
+        success: false, 
+        error: "Cannot process online bank refund: No ICICI Transaction ID (payment_ref) found on this booking. Please process as a Manual/Counter refund." 
+      };
+    }
+
+    try {
+      const refundResult = await processIciciRefund({
+        originalTxnNo: String(originalTxnNo),
+        refundAmount: refundAmount,
+        refundTxnNo: `REF_${targetNum}_${Date.now().toString().slice(-4)}`,
+        reason: params.reason || "Staff issued refund"
+      });
+
+      if (!refundResult.success) {
+        return {
+          success: false,
+          error: `ICICI Bank PG Refund Failed: ${refundResult.description || refundResult.responseCode || 'Gateway rejected refund'}`
+        };
+      }
+
+      refundRef = refundResult.refundTxnId || refundRef;
+    } catch (iciciErr: any) {
+      console.error("[ICICI Refund Action Error]", iciciErr);
+      return {
+        success: false,
+        error: `Error communicating with ICICI Gateway: ${iciciErr.message}`
+      };
+    }
+  }
+
+  // Update in SQLite
+  refundOrderGroup(
+    targetNum,
+    refundAmount,
+    refundRef,
+    params.reason || "Refund issued by staff",
+    params.cancelBooking ?? true
+  );
+
+  // Release simulator locks if canceling or fully refunded
+  if (params.cancelBooking || refundAmount >= totalOrderAmount) {
+    for (const b of groupRows) {
+      if (b.simulator_name && b.simulator_slot) {
+        try {
+          const orderId = formatOrderNumber(targetNum, b.created_at);
+          await releaseSimulatorSlots(orderId, b.id);
+        } catch (pgErr) {
+          console.error("Failed to release simulator slot for refunded booking", b.id, pgErr);
+        }
+      }
+    }
+  }
+
+  revalidatePath('/admin/bookings');
+  revalidatePath('/admin');
+  return {
+    success: true,
+    refundRef,
+    refundAmount,
+    message: `Refund of ₹${refundAmount.toFixed(2)} processed successfully.`
+  };
 }
 
 export async function deleteBookingsAction(ids: number[]) {

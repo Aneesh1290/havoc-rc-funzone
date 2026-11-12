@@ -281,6 +281,10 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_token ON desk_payment_links(token)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_created ON desk_payment_links(created_at)'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN advance_notified_at TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN refund_amount REAL'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN refund_ref TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN refund_reason TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN refunded_at TEXT'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -1136,6 +1140,38 @@ export function cancelOrderGroup(orderNum: number) {
     SET payment_status = 'Refunded', fulfillment_status = 'Canceled' 
     WHERE order_number = ? OR (order_number IS NULL AND id = ?)
   `).run(orderNum, orderNum);
+}
+
+export function refundOrderGroup(
+  orderNum: number, 
+  refundAmount: number, 
+  refundRef: string, 
+  refundReason?: string,
+  cancelBooking: boolean = true
+) {
+  const now = new Date().toISOString();
+  if (cancelBooking) {
+    return db.prepare(`
+      UPDATE bookings 
+      SET payment_status = 'Refunded',
+          fulfillment_status = 'Canceled',
+          refund_amount = ?,
+          refund_ref = ?,
+          refund_reason = ?,
+          refunded_at = ?
+      WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+    `).run(refundAmount, refundRef, refundReason || null, now, orderNum, orderNum);
+  } else {
+    return db.prepare(`
+      UPDATE bookings 
+      SET payment_status = 'Refunded',
+          refund_amount = ?,
+          refund_ref = ?,
+          refund_reason = ?,
+          refunded_at = ?
+      WHERE order_number = ? OR (order_number IS NULL AND id = ?)
+    `).run(refundAmount, refundRef, refundReason || null, now, orderNum, orderNum);
+  }
 }
 
 export function deleteOrderGroup(orderNums: number[]) {

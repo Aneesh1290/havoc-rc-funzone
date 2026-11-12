@@ -10,6 +10,7 @@ import {
   updateBookingTagsAction,
   updateBookingWristbandNumberAction,
   cancelBookingAction,
+  issueRefundAction,
   fetchAvailableAddonsAction,
   addAddonToOrderAction,
   removeOrderItemAction,
@@ -22,7 +23,7 @@ import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail, RotateCcw } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
@@ -99,6 +100,17 @@ export default function OrderDetailPage() {
   const [contactEmailInput, setContactEmailInput] = useState<string>("");
   const [isSavingContact, setIsSavingContact] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
+
+  // Refund Modal State
+  const [refundModalOpen, setRefundModalOpen] = useState(false);
+  const [refundType, setRefundType] = useState<'full' | 'partial'>('full');
+  const [customRefundAmount, setCustomRefundAmount] = useState<string>('');
+  const [refundMethod, setRefundMethod] = useState<'icici' | 'manual'>('manual');
+  const [refundReason, setRefundReason] = useState('');
+  const [cancelBookingOnRefund, setCancelBookingOnRefund] = useState(true);
+  const [isRefunding, setIsRefunding] = useState(false);
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [refundSuccessMsg, setRefundSuccessMsg] = useState<string | null>(null);
 
   useEffect(() => {
     getSubcategoryBandsAction()
@@ -494,6 +506,7 @@ export default function OrderDetailPage() {
   const taxGst = Math.round((totalAmount - itemsSubtotal) * 100) / 100;
   const deposit = Number(booking?.deposit_amount || 0);
   const amountDue = isPaid ? 0 : (booking?.payment_status === "Partially paid" ? Math.max(0, totalAmount - deposit) : totalAmount);
+  const paidAmount = isPaid ? totalAmount : (booking?.payment_status === "Partially paid" ? deposit : (deposit > 0 ? deposit : totalAmount));
   const discountTotal = Math.max(0, fullTariffWithGst - totalAmount);
 
   const handleTogglePayment = async (status: string) => {
@@ -528,6 +541,68 @@ export default function OrderDetailPage() {
     if (confirm(`Are you sure you want to cancel order ${orderCode}? The status will be set to Canceled and Refunded, and any locked simulator slots will be released.`)) {
       await cancelBookingAction(booking.id);
       loadBooking();
+    }
+  };
+
+  const handleOpenRefundModal = () => {
+    setRefundError(null);
+    setRefundSuccessMsg(null);
+    setRefundReason('');
+    setCancelBookingOnRefund(true);
+    setRefundType('full');
+    const totalToRefund = paidAmount > 0 ? paidAmount : totalAmount;
+    setCustomRefundAmount(String(totalToRefund.toFixed(2)));
+
+    // Check if original payment was made online via ICICI
+    const hasIciciRef = Boolean(booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_')));
+    setRefundMethod(hasIciciRef ? 'icici' : 'manual');
+
+    setRefundModalOpen(true);
+  };
+
+  const handleProcessRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsRefunding(true);
+    setRefundError(null);
+    setRefundSuccessMsg(null);
+
+    const totalToConsider = paidAmount > 0 ? paidAmount : totalAmount;
+    const finalRefundAmt = refundType === 'full' ? totalToConsider : Number(customRefundAmount);
+
+    if (isNaN(finalRefundAmt) || finalRefundAmt <= 0) {
+      setRefundError("Please enter a valid refund amount greater than 0.");
+      setIsRefunding(false);
+      return;
+    }
+
+    if (finalRefundAmt > totalToConsider) {
+      setRefundError(`Refund amount cannot exceed total amount (₹${totalToConsider.toFixed(2)}).`);
+      setIsRefunding(false);
+      return;
+    }
+
+    try {
+      const res = await issueRefundAction({
+        orderNumberOrId: effectiveOrderNumber,
+        refundAmount: finalRefundAmt,
+        refundMethod: refundMethod,
+        reason: refundReason.trim(),
+        cancelBooking: cancelBookingOnRefund
+      });
+
+      if (res.success) {
+        setRefundSuccessMsg(res.message || `Refund of ₹${finalRefundAmt.toFixed(2)} processed successfully!`);
+        setTimeout(() => {
+          setRefundModalOpen(false);
+          loadBooking();
+        }, 1500);
+      } else {
+        setRefundError(res.error || "Failed to process refund.");
+      }
+    } catch (err: any) {
+      setRefundError(err?.message || "An unexpected error occurred while processing refund.");
+    } finally {
+      setIsRefunding(false);
     }
   };
 
@@ -694,6 +769,16 @@ export default function OrderDetailPage() {
                     <span>Mark as unfulfilled</span>
                   </button>
                   <button
+                    onClick={() => {
+                      setActionMenuOpen(false);
+                      handleOpenRefundModal();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Issue refund</span>
+                  </button>
+                  <button
                     onClick={handleCancelOrder}
                     className="w-full text-left px-4 py-2.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold flex items-center gap-2.5 transition-colors"
                   >
@@ -747,6 +832,16 @@ export default function OrderDetailPage() {
                     <span className="text-white font-black text-sm">✕</span>
                     <span>Mark as unpaid</span>
                   </button>
+                  <button
+                    onClick={() => {
+                      setPaymentMenuOpen(false);
+                      handleOpenRefundModal();
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Issue refund</span>
+                  </button>
                 </div>
               )}
             </div>
@@ -775,6 +870,30 @@ export default function OrderDetailPage() {
           )}
         </div>
       </div>
+
+      {/* Refund Information Banner */}
+      {isRefunded && (
+        <div className="bg-rose-50 border border-rose-200/80 rounded-2xl p-4 flex items-start gap-3 text-sm animate-in fade-in">
+          <div className="w-8 h-8 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+            <RotateCcw className="w-4 h-4" />
+          </div>
+          <div className="space-y-1">
+            <div className="font-bold text-rose-900 flex items-center gap-2">
+              <span>Order Refunded</span>
+              {booking?.refund_amount && (
+                <span className="bg-rose-200/70 text-rose-800 text-xs px-2 py-0.5 rounded-full font-mono font-bold">
+                  ₹{Number(booking.refund_amount).toFixed(2)}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-rose-700 leading-relaxed">
+              {booking?.refund_reason && <span>Reason: &ldquo;{booking.refund_reason}&rdquo; • </span>}
+              {booking?.refund_ref && <span>Refund Ref: <span className="font-mono font-semibold">{booking.refund_ref}</span> • </span>}
+              {booking?.refunded_at && <span>Processed: {formatDateTime(booking.refunded_at)}</span>}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Notification Feedback Banner */}
       {advanceStatusMsg && (
@@ -2156,6 +2275,216 @@ export default function OrderDetailPage() {
                 <span>Save Rescheduled Slot</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Issue Refund Modal */}
+      {refundModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="px-6 py-5 bg-gradient-to-r from-rose-50 to-orange-50 border-b border-rose-100 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-rose-500 text-white flex items-center justify-center shadow-md shadow-rose-500/20">
+                  <RotateCcw className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-gray-900 tracking-tight">Issue Refund</h3>
+                  <p className="text-xs text-gray-500">Order {orderCode} • {booking?.customer_name || 'Customer'}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isRefunding && setRefundModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors"
+                disabled={isRefunding}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleProcessRefund} className="p-6 space-y-5">
+              {/* Total Order Summary */}
+              <div className="bg-gray-50 rounded-2xl p-4 border border-gray-200/80 flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Total Paid Amount</span>
+                  <span className="text-xl font-black text-gray-900">
+                    ₹{(paidAmount > 0 ? paidAmount : totalAmount).toFixed(2)}
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Payment Source</span>
+                  {booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_')) ? (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      <span>ICICI Direct PG</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-gray-700 bg-gray-200/70 px-2.5 py-0.5 rounded-full">
+                      <span>Counter / Desk</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Refund Method Selector (Only shown if online payment ref exists) */}
+              {Boolean(booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_'))) && (
+                <div>
+                  <label className="text-xs font-bold text-gray-700 block mb-2">Refund Processing Method</label>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => setRefundMethod('icici')}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        refundMethod === 'icici'
+                          ? 'border-rose-500 bg-rose-50/40 text-gray-900 shadow-xs'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center gap-1.5 mb-0.5">
+                        <CreditCard className="w-3.5 h-3.5 text-rose-600" />
+                        <span>ICICI Gateway</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">Direct bank refund to customer&apos;s source account</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setRefundMethod('manual')}
+                      className={`p-3 rounded-xl border-2 text-left transition-all ${
+                        refundMethod === 'manual'
+                          ? 'border-rose-500 bg-rose-50/40 text-gray-900 shadow-xs'
+                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      <div className="text-xs font-bold flex items-center gap-1.5 mb-0.5">
+                        <Check className="w-3.5 h-3.5 text-gray-600" />
+                        <span>Manual / Offline</span>
+                      </div>
+                      <p className="text-[10px] text-gray-500 leading-tight">Cash or UPI counter refund already handed back</p>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Refund Amount Option (Full vs Partial) */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-2">Refund Amount</label>
+                <div className="flex items-center gap-3 mb-2.5">
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refundType"
+                      checked={refundType === 'full'}
+                      onChange={() => {
+                        setRefundType('full');
+                        setCustomRefundAmount(String((paidAmount > 0 ? paidAmount : totalAmount).toFixed(2)));
+                      }}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span>Full Refund (₹{(paidAmount > 0 ? paidAmount : totalAmount).toFixed(2)})</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 text-xs font-bold text-gray-800 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="refundType"
+                      checked={refundType === 'partial'}
+                      onChange={() => setRefundType('partial')}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span>Partial Refund</span>
+                  </label>
+                </div>
+
+                {refundType === 'partial' && (
+                  <div className="relative mt-2">
+                    <span className="absolute left-3 top-2.5 text-xs font-bold text-gray-400">₹</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="1"
+                      max={paidAmount > 0 ? paidAmount : totalAmount}
+                      value={customRefundAmount}
+                      onChange={(e) => setCustomRefundAmount(e.target.value)}
+                      placeholder="Enter refund amount"
+                      className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl pl-7 pr-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                      required
+                    />
+                  </div>
+                )}
+              </div>
+
+              {/* Refund Reason / Note */}
+              <div>
+                <label className="text-xs font-bold text-gray-700 block mb-1">Reason / Notes</label>
+                <input
+                  type="text"
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="e.g. Customer cancelled, double charged, medical emergency"
+                  className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                />
+              </div>
+
+              {/* Release Simulator & Cancel Booking Checkbox */}
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-orange-50/60 border border-orange-200/80 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={cancelBookingOnRefund}
+                  onChange={(e) => setCancelBookingOnRefund(e.target.checked)}
+                  className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
+                />
+                <div className="text-[11px] leading-tight">
+                  <span className="font-bold text-gray-900 block">Mark Order as Canceled & Release Slot Locks</span>
+                  <span className="text-gray-500">Releases reserved simulator slots and marks fulfillment status as Canceled.</span>
+                </div>
+              </label>
+
+              {/* Error & Success Feedback */}
+              {refundError && (
+                <div className="text-xs text-rose-700 font-bold bg-rose-50 border border-rose-200 p-3 rounded-xl flex items-start gap-2">
+                  <span className="shrink-0">⚠️</span>
+                  <span>{refundError}</span>
+                </div>
+              )}
+
+              {refundSuccessMsg && (
+                <div className="text-xs text-emerald-800 font-bold bg-emerald-50 border border-emerald-200 p-3 rounded-xl flex items-center gap-2">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>{refundSuccessMsg}</span>
+                </div>
+              )}
+
+              {/* Modal Actions */}
+              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-gray-100">
+                <button
+                  type="button"
+                  onClick={() => setRefundModalOpen(false)}
+                  disabled={isRefunding}
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRefunding}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 active:scale-95 text-white shadow-md shadow-rose-600/20 disabled:opacity-50 transition-all flex items-center gap-1.5"
+                >
+                  {isRefunding ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Processing Refund...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Confirm & Issue Refund</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

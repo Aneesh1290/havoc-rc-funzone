@@ -3,6 +3,22 @@ import type { NextRequest } from 'next/server';
 import { AUTH_COOKIE_NAME, verifyToken } from './lib/auth';
 
 export function proxy(request: NextRequest) {
+  const host = request.headers.get('host') || '';
+  const cleanHost = host.toLowerCase().split(':')[0]; // remove port if present
+
+  // Redirect any visits from havocrcfunzone.com, www.havocrcfunzone.com, or www.havocrcfunzone.in to havocrcfunzone.in
+  if (
+    cleanHost === 'havocrcfunzone.com' ||
+    cleanHost === 'www.havocrcfunzone.com' ||
+    cleanHost === 'www.havocrcfunzone.in'
+  ) {
+    const url = request.nextUrl.clone();
+    url.protocol = 'https:';
+    url.host = 'havocrcfunzone.in';
+    url.port = '';
+    return NextResponse.redirect(url, 308); // 308 Permanent Redirect
+  }
+
   const { pathname } = request.nextUrl;
 
   // Protect all /admin routes
@@ -35,5 +51,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/admin/:path*', '/login'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
 };

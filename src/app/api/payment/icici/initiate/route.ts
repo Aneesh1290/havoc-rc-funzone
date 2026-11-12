@@ -16,7 +16,8 @@ import {
   getIciciAggregatorId, 
   getIciciMerchantId, 
   generateIciciHash, 
-  getIciciInitiateSaleUrl 
+  getIciciInitiateSaleUrl,
+  getIciciReturnBase
 } from '@/lib/icici';
 
 export async function POST(req: NextRequest) {
@@ -141,12 +142,9 @@ export async function POST(req: NextRequest) {
     const digitsOnly = custPhone.replace(/\D/g, '');
     const cleanMobile = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : (digitsOnly || '9999999999');
 
-    // Return URL base resolution: prioritize explicit env, else request origin
-    const returnBase = process.env.ICICI_RETURN_BASE 
-      || process.env.NEXT_PUBLIC_APP_URL 
-      || (process.env.NODE_ENV === 'production' 
-          ? 'https://havocrcfunzone.com' 
-          : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
+    // Return URL base resolution: safely resolves whitelisted domain, preventing DOMAIN VALIDATION FAIL on live gateway
+    const reqOrigin = `${req.nextUrl.protocol}//${req.nextUrl.host}`;
+    const returnBase = getIciciReturnBase(reqOrigin);
 
     const aggregatorId = getIciciAggregatorId();
     const payload: Record<string, any> = {

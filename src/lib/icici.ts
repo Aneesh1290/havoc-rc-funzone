@@ -55,6 +55,30 @@ export function getIciciSettlementDetailsUrl(): string {
 }
 
 /**
+ * Returns the base URL for the ICICI payment returnURL callback.
+ * In Live production mode, ICICI strictly validates the domain against the whitelisted domain.
+ * Passing localhost or unencrypted http will cause ICICI to throw "DOMAIN VALIDATION FAIL".
+ */
+export function getIciciReturnBase(reqOrigin?: string): string {
+  const dbSetting = getSiteSetting('icici_return_base', '');
+  if (dbSetting && dbSetting.trim()) return dbSetting.trim().replace(/\/$/, '');
+
+  const envReturnBase = process.env.ICICI_RETURN_BASE || process.env.NEXT_PUBLIC_APP_URL;
+  if (envReturnBase && envReturnBase.trim()) {
+    return envReturnBase.trim().replace(/\/$/, '');
+  }
+
+  if (!isIciciUat()) {
+    // If request origin is localhost or insecure HTTP, default to the production whitelisted domain
+    if (!reqOrigin || reqOrigin.includes('localhost') || reqOrigin.startsWith('http:')) {
+      return 'https://havocrcfunzone.com';
+    }
+  }
+
+  return reqOrigin ? reqOrigin.replace(/\/$/, '') : 'https://havocrcfunzone.com';
+}
+
+/**
  * Computes HMAC-SHA256 signature across all non-null, non-undefined, non-empty payload keys
  * in alphabetical order, omitting `secureHash`.
  */

@@ -620,41 +620,64 @@ export async function issueRefundAction(params: {
     return { success: false, error: "Refund amount must be greater than zero." };
   }
 
+  // Strictly verify on the basis of payment (NOT order number) that payment was done via the payment gateway
+  const isOnlineGatewayPayment = Boolean(
+    (mainBooking.icici_txn_id && String(mainBooking.icici_txn_id).trim() !== "" && String(mainBooking.icici_txn_id).toLowerCase() !== "null") ||
+    groupRows.some(b => b.icici_txn_id && String(b.icici_txn_id).trim() !== "" && String(b.icici_txn_id).toLowerCase() !== "null") ||
+    (() => {
+      const allRefs = [mainBooking.payment_ref, ...groupRows.map(b => b.payment_ref)].filter(Boolean);
+      for (const rawRef of allRefs) {
+        const ref = String(rawRef || "").trim();
+        if (!ref) continue;
+        const lower = ref.toLowerCase();
+        if (["cash", "counter", "desk", "manual", "unpaid", "pos", "card swipe", "upi counter", "upi desk"].includes(lower)) continue;
+        if (lower.startsWith("desk_")) continue;
+        if (/^\d{8,24}$/.test(ref) || lower.startsWith("icici") || lower.startsWith("txn_rc_") || lower.startsWith("pg_")) return true;
+      }
+      return false;
+    })()
+  );
+
+  if (!isOnlineGatewayPayment) {
+    return {
+      success: false,
+      error: "Refunds are only available for payments processed through the online payment gateway."
+    };
+  }
+
   let refundRef = `REF_${Date.now().toString().slice(-8)}`;
 
-  // Process via ICICI Direct Payment Gateway if requested
-  if (params.refundMethod === 'icici') {
-    const originalTxnNo = mainBooking.icici_txn_id || mainBooking.payment_ref;
-    if (!originalTxnNo) {
-      return { 
-        success: false, 
-        error: "Cannot process online bank refund: No ICICI Transaction ID (payment_ref) found on this booking. Please process as a Manual/Counter refund." 
-      };
-    }
+  // Process via ICICI Direct Payment Gateway
+  const originalTxnNo = mainBooking.icici_txn_id || mainBooking.payment_ref;
+  if (!originalTxnNo) {
+    return { 
+      success: false, 
+      error: "Cannot process gateway refund: No Gateway Transaction ID found on this booking." 
+    };
+  }
 
-    try {
-      const refundResult = await processIciciRefund({
-        originalTxnNo: String(originalTxnNo),
-        refundAmount: refundAmount,
-        refundTxnNo: `REF_${targetNum}_${Date.now().toString().slice(-4)}`,
-        reason: params.reason || "Staff issued refund"
-      });
+  try {
+    const refundResult = await processIciciRefund({
+      originalTxnNo: String(originalTxnNo),
+      refundAmount: refundAmount,
+      refundTxnNo: `REF_${targetNum}_${Date.now().toString().slice(-4)}`,
+      reason: params.reason || "Staff issued refund"
+    });
 
-      if (!refundResult.success) {
-        return {
-          success: false,
-          error: `ICICI Bank PG Refund Failed: ${refundResult.description || refundResult.responseCode || 'Gateway rejected refund'}`
-        };
-      }
-
-      refundRef = refundResult.refundTxnId || refundRef;
-    } catch (iciciErr: any) {
-      console.error("[ICICI Refund Action Error]", iciciErr);
+    if (!refundResult.success) {
       return {
         success: false,
-        error: `Error communicating with ICICI Gateway: ${iciciErr.message}`
+        error: `ICICI Bank PG Refund Failed: ${refundResult.description || refundResult.responseCode || 'Gateway rejected refund'}`
       };
     }
+
+    refundRef = refundResult.refundTxnId || refundRef;
+  } catch (iciciErr: any) {
+    console.error("[ICICI Refund Action Error]", iciciErr);
+    return {
+      success: false,
+      error: `Error communicating with ICICI Gateway: ${iciciErr.message}`
+    };
   }
 
   // Update in SQLite

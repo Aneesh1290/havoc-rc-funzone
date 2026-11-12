@@ -509,6 +509,30 @@ export default function OrderDetailPage() {
   const paidAmount = isPaid ? totalAmount : (booking?.payment_status === "Partially paid" ? deposit : (deposit > 0 ? deposit : totalAmount));
   const discountTotal = Math.max(0, fullTariffWithGst - totalAmount);
 
+  // Check strictly on the basis of payment whether this was paid through the online payment gateway
+  const isGatewayPaid = Boolean(
+    // 1. Explicit ICICI PG transaction ID recorded from gateway callback
+    (booking?.icici_txn_id && String(booking.icici_txn_id).trim() !== "" && String(booking.icici_txn_id).toLowerCase() !== "null") ||
+    allItems.some((item) => item?.icici_txn_id && String(item.icici_txn_id).trim() !== "" && String(item.icici_txn_id).toLowerCase() !== "null") ||
+    // 2. Or payment_ref has valid gateway transaction pattern (numeric PG txn or ICICI/TXN_RC prefix)
+    (() => {
+      const allRefs = [booking?.payment_ref, ...allItems.map((it: any) => it?.payment_ref)].filter(Boolean);
+      for (const rawRef of allRefs) {
+        const ref = String(rawRef || "").trim();
+        if (!ref) continue;
+        const lower = ref.toLowerCase();
+        if (["cash", "counter", "desk", "manual", "unpaid", "pos", "card swipe", "upi counter", "upi desk"].includes(lower)) continue;
+        if (lower.startsWith("desk_")) continue;
+        if (/^\d{8,24}$/.test(ref)) return true;
+        if (lower.startsWith("icici") || lower.startsWith("txn_rc_") || lower.startsWith("pg_")) return true;
+      }
+      return false;
+    })()
+  );
+
+  // Refund option is ONLY available for orders where payment was completed via the payment gateway
+  const canIssueRefund = (canCollectPayment || canManageStatus) && !isRefunded && (isPaid || anyPaid || isPartiallyPaid) && isGatewayPaid;
+
   const handleTogglePayment = async (status: string) => {
     setPaymentMenuOpen(false);
     let refToSave: string | undefined = undefined;
@@ -545,6 +569,10 @@ export default function OrderDetailPage() {
   };
 
   const handleOpenRefundModal = () => {
+    if (!canIssueRefund) {
+      alert("Refunds can only be issued for orders paid through the online payment gateway.");
+      return;
+    }
     setRefundError(null);
     setRefundSuccessMsg(null);
     setRefundReason('');
@@ -552,11 +580,7 @@ export default function OrderDetailPage() {
     setRefundType('full');
     const totalToRefund = paidAmount > 0 ? paidAmount : totalAmount;
     setCustomRefundAmount(String(totalToRefund.toFixed(2)));
-
-    // Check if original payment was made online via ICICI
-    const hasIciciRef = Boolean(booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_')));
-    setRefundMethod(hasIciciRef ? 'icici' : 'manual');
-
+    setRefundMethod('icici');
     setRefundModalOpen(true);
   };
 
@@ -768,16 +792,18 @@ export default function OrderDetailPage() {
                     <span className="text-white font-black text-sm">✕</span>
                     <span>Mark as unfulfilled</span>
                   </button>
-                  <button
-                    onClick={() => {
-                      setActionMenuOpen(false);
-                      handleOpenRefundModal();
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Issue refund</span>
-                  </button>
+                  {canIssueRefund && (
+                    <button
+                      onClick={() => {
+                        setActionMenuOpen(false);
+                        handleOpenRefundModal();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Issue refund</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleCancelOrder}
                     className="w-full text-left px-4 py-2.5 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-bold flex items-center gap-2.5 transition-colors"
@@ -832,16 +858,18 @@ export default function OrderDetailPage() {
                     <span className="text-white font-black text-sm">✕</span>
                     <span>Mark as unpaid</span>
                   </button>
-                  <button
-                    onClick={() => {
-                      setPaymentMenuOpen(false);
-                      handleOpenRefundModal();
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Issue refund</span>
-                  </button>
+                  {canIssueRefund && (
+                    <button
+                      onClick={() => {
+                        setPaymentMenuOpen(false);
+                        handleOpenRefundModal();
+                      }}
+                      className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors border-t border-gray-700/50"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Issue refund</span>
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -2314,58 +2342,23 @@ export default function OrderDetailPage() {
                   </span>
                 </div>
                 <div className="text-right">
-                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Payment Source</span>
-                  {booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_')) ? (
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                      <span>ICICI Direct PG</span>
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs font-bold text-gray-700 bg-gray-200/70 px-2.5 py-0.5 rounded-full">
-                      <span>Counter / Desk</span>
+                  <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wider block">Online Gateway</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    <span>ICICI Bank PG</span>
+                  </span>
+                  {(booking?.icici_txn_id || booking?.payment_ref) && (
+                    <span className="text-[10px] text-gray-500 block font-mono mt-0.5">
+                      Txn: {booking?.icici_txn_id || booking?.payment_ref}
                     </span>
                   )}
                 </div>
               </div>
 
-              {/* Refund Method Selector (Only shown if online payment ref exists) */}
-              {Boolean(booking?.icici_txn_id || (booking?.payment_ref && !booking.payment_ref.startsWith('DESK_'))) && (
-                <div>
-                  <label className="text-xs font-bold text-gray-700 block mb-2">Refund Processing Method</label>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => setRefundMethod('icici')}
-                      className={`p-3 rounded-xl border-2 text-left transition-all ${
-                        refundMethod === 'icici'
-                          ? 'border-rose-500 bg-rose-50/40 text-gray-900 shadow-xs'
-                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="text-xs font-bold flex items-center gap-1.5 mb-0.5">
-                        <CreditCard className="w-3.5 h-3.5 text-rose-600" />
-                        <span>ICICI Gateway</span>
-                      </div>
-                      <p className="text-[10px] text-gray-500 leading-tight">Direct bank refund to customer&apos;s source account</p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => setRefundMethod('manual')}
-                      className={`p-3 rounded-xl border-2 text-left transition-all ${
-                        refundMethod === 'manual'
-                          ? 'border-rose-500 bg-rose-50/40 text-gray-900 shadow-xs'
-                          : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="text-xs font-bold flex items-center gap-1.5 mb-0.5">
-                        <Check className="w-3.5 h-3.5 text-gray-600" />
-                        <span>Manual / Offline</span>
-                      </div>
-                      <p className="text-[10px] text-gray-500 leading-tight">Cash or UPI counter refund already handed back</p>
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Gateway Notice */}
+              <div className="p-3 bg-rose-50/60 rounded-xl border border-rose-200/80 text-[11px] text-rose-800 leading-snug flex items-start gap-2">
+                <CreditCard className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                <span>This will trigger an automatic online refund via the <strong>ICICI Bank Payment Gateway</strong> directly back to the customer&apos;s source account (UPI, Card, or NetBanking).</span>
+              </div>
 
               {/* Refund Amount Option (Full vs Partial) */}
               <div>

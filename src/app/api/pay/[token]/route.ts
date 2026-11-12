@@ -9,7 +9,7 @@ import {
 import { 
   getIciciMerchantId, 
   getIciciAggregatorId, 
-  getIciciBaseUrl, 
+  getIciciInitiateSaleUrl, 
   generateIciciHash 
 } from "@/lib/icici";
 
@@ -132,8 +132,17 @@ export async function POST(
       whatsapp_consent: 1,
     });
 
-    const now = new Date();
-    const txnDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const istDateStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Kolkata',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    }).format(new Date());
+    const txnDate = istDateStr.replace(/\D/g, ''); // YYYYMMDDHHMMSS in IST
     const digitsOnly = custPhone.replace(/\D/g, '');
     const cleanMobile = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : (digitsOnly || '9999999999');
 
@@ -143,11 +152,11 @@ export async function POST(
           ? 'https://havocrcfunzone.com' 
           : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
 
+    const aggregatorId = getIciciAggregatorId();
     const payload: Record<string, any> = {
       merchantId: getIciciMerchantId(),
       merchantTxnNo: tempTxnId,
       amount: Number(link.total_amount).toFixed(2),
-      aggregatorID: getIciciAggregatorId(),
       currencyCode: "356",
       payType: "0",
       customerEmailID: custEmail || "guest@havocrcfunzone.com",
@@ -158,9 +167,13 @@ export async function POST(
       customerName: custName
     };
 
+    if (aggregatorId) {
+      payload.aggregatorID = aggregatorId;
+    }
+
     payload.secureHash = generateIciciHash(payload);
 
-    const iciciRes = await fetch(`${getIciciBaseUrl()}/initiateSale`, {
+    const iciciRes = await fetch(getIciciInitiateSaleUrl(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)

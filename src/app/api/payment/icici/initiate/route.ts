@@ -16,7 +16,7 @@ import {
   getIciciAggregatorId, 
   getIciciMerchantId, 
   generateIciciHash, 
-  getIciciBaseUrl 
+  getIciciInitiateSaleUrl 
 } from '@/lib/icici';
 
 export async function POST(req: NextRequest) {
@@ -148,11 +148,11 @@ export async function POST(req: NextRequest) {
           ? 'https://havocrcfunzone.com' 
           : `${req.nextUrl.protocol}//${req.nextUrl.host}`);
 
+    const aggregatorId = getIciciAggregatorId();
     const payload: Record<string, any> = {
       merchantId: getIciciMerchantId(),
       merchantTxnNo: tempTxnId,
       amount: Number(amount).toFixed(2),
-      aggregatorID: getIciciAggregatorId(),
       currencyCode: "356",
       payType: "0",
       customerEmailID: custEmail || "guest@havocrcfunzone.com",
@@ -163,10 +163,14 @@ export async function POST(req: NextRequest) {
       customerName: custName
     };
 
+    if (aggregatorId) {
+      payload.aggregatorID = aggregatorId;
+    }
+
     payload.secureHash = generateIciciHash(payload);
 
-    // 8. Call ICICI initiateSale API
-    const iciciRes = await fetch(`${getIciciBaseUrl()}/initiateSale`, {
+    // 8. Call ICICI initiateSale API (v2)
+    const iciciRes = await fetch(getIciciInitiateSaleUrl(), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

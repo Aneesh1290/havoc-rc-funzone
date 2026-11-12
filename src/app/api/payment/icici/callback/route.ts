@@ -61,20 +61,27 @@ export async function POST(req: NextRequest) {
   const body = await parseRequestBody(req);
   console.log('[ICICI PG Callback] Received POST payload:', body);
 
-  const receivedHash = body.secureHash;
-  const computedHash = generateIciciHash(body);
+  const receivedHash = body.secureHash || body.responseParams?.secureHash;
+  let computedHash = generateIciciHash(body);
+  if (receivedHash && computedHash !== receivedHash && body.responseParams) {
+    const paramsHash = generateIciciHash(body.responseParams);
+    if (paramsHash === receivedHash) {
+      computedHash = paramsHash;
+    }
+  }
 
   if (receivedHash && computedHash && receivedHash !== computedHash) {
     console.error('[ICICI Callback] Hash Mismatch!', { receivedHash, computedHash });
     return NextResponse.redirect(new URL('/checkout.html?error=Payment+Verification+Failed', req.url), 303);
   }
 
-  const baseOrderId = body.merchantTxnNo || '';
-  const txnID = body.txnID || body.paymentID || null;
-  const responseCode = body.responseCode;
+  const baseOrderId = body.merchantTxnNo || body.responseParams?.merchantTxnNo || '';
+  const txnID = body.txnID || body.paymentID || body.responseParams?.txnID || body.responseParams?.paymentID || null;
+  const responseCode = body.responseCode || body.responseParams?.responseCode || '';
+  const isSuccess = responseCode === "0000" || responseCode === "000" || body.status === "SUC" || body.properties?.isSuccess === true;
 
   // Handle successful payment
-  if (responseCode === "0000") {
+  if (isSuccess) {
     if (baseOrderId.startsWith('TXN_RC_')) {
       const holdRow = getOnlineCheckoutHold(baseOrderId);
 
@@ -315,7 +322,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL(`/success.html?order_id=${orderId}`, req.url), 303);
   }
 
-  if (responseCode === '0000' && merchantTxnNo) {
+  if ((responseCode === '0000' || responseCode === '000') && merchantTxnNo) {
     const db = getDbInstance();
     try {
       const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number } | undefined;

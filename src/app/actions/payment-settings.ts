@@ -96,9 +96,9 @@ export async function getAdminPaymentSettingsAction(): Promise<AdminPaymentSetti
   const gatewayEnv = (getSiteSetting("payment_gateway_env", process.env.ICICI_ENV || "live") as GatewayEnvironment) || "live";
 
   const isUat = gatewayEnv === "test";
-  const defaultIciciMid = isUat ? "100000000007164" : (process.env.ICICI_MERCHANT_ID || "100000000531583");
-  const defaultIciciAgg = isUat ? "A100000000007164" : (process.env.ICICI_AGGREGATOR_ID || "100000000531582");
-  const defaultIciciKey = isUat ? "db06cca0-838b-4e01-8b20-6ac446ffb6bd" : (process.env.ICICI_SECRET_KEY || "9927ca2f-17bd-401d-8ae4-c34f5ea641bc");
+  const defaultIciciMid = isUat ? "100000000007164" : (process.env.ICICI_MERCHANT_ID || "100000000553470");
+  const defaultIciciAgg = isUat ? "A100000000007164" : (process.env.ICICI_AGGREGATOR_ID || "100000000553469");
+  const defaultIciciKey = isUat ? "db06cca0-838b-4e01-8b20-6ac446ffb6bd" : (process.env.ICICI_SECRET_KEY || "863edfb6-97c3-4944-b7d8-021fd7248037");
 
   return {
     enableOnline,

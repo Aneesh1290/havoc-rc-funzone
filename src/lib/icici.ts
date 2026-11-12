@@ -6,8 +6,13 @@ const UAT_MERCHANT_ID = '100000000007164';
 const UAT_AGGREGATOR_ID = 'A100000000007164';
 const UAT_SECRET_KEY = 'db06cca0-838b-4e01-8b20-6ac446ffb6bd';
 
+// Production Credentials (Havoc Hobby Center Private Limited)
+const PROD_MERCHANT_ID = '100000000553470';
+const PROD_AGGREGATOR_ID = '100000000553469';
+const PROD_SECRET_KEY = '863edfb6-97c3-4944-b7d8-021fd7248037';
+
 export function getIciciEnv(): string {
-  const env = getSiteSetting('payment_gateway_env', process.env.ICICI_ENV || 'test');
+  const env = getSiteSetting('payment_gateway_env', process.env.ICICI_ENV || 'live');
   return env.toLowerCase();
 }
 
@@ -17,17 +22,17 @@ export function isIciciUat(): boolean {
 }
 
 export function getIciciMerchantId(): string {
-  const defaultMid = isIciciUat() ? UAT_MERCHANT_ID : (process.env.ICICI_MERCHANT_ID || '100000000531583');
+  const defaultMid = isIciciUat() ? UAT_MERCHANT_ID : (process.env.ICICI_MERCHANT_ID || PROD_MERCHANT_ID);
   return getSiteSetting('icici_merchant_id', defaultMid);
 }
 
 export function getIciciAggregatorId(): string {
-  const defaultAgg = isIciciUat() ? UAT_AGGREGATOR_ID : (process.env.ICICI_AGGREGATOR_ID || '100000000531582');
+  const defaultAgg = isIciciUat() ? UAT_AGGREGATOR_ID : (process.env.ICICI_AGGREGATOR_ID || PROD_AGGREGATOR_ID);
   return getSiteSetting('icici_aggregator_id', defaultAgg);
 }
 
 export function getIciciSecretKey(): string {
-  const defaultKey = isIciciUat() ? UAT_SECRET_KEY : (process.env.ICICI_SECRET_KEY || '9927ca2f-17bd-401d-8ae4-c34f5ea641bc');
+  const defaultKey = isIciciUat() ? UAT_SECRET_KEY : (process.env.ICICI_SECRET_KEY || PROD_SECRET_KEY);
   return getSiteSetting('icici_secret_key', defaultKey);
 }
 

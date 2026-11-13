@@ -319,6 +319,99 @@ export async function lockSimulatorSlot(params: {
 /**
  * Cancel or release locked slots by source order ID (updates simulator_slot_locks and bookings table)
  */
+/**
+ * Synchronize fulfillment and payment status changes from RC Fun Zone to Havoc Sim Podium.
+ * When an order is marked Fulfilled/Attended or Paid in RC Fun Zone, this updates
+ * the corresponding bookings and locks in Havoc Sim Podium's PostgreSQL database.
+ */
+export async function syncSimulatorOrderStatus(
+  orderNumberOrId: number | string,
+  fulfillmentStatus?: string,
+  paymentStatus?: string
+): Promise<boolean> {
+  try {
+    const rawNum = String(orderNumberOrId).replace(/^#+PAYDUE_FZ_/, '').replace(/^#+/, '');
+    const num = parseInt(rawNum, 10);
+    const orderVariants: string[] = [
+      `#PAYDUE_FZ_${rawNum}`,
+      `PAYDUE_FZ_${rawNum}`,
+      `##PAYDUE_FZ_${rawNum}`
+    ];
+    if (!isNaN(num)) {
+      orderVariants.push(`#PAYDUE_FZ_${num}`, `PAYDUE_FZ_${num}`, `##PAYDUE_FZ_${num}`);
+    }
+
+    // Determine target Sim Podium status
+    // Sim Podium statuses: 'ATTENDED', 'PAID', 'PENDING', 'CANCELLED'
+    let targetBookingStatus: string | null = null;
+    let targetLockStatus: string | null = null;
+
+    const fLower = (fulfillmentStatus || '').toLowerCase();
+    const pLower = (paymentStatus || '').toLowerCase();
+
+    if (fLower === 'fulfilled' || fLower === 'attended') {
+      targetBookingStatus = 'ATTENDED';
+      targetLockStatus = 'ATTENDED';
+    } else if (fLower === 'canceled' || fLower === 'cancelled' || pLower === 'refunded') {
+      targetBookingStatus = 'CANCELLED';
+      targetLockStatus = 'CANCELLED';
+    } else if (pLower === 'paid') {
+      // If payment is paid but fulfillment is unfulfilled, keep PAID
+      if (fLower === 'unfulfilled') {
+        targetBookingStatus = 'PAID';
+        targetLockStatus = 'PAID';
+      }
+    } else if (fLower === 'unfulfilled') {
+      targetBookingStatus = 'PAID'; // In Sim Podium, UNFULFILLED active paid session is 'PAID'
+      targetLockStatus = 'PAID';
+    }
+
+    if (!targetBookingStatus) {
+      return true; // No status mapping needed
+    }
+
+    // 1. Update bookings table in Havoc Sim Podium
+    for (const ord of orderVariants) {
+      await simulatorPool.query(
+        `UPDATE bookings 
+         SET status = $1 
+         WHERE order_id = $2 OR order_id LIKE $2 || '_%' OR order_id LIKE '%' || $2 || '%'`,
+        [targetBookingStatus, ord]
+      );
+    }
+
+    // 2. Update simulator_slot_locks in Havoc Sim Podium
+    if (targetLockStatus === 'CANCELLED') {
+      for (const ord of orderVariants) {
+        await simulatorPool.query(
+          `UPDATE simulator_slot_locks 
+           SET status = 'CANCELLED' 
+           WHERE (source_order_id = $1 OR source_order_id LIKE $1 || '_%' OR source_order_id LIKE '%' || $1 || '%')
+             AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+          [ord]
+        );
+      }
+    } else if (targetLockStatus) {
+      for (const ord of orderVariants) {
+        await simulatorPool.query(
+          `UPDATE simulator_slot_locks 
+           SET status = $1 
+           WHERE (source_order_id = $2 OR source_order_id LIKE $2 || '_%' OR source_order_id LIKE '%' || $2 || '%')
+             AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
+          [targetLockStatus, ord]
+        );
+      }
+    }
+
+    invalidateTakenSlotsCache();
+    console.log(`[Simulator Sync] Synchronized status '${targetBookingStatus}' to Sim Podium for RC order #PAYDUE_FZ_${rawNum}`);
+    return true;
+  } catch (err) {
+    console.error('Error syncing simulator order status to Sim Podium:', err);
+    return false;
+  }
+}
+
 export async function releaseSimulatorSlots(sourceOrderId: string, bookingId?: number): Promise<boolean> {
   try {
     const idSuffix = bookingId ? `_${bookingId}` : (sourceOrderId.includes('_') ? `_${sourceOrderId.split('_').pop()}` : '');

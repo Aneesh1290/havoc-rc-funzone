@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getBookingById, collectAndFulfillBookings } from "@/lib/db";
+import { syncSimulatorOrderStatus } from "@/lib/simulator-db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -81,6 +82,13 @@ export async function POST(req: NextRequest) {
 
     // Update statuses to ATTENDED, Paid, and record payment_ref
     collectAndFulfillBookings(bookingIdsToUpdate, transaction_ref.trim());
+
+    // Automatically sync fulfillment and payment status to Havoc Sim Podium
+    bookingIdsToUpdate.forEach(bId => {
+      const bk = getBookingById(bId) as any;
+      const orderRef = (bk && bk.order_number) ? bk.order_number : bId;
+      syncSimulatorOrderStatus(orderRef, "Fulfilled", "Paid").catch(e => console.error("[Sync Sim Podium]", e));
+    });
 
     return NextResponse.json({
       success: true,

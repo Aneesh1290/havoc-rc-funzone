@@ -89,6 +89,7 @@ import {
   getSimPodiumSimulators,
   getSimPodiumSlots,
   deleteSimulatorSlotLockById,
+  syncSimulatorOrderStatus,
   getSimulatorSlotLocks,
   SimPodiumSlot
 } from "@/lib/simulator-db";
@@ -420,6 +421,16 @@ export async function updateBookingStatusAction(id: number, paymentStatus?: stri
   const booking = getBookingById(id) as any;
   const targetNum = (booking && booking.order_number) ? booking.order_number : id;
   updateOrderGroupStatus(targetNum, paymentStatus, fulfillmentStatus, paymentRef);
+
+  // Cross-platform synchronization: automatically sync fulfillment and payment to Havoc Sim Podium
+  try {
+    const orderRef = (booking && booking.order_number) ? booking.order_number : (booking?.id || targetNum);
+    syncSimulatorOrderStatus(orderRef, fulfillmentStatus, paymentStatus).catch(e => {
+      console.error('[Sim Podium Sync] Background sync error:', e);
+    });
+  } catch (syncErr) {
+    console.error('[Sim Podium Sync] Trigger error:', syncErr);
+  }
   revalidatePath('/admin/bookings');
   revalidatePath('/admin');
   return { success: true };

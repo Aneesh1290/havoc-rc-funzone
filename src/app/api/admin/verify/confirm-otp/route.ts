@@ -6,6 +6,7 @@ import {
   isBookingForToday,
 } from "@/lib/deskOtpStore";
 import { getBookingsByPhone, attendPaidBookings } from "@/lib/db";
+import { syncSimulatorOrderStatus } from "@/lib/simulator-db";
 
 export async function POST(req: NextRequest) {
   try {
@@ -63,6 +64,12 @@ export async function POST(req: NextRequest) {
 
     if (paidBookingIds.length > 0) {
       attendPaidBookings(paidBookingIds);
+      // Automatically sync fulfillment status to Havoc Sim Podium
+      paidBookingIds.forEach((bId) => {
+        const bk = todayBookings.find((b) => b.id === bId);
+        const orderRef = (bk && bk.order_number) ? bk.order_number : bId;
+        syncSimulatorOrderStatus(orderRef, "Fulfilled", "Paid").catch((e) => console.error("[Sync Sim Podium]", e));
+      });
     }
 
     // Re-fetch fresh statuses

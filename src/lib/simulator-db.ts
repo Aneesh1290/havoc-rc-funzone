@@ -375,8 +375,12 @@ export async function syncSimulatorOrderStatus(
       await simulatorPool.query(
         `UPDATE bookings 
          SET status = $1 
-         WHERE order_id = $2 OR order_id LIKE $2 || '_%' OR order_id LIKE '%' || $2 || '%'`,
-        [targetBookingStatus, ord]
+         WHERE order_id = $2 
+            OR order_id LIKE $2 || '_%' 
+            OR order_id LIKE '%' || $2 || '%'
+            OR order_id LIKE '%FZ_' || $3 || '%'
+            OR order_id LIKE '%FZ_' || $3 || '_%'`,
+        [targetBookingStatus, ord, rawNum]
       );
     }
 
@@ -386,9 +390,10 @@ export async function syncSimulatorOrderStatus(
         await simulatorPool.query(
           `UPDATE simulator_slot_locks 
            SET status = 'CANCELLED' 
-           WHERE (source_order_id = $1 OR source_order_id LIKE $1 || '_%' OR source_order_id LIKE '%' || $1 || '%')
+           WHERE ((source_order_id = $1 OR source_order_id LIKE $1 || '_%' OR source_order_id LIKE '%' || $1 || '%')
+              OR (source_order_id LIKE '%FZ_' || $2 || '%'))
              AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
-          [ord]
+          [ord, rawNum]
         );
       }
     } else if (targetLockStatus) {
@@ -396,9 +401,10 @@ export async function syncSimulatorOrderStatus(
         await simulatorPool.query(
           `UPDATE simulator_slot_locks 
            SET status = $1 
-           WHERE (source_order_id = $2 OR source_order_id LIKE $2 || '_%' OR source_order_id LIKE '%' || $2 || '%')
+           WHERE ((source_order_id = $2 OR source_order_id LIKE $2 || '_%' OR source_order_id LIKE '%' || $2 || '%')
+              OR (source_order_id LIKE '%FZ_' || $3 || '%'))
              AND source_platform = 'HAVOC_RC_FUN_ZONE'`,
-          [targetLockStatus, ord]
+          [targetLockStatus, ord, rawNum]
         );
       }
     }

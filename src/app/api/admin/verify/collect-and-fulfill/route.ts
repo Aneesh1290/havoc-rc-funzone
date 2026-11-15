@@ -84,11 +84,17 @@ export async function POST(req: NextRequest) {
     collectAndFulfillBookings(bookingIdsToUpdate, transaction_ref.trim());
 
     // Automatically sync fulfillment and payment status to Havoc Sim Podium
-    bookingIdsToUpdate.forEach(bId => {
-      const bk = getBookingById(bId) as any;
-      const orderRef = (bk && bk.order_number) ? bk.order_number : bId;
-      syncSimulatorOrderStatus(orderRef, "Fulfilled", "Paid").catch(e => console.error("[Sync Sim Podium]", e));
-    });
+    try {
+      await Promise.all(
+        bookingIdsToUpdate.map((bId) => {
+          const bk = getBookingById(bId) as any;
+          const orderRef = (bk && bk.order_number) ? bk.order_number : bId;
+          return syncSimulatorOrderStatus(orderRef, "Fulfilled", "Paid");
+        })
+      );
+    } catch (syncErr) {
+      console.error("[Sync Sim Podium]", syncErr);
+    }
 
     return NextResponse.json({
       success: true,

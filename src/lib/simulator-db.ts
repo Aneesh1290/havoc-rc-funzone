@@ -1,10 +1,15 @@
 import { Pool } from 'pg';
 
-const SIMULATOR_DATABASE_URL = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL;
+let rawDbUrl = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL || "";
 
-if (!SIMULATOR_DATABASE_URL) {
-  console.warn("WARNING: SIMULATOR_DATABASE_URL is not set in environment variables.");
+// If deployment still has the old Render role credentials, replace with the active role
+if (rawDbUrl.includes("slots_db_yqvv_user:feguu4oTsGEZ2TVGok9U0ylcphlCftjh")) {
+  rawDbUrl = rawDbUrl.replace("slots_db_yqvv_user:feguu4oTsGEZ2TVGok9U0ylcphlCftjh", "new_database:u5latuW2iupbhz1pdJnmt5ceDaRHRvjh");
+} else if (rawDbUrl.includes("slots_db_yqvv_user")) {
+  rawDbUrl = rawDbUrl.replace(/slots_db_yqvv_user:[^@]+/, "new_database:u5latuW2iupbhz1pdJnmt5ceDaRHRvjh");
 }
+
+const SIMULATOR_DATABASE_URL = rawDbUrl || "postgresql://new_database:u5latuW2iupbhz1pdJnmt5ceDaRHRvjh@dpg-db941hft5n8s73e7qt1g-a.singapore-postgres.render.com/slots_db_yqvv";
 
 // Global singleton pool for Next.js to prevent connection exhaustion in dev/serverless
 declare global {

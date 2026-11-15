@@ -30,19 +30,54 @@ import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Buildin
 import Link from "next/link";
 import { SimPerkBadgeList, parseSimPerkDisplay } from "@/components/SimPerkBadgeList";
 
-const BASE_30MIN_SIM_SLOTS = [
-  "11AM-11:30AM", "11:30AM-12PM",
-  "12PM-12:30PM", "12:30PM-1PM",
-  "1PM-1:30PM", "1:30PM-2PM",
-  "2PM-2:30PM", "2:30PM-3PM",
-  "3PM-3:30PM", "3:30PM-4PM",
-  "4PM-4:30PM", "4:30PM-5PM",
-  "5PM-5:30PM", "5:30PM-6PM",
-  "6PM-6:30PM", "6:30PM-7PM",
-  "7PM-7:30PM", "7:30PM-8PM",
-  "8PM-8:30PM", "8:30PM-9PM",
-  "9PM-9:30PM", "9:30PM-10PM"
+const BASE_30MIN_SIM_SLOTS: { label: string; startHour: number }[] = [
+  { label: "11AM-11:30AM", startHour: 11.0 },
+  { label: "11:30AM-12PM", startHour: 11.5 },
+  { label: "12PM-12:30PM", startHour: 12.0 },
+  { label: "12:30PM-1PM", startHour: 12.5 },
+  { label: "1PM-1:30PM", startHour: 13.0 },
+  { label: "1:30PM-2PM", startHour: 13.5 },
+  { label: "2PM-2:30PM", startHour: 14.0 },
+  { label: "2:30PM-3PM", startHour: 14.5 },
+  { label: "3PM-3:30PM", startHour: 15.0 },
+  { label: "3:30PM-4PM", startHour: 15.5 },
+  { label: "4PM-4:30PM", startHour: 16.0 },
+  { label: "4:30PM-5PM", startHour: 16.5 },
+  { label: "5PM-5:30PM", startHour: 17.0 },
+  { label: "5:30PM-6PM", startHour: 17.5 },
+  { label: "6PM-6:30PM", startHour: 18.0 },
+  { label: "6:30PM-7PM", startHour: 18.5 },
+  { label: "7PM-7:30PM", startHour: 19.0 },
+  { label: "7:30PM-8PM", startHour: 19.5 },
+  { label: "8PM-8:30PM", startHour: 20.0 },
+  { label: "8:30PM-9PM", startHour: 20.5 },
+  { label: "9PM-9:30PM", startHour: 21.0 },
+  { label: "9:30PM-10PM", startHour: 21.5 },
+  { label: "10PM-10:30PM", startHour: 22.0 },
+  { label: "10:30PM-11PM", startHour: 22.5 }
 ];
+
+const getPassEndHour = (passSlot: string): number => {
+  if (!passSlot) return 0;
+  const parts = passSlot.split("-");
+  if (parts.length < 2) return 0;
+  const end = parts[1].trim().toUpperCase();
+  const isPM = end.includes("PM");
+  const clean = end.replace(/AM|PM/g, "").trim();
+  let h = parseInt(clean, 10);
+  if (isNaN(h)) return 0;
+  if (isPM && h !== 12) h += 12;
+  if (!isPM && h === 12) h = 0;
+  return h;
+};
+
+const getAvailableSimulatorSlots = (visitSlot?: string, showAll = false): { label: string; startHour: number }[] => {
+  if (showAll || !visitSlot) return BASE_30MIN_SIM_SLOTS;
+  const endHour = getPassEndHour(visitSlot);
+  if (endHour <= 0) return BASE_30MIN_SIM_SLOTS;
+  const filtered = BASE_30MIN_SIM_SLOTS.filter(s => s.startHour >= endHour);
+  return filtered.length > 0 ? filtered : BASE_30MIN_SIM_SLOTS.slice(-4);
+};
 
 interface EditingBandState {
   id: number;
@@ -102,12 +137,14 @@ export default function OrderDetailPage() {
   const [loadingTakenSlots, setLoadingTakenSlots] = useState(false);
   const [upgradeSimChoice, setUpgradeSimChoice] = useState<'now' | 'later'>('now');
   const [upgradeSimSelections, setUpgradeSimSelections] = useState<Array<{ simName: string; simSlot: string }>>([]);
+  const [showAllUpgradeSlots, setShowAllUpgradeSlots] = useState(false);
 
   // Dedicated Simulator Modal state
   const [isSimModalOpen, setIsSimModalOpen] = useState(false);
   const [simModalItem, setSimModalItem] = useState<any | null>(null);
   const [simModalChoice, setSimModalChoice] = useState<'assign' | 'pending' | 'clear'>('assign');
   const [simModalSelections, setSimModalSelections] = useState<Array<{ simName: string; simSlot: string }>>([]);
+  const [showAllSimModalSlots, setShowAllSimModalSlots] = useState(false);
   const [isSubmittingSimModal, setIsSubmittingSimModal] = useState(false);
   const [simModalError, setSimModalError] = useState<string | null>(null);
 
@@ -331,6 +368,7 @@ export default function OrderDetailPage() {
     setUpgradingItem(item);
     setUpgradeError(null);
     setUpgradeSimChoice("now");
+    setShowAllUpgradeSlots(false);
     setIsUpgradeModalOpen(true);
     try {
       const [allTickets, simList] = await Promise.all([
@@ -436,6 +474,7 @@ export default function OrderDetailPage() {
     setSimModalItem(item);
     setSimModalError(null);
     setSimModalChoice("assign");
+    setShowAllSimModalSlots(false);
     setIsSimModalOpen(true);
     try {
       let simList = availableSimulators;
@@ -2302,6 +2341,8 @@ export default function OrderDetailPage() {
                       {Array.from({ length: currentQty }).map((_, idx) => {
                         const currentSel = upgradeSimSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
                         const itemDate = upgradingItem?.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                        const visitSlot = upgradingItem?.time_slot || booking?.time_slot || "";
+                        const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllUpgradeSlots);
                         const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
                         return (
@@ -2351,30 +2392,62 @@ export default function OrderDetailPage() {
                             {/* 30-min Time Slot Grid */}
                             <div>
                               <div className="flex items-center justify-between mb-1">
-                                <label className="text-[10px] uppercase font-bold text-gray-500">
-                                  30-Min Time Slot ({itemDate})
-                                </label>
-                                {loadingTakenSlots && (
-                                  <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking availability...
-                                  </span>
-                                )}
+                                <div>
+                                  <label className="text-[10px] uppercase font-bold text-gray-500 block">
+                                    30-Min Time Slot ({itemDate})
+                                  </label>
+                                  {visitSlot && (
+                                    <span className="text-[10px] text-orange-700 font-semibold block">
+                                      {showAllUpgradeSlots 
+                                        ? "Showing all-day slots" 
+                                        : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  {loadingTakenSlots && (
+                                    <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
+                                    </span>
+                                  )}
+                                  {visitSlot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setShowAllUpgradeSlots(prev => !prev)}
+                                      className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
+                                    >
+                                      {showAllUpgradeSlots ? "Filter after pass" : "Show all day"}
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                               <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                                {BASE_30MIN_SIM_SLOTS.map((slot) => {
-                                  const isTaken = takenList.includes(slot);
-                                  const isSelected = currentSel.simSlot === slot;
+                                {availableSlots.map((slot) => {
+                                  const isTakenInDb = takenList.includes(slot.label);
+                                  const isTakenByAnotherParticipant = upgradeSimSelections.some((other, oIdx) =>
+                                    oIdx !== idx &&
+                                    other.simName === currentSel.simName &&
+                                    other.simSlot === slot.label
+                                  );
+                                  const isTaken = isTakenInDb || isTakenByAnotherParticipant;
+                                  const isSelected = currentSel.simSlot === slot.label;
+                                  const titleText = isTakenByAnotherParticipant
+                                    ? `Already chosen by another participant in this booking`
+                                    : isTakenInDb
+                                    ? "Occupied / Booked in Sim Podium"
+                                    : `Select ${slot.label}`;
+
                                   return (
                                     <button
-                                      key={slot}
+                                      key={slot.label}
                                       type="button"
                                       disabled={isTaken}
                                       onClick={() => {
                                         const next = [...upgradeSimSelections];
-                                        next[idx] = { ...currentSel, simSlot: slot };
+                                        next[idx] = { ...currentSel, simSlot: slot.label };
                                         setUpgradeSimSelections(next);
                                       }}
-                                      title={isTaken ? "Occupied / Booked by another guest" : `Select ${slot}`}
+                                      title={titleText}
                                       className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
                                         isSelected
                                           ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
@@ -2383,8 +2456,12 @@ export default function OrderDetailPage() {
                                           : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
                                       }`}
                                     >
-                                      {slot}
-                                      {isTaken && <span className="block text-[8px] font-normal no-underline">Occupied</span>}
+                                      {slot.label}
+                                      {isTaken && (
+                                        <span className="block text-[8px] font-normal no-underline">
+                                          {isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                        </span>
+                                      )}
                                     </button>
                                   );
                                 })}
@@ -2691,6 +2768,8 @@ export default function OrderDetailPage() {
                   {Array.from({ length: Math.max(1, simModalItem.quantity || 1) }).map((_, idx) => {
                     const currentSel = simModalSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
                     const itemDate = simModalItem.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                    const visitSlot = simModalItem.time_slot || booking?.time_slot || "";
+                    const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllSimModalSlots);
                     const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
                     return (
@@ -2740,30 +2819,62 @@ export default function OrderDetailPage() {
                         {/* 30-min Slot Grid */}
                         <div>
                           <div className="flex items-center justify-between mb-1.5">
-                            <label className="text-[10px] uppercase font-bold text-gray-500">
-                              30-Min Time Slot ({itemDate})
-                            </label>
-                            {loadingTakenSlots && (
-                              <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking availability...
-                              </span>
-                            )}
+                            <div>
+                              <label className="text-[10px] uppercase font-bold text-gray-500 block">
+                                30-Min Time Slot ({itemDate})
+                              </label>
+                              {visitSlot && (
+                                <span className="text-[10px] text-[#ff5a1f] font-semibold block">
+                                  {showAllSimModalSlots 
+                                    ? "Showing all-day slots" 
+                                    : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {loadingTakenSlots && (
+                                <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
+                                </span>
+                              )}
+                              {visitSlot && (
+                                <button
+                                  type="button"
+                                  onClick={() => setShowAllSimModalSlots(prev => !prev)}
+                                  className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
+                                >
+                                  {showAllSimModalSlots ? "Filter after pass" : "Show all day"}
+                                </button>
+                              )}
+                            </div>
                           </div>
                           <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                            {BASE_30MIN_SIM_SLOTS.map((slot) => {
-                              const isTaken = takenList.includes(slot);
-                              const isSelected = currentSel.simSlot === slot;
+                            {availableSlots.map((slot) => {
+                              const isTakenInDb = takenList.includes(slot.label);
+                              const isTakenByAnotherParticipant = simModalSelections.some((other, oIdx) =>
+                                oIdx !== idx &&
+                                other.simName === currentSel.simName &&
+                                other.simSlot === slot.label
+                              );
+                              const isTaken = isTakenInDb || isTakenByAnotherParticipant;
+                              const isSelected = currentSel.simSlot === slot.label;
+                              const titleText = isTakenByAnotherParticipant
+                                ? `Already chosen by another participant in this booking`
+                                : isTakenInDb
+                                ? "Occupied / Booked in Sim Podium"
+                                : `Select ${slot.label}`;
+
                               return (
                                 <button
-                                  key={slot}
+                                  key={slot.label}
                                   type="button"
                                   disabled={isTaken}
                                   onClick={() => {
                                     const next = [...simModalSelections];
-                                    next[idx] = { ...currentSel, simSlot: slot };
+                                    next[idx] = { ...currentSel, simSlot: slot.label };
                                     setSimModalSelections(next);
                                   }}
-                                  title={isTaken ? "Occupied / Booked by another guest" : `Select ${slot}`}
+                                  title={titleText}
                                   className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
                                     isSelected
                                       ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
@@ -2772,8 +2883,12 @@ export default function OrderDetailPage() {
                                       : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
                                   }`}
                                 >
-                                  {slot}
-                                  {isTaken && <span className="block text-[8px] font-normal no-underline">Occupied</span>}
+                                  {slot.label}
+                                  {isTaken && (
+                                    <span className="block text-[8px] font-normal no-underline">
+                                      {isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                    </span>
+                                  )}
                                 </button>
                               );
                             })}

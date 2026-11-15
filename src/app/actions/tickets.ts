@@ -804,7 +804,7 @@ export async function upgradeBookingItemAction(params: {
   orderNumber: number;
   bookingItemId: number;
   targetTicketId: number;
-  paymentConfirmed: boolean;
+  paymentConfirmed?: boolean;
   paymentMode?: string;
   paymentRef?: string;
   customDiffAmount?: number | null;

@@ -631,7 +631,7 @@ export function removeBookingItem(bookingItemId: number) {
 export function upgradeBookingItem(params: {
   bookingItemId: number;
   targetTicketId: number;
-  paymentConfirmed: boolean;
+  paymentConfirmed?: boolean;
   paymentMode?: string;
   paymentRef?: string;
   customDiffAmount?: number | null;
@@ -655,28 +655,19 @@ export function upgradeBookingItem(params: {
   }
 
   const qty = Math.max(1, current.quantity || 1);
-  const currentPrice = Number(current.current_ticket_price || 0);
   const targetPrice = Number(target.price || 0);
 
-  // Price difference per unit and total with 18% GST
-  const unitDiff = Math.max(0, targetPrice - currentPrice);
-  const subtotalDiff = unitDiff * qty;
-  const standardDiffWithGst = Math.round(subtotalDiff * 1.18);
-  const lineDiffWithGst = params.customDiffAmount !== undefined && params.customDiffAmount !== null 
-    ? Number(params.customDiffAmount) 
-    : standardDiffWithGst;
-
+  // When upgrading without taking payment, preserve existing total amount and payment status
   const currentTotalAmount = Number(current.total_amount || 0);
   const targetStandardLineTotal = Math.round(targetPrice * qty * 1.18);
-  const newTotalAmount = currentTotalAmount > 0 
-    ? (currentTotalAmount + lineDiffWithGst) 
-    : targetStandardLineTotal;
+  const hasCustomDiff = params.customDiffAmount !== undefined && params.customDiffAmount !== null;
+  const lineDiffWithGst = hasCustomDiff ? Number(params.customDiffAmount) : 0;
 
-  const isCurrentPaid = (current.payment_status || '').toLowerCase() === 'paid';
-  let newPaymentStatus = current.payment_status || 'Unpaid';
-  if (params.paymentConfirmed && isCurrentPaid) {
-    newPaymentStatus = 'Paid';
-  }
+  const newTotalAmount = hasCustomDiff
+    ? (currentTotalAmount + lineDiffWithGst)
+    : (currentTotalAmount > 0 ? currentTotalAmount : targetStandardLineTotal);
+
+  const newPaymentStatus = current.payment_status || 'Paid';
 
   // Handle simulator perk: if passed, update; if target has no simulator perk and was not specified, clear it
   let simNameVal = current.simulator_name;
@@ -692,7 +683,9 @@ export function upgradeBookingItem(params: {
     simSlotVal = null;
   }
 
-  const tagNote = `[Upgraded from ${current.current_ticket_name} to ${target.name} (Qty ${qty}): diff ₹${lineDiffWithGst} (${params.paymentConfirmed ? `Paid via ${params.paymentMode || 'Cash'}` : 'Added to Due'})${params.paymentRef ? ` Ref: ${params.paymentRef}` : ''}]`;
+  const tagNote = hasCustomDiff
+    ? `[Upgraded from ${current.current_ticket_name} to ${target.name} (Qty ${qty}): diff ₹${lineDiffWithGst}]`
+    : `[Upgraded from ${current.current_ticket_name} to ${target.name} (Qty ${qty}) - No payment collected]`;
 
   db.prepare(`
     UPDATE bookings 
@@ -705,10 +698,6 @@ export function upgradeBookingItem(params: {
         tags = CASE 
           WHEN tags IS NULL OR tags = '' THEN ?
           ELSE tags || ' ' || ?
-        END,
-        payment_ref = CASE
-          WHEN ? IS NOT NULL AND ? != '' AND (payment_ref IS NULL OR payment_ref = '') THEN ?
-          ELSE payment_ref
         END
     WHERE id = ?
   `).run(
@@ -719,9 +708,6 @@ export function upgradeBookingItem(params: {
     simSlotVal,
     tagNote,
     tagNote,
-    params.paymentRef || null,
-    params.paymentRef || '',
-    params.paymentRef || null,
     params.bookingItemId
   );
 
@@ -729,7 +715,7 @@ export function upgradeBookingItem(params: {
     success: true,
     previousTicket: current.current_ticket_name,
     upgradedTicket: target.name,
-    unitDifference: unitDiff,
+    unitDifference: 0,
     totalDifferenceWithGst: lineDiffWithGst,
     newTotalAmount,
     simulatorName: simNameVal,

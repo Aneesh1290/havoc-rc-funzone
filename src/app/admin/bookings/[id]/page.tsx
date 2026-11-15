@@ -93,10 +93,6 @@ export default function OrderDetailPage() {
   const [upgradingItem, setUpgradingItem] = useState<any | null>(null);
   const [upgradeTicketsList, setUpgradeTicketsList] = useState<any[]>([]);
   const [targetUpgradeTicketId, setTargetUpgradeTicketId] = useState<number | string>("");
-  const [upgradePaymentConfirmed, setUpgradePaymentConfirmed] = useState(true);
-  const [upgradePaymentMode, setUpgradePaymentMode] = useState<string>("Cash");
-  const [upgradePaymentRef, setUpgradePaymentRef] = useState<string>("");
-  const [customDiffAmount, setCustomDiffAmount] = useState<string>("");
   const [isSubmittingUpgrade, setIsSubmittingUpgrade] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
 
@@ -334,10 +330,6 @@ export default function OrderDetailPage() {
   const handleOpenUpgradeModal = async (item: any) => {
     setUpgradingItem(item);
     setUpgradeError(null);
-    setUpgradePaymentConfirmed(true);
-    setUpgradePaymentMode("Cash");
-    setUpgradePaymentRef("");
-    setCustomDiffAmount("");
     setUpgradeSimChoice("now");
     setIsUpgradeModalOpen(true);
     try {
@@ -419,10 +411,7 @@ export default function OrderDetailPage() {
         orderNumber: targetOrderNum,
         bookingItemId: upgradingItem.id,
         targetTicketId: Number(targetUpgradeTicketId),
-        paymentConfirmed: upgradePaymentConfirmed,
-        paymentMode: upgradePaymentMode,
-        paymentRef: upgradePaymentRef.trim() || undefined,
-        customDiffAmount: customDiffAmount !== "" && !isNaN(Number(customDiffAmount)) ? Number(customDiffAmount) : undefined,
+        paymentConfirmed: true,
         simulatorName: simNameToSend,
         simulatorSlot: simSlotToSend
       });
@@ -2151,14 +2140,6 @@ export default function OrderDetailPage() {
         const currentQty = Math.max(1, upgradingItem.quantity || 1);
         const currentUnitPrice = Number(upgradingItem.ticket_price || 0);
         const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
-        const targetUnitPrice = selectedTarget ? Number(selectedTarget.price || 0) : 0;
-
-        const unitDiff = Math.max(0, targetUnitPrice - currentUnitPrice);
-        const subtotalDiff = unitDiff * currentQty;
-        const autoDiffWithGst = Math.round(subtotalDiff * 1.18);
-        const finalPayableDiff = customDiffAmount !== "" && !isNaN(Number(customDiffAmount))
-          ? Number(customDiffAmount)
-          : autoDiffWithGst;
 
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
@@ -2171,7 +2152,7 @@ export default function OrderDetailPage() {
                   </span>
                   <div>
                     <h3 className="font-bold text-gray-900 text-base">Upgrade Ticket Package</h3>
-                    <p className="text-xs text-gray-500">Calculate tariff difference and upgrade customer session</p>
+                    <p className="text-xs text-gray-500">Change customer package tier & allocate perks (no payment required)</p>
                   </div>
                 </div>
                 <button
@@ -2233,10 +2214,11 @@ export default function OrderDetailPage() {
                         </div>
 
                         <div className="text-right">
-                          <span className={`text-xs font-black font-mono ${diffTotalWithGst >= 0 ? "text-indigo-700" : "text-amber-700"}`}>
-                            {diffTotalWithGst >= 0 ? `+₹${diffTotalWithGst.toLocaleString('en-IN')}` : `-₹${Math.abs(diffTotalWithGst).toLocaleString('en-IN')}`}
+                          <span className={`text-xs font-bold px-2.5 py-1 rounded-lg border transition-colors ${
+                            isSelected ? "bg-indigo-600 text-white border-indigo-600 shadow-2xs" : "bg-gray-100 text-gray-700 border-gray-200"
+                          }`}>
+                            {isSelected ? "Selected" : "Select"}
                           </span>
-                          <span className="block text-[10px] text-gray-400">Total Difference</span>
                         </div>
                       </label>
                     );
@@ -2416,98 +2398,21 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              {/* Price Difference Breakdown Box */}
-              <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/60 rounded-xl border-2 border-indigo-200 text-xs space-y-2">
-                <div className="flex items-center justify-between text-gray-600">
-                  <span>New Package Tariff ({currentQty} × ₹{targetUnitPrice}):</span>
-                  <span className="font-mono font-semibold">₹{(targetUnitPrice * currentQty).toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-600">
-                  <span>Current Package Tariff ({currentQty} × ₹{currentUnitPrice}):</span>
-                  <span className="font-mono font-semibold">−₹{(currentUnitPrice * currentQty).toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-600 border-t border-indigo-100 pt-1.5">
-                  <span>Net Base Difference:</span>
-                  <span className="font-mono font-semibold">₹{subtotalDiff.toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex items-center justify-between text-gray-600">
-                  <span>GST (18%):</span>
-                  <span className="font-mono font-semibold">₹{Math.round(subtotalDiff * 0.18).toLocaleString('en-IN')}</span>
-                </div>
-                <div className="flex items-center justify-between font-bold text-gray-900 border-t-2 border-indigo-200 pt-2 text-sm">
-                  <span className="text-indigo-950 font-black">Total Upgrade Difference:</span>
-                  <span className="text-indigo-700 font-mono font-black text-base">
-                    ₹{autoDiffWithGst.toLocaleString('en-IN')}
-                  </span>
-                </div>
-
-                <div className="pt-2 flex items-center justify-between gap-3 text-[11px] border-t border-indigo-100">
-                  <span className="text-gray-500 font-medium">Custom/Adjusted Difference (₹):</span>
-                  <input
-                    type="number"
-                    value={customDiffAmount}
-                    onChange={(e) => setCustomDiffAmount(e.target.value)}
-                    placeholder={String(autoDiffWithGst)}
-                    className="w-28 text-xs font-mono font-bold bg-white border border-indigo-300 rounded-lg px-2.5 py-1 text-right focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-
-              {/* Payment Settlement Method */}
-              <div className="space-y-2.5 border-t border-gray-100 pt-3">
-                <span className="text-xs font-bold text-gray-800 block">Upgrade Payment Settlement</span>
-
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${upgradePaymentConfirmed ? "border-emerald-500 bg-emerald-50/50 text-emerald-950 font-bold" : "border-gray-200 text-gray-600"
-                    }`}>
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      checked={upgradePaymentConfirmed}
-                      onChange={() => setUpgradePaymentConfirmed(true)}
-                    />
-                    <span>Payment Collected</span>
-                  </label>
-
-                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${!upgradePaymentConfirmed ? "border-amber-500 bg-amber-50/50 text-amber-950 font-bold" : "border-gray-200 text-gray-600"
-                    }`}>
-                    <input
-                      type="radio"
-                      name="paymentOption"
-                      checked={!upgradePaymentConfirmed}
-                      onChange={() => setUpgradePaymentConfirmed(false)}
-                    />
-                    <span>Add to Due (Unpaid)</span>
-                  </label>
-                </div>
-
-                {upgradePaymentConfirmed && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">Payment Mode</label>
-                      <select
-                        value={upgradePaymentMode}
-                        onChange={(e) => setUpgradePaymentMode(e.target.value)}
-                        className="w-full text-xs font-semibold bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      >
-                        <option value="Cash">Cash</option>
-                        <option value="UPI">UPI / QR</option>
-                        <option value="Card">Credit / Debit Card</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="text-[11px] font-bold text-gray-600 block mb-1">UTR / Ref (Optional)</label>
-                      <input
-                        type="text"
-                        value={upgradePaymentRef}
-                        onChange={(e) => setUpgradePaymentRef(e.target.value)}
-                        placeholder="e.g. UPI/TN123456"
-                        className="w-full text-xs font-mono font-semibold bg-gray-50 border border-gray-200 rounded-xl px-2.5 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                      />
-                    </div>
+              {/* Upgrade Summary Notice (No Payment Needed) */}
+              <div className="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs flex items-center justify-between text-emerald-950">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-2xs">
+                    <Check className="w-4 h-4 font-black" />
                   </div>
-                )}
+                  <div>
+                    <span className="font-extrabold text-xs block">
+                      Upgrading to {selectedTarget ? selectedTarget.name.replace("_", " ") : "Selected Package"}
+                    </span>
+                    <span className="text-[11px] text-emerald-800">
+                      No payment is taken for upgrades. Existing booking payment status is retained.
+                    </span>
+                  </div>
+                </div>
               </div>
 
               {upgradeError && (

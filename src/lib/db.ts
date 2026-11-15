@@ -635,6 +635,8 @@ export function upgradeBookingItem(params: {
   paymentMode?: string;
   paymentRef?: string;
   customDiffAmount?: number | null;
+  simulatorName?: string | null;
+  simulatorSlot?: string | null;
 }) {
   const current = db.prepare(`
     SELECT b.*, t.name as current_ticket_name, t.price as current_ticket_price, t.is_addon
@@ -676,6 +678,20 @@ export function upgradeBookingItem(params: {
     newPaymentStatus = 'Paid';
   }
 
+  // Handle simulator perk: if passed, update; if target has no simulator perk and was not specified, clear it
+  let simNameVal = current.simulator_name;
+  let simSlotVal = current.simulator_slot;
+  if (params.simulatorName !== undefined) {
+    simNameVal = params.simulatorName;
+  } else if (!target.has_simulator_perk && !target.name.toUpperCase().includes('VIP')) {
+    simNameVal = null;
+  }
+  if (params.simulatorSlot !== undefined) {
+    simSlotVal = params.simulatorSlot;
+  } else if (!target.has_simulator_perk && !target.name.toUpperCase().includes('VIP')) {
+    simSlotVal = null;
+  }
+
   const tagNote = `[Upgraded from ${current.current_ticket_name} to ${target.name} (Qty ${qty}): diff ₹${lineDiffWithGst} (${params.paymentConfirmed ? `Paid via ${params.paymentMode || 'Cash'}` : 'Added to Due'})${params.paymentRef ? ` Ref: ${params.paymentRef}` : ''}]`;
 
   db.prepare(`
@@ -684,6 +700,8 @@ export function upgradeBookingItem(params: {
         total_amount = ?,
         payment_status = ?,
         category_wristband_number = NULL, -- Reset category wristband so staff issues upgraded band
+        simulator_name = ?,
+        simulator_slot = ?,
         tags = CASE 
           WHEN tags IS NULL OR tags = '' THEN ?
           ELSE tags || ' ' || ?
@@ -697,6 +715,8 @@ export function upgradeBookingItem(params: {
     target.id,
     newTotalAmount,
     newPaymentStatus,
+    simNameVal,
+    simSlotVal,
     tagNote,
     tagNote,
     params.paymentRef || null,
@@ -711,8 +731,23 @@ export function upgradeBookingItem(params: {
     upgradedTicket: target.name,
     unitDifference: unitDiff,
     totalDifferenceWithGst: lineDiffWithGst,
-    newTotalAmount
+    newTotalAmount,
+    simulatorName: simNameVal,
+    simulatorSlot: simSlotVal
   };
+}
+
+export function updateBookingItemSimulator(params: {
+  bookingItemId: number;
+  simulatorName: string | null;
+  simulatorSlot: string | null;
+}) {
+  return db.prepare(`
+    UPDATE bookings 
+    SET simulator_name = ?,
+        simulator_slot = ?
+    WHERE id = ?
+  `).run(params.simulatorName, params.simulatorSlot, params.bookingItemId);
 }
 
 export function updateBookingScheduleAndContact(params: {
@@ -1018,7 +1053,7 @@ export function getBookingById(id: number) {
     LEFT JOIN tickets t ON b.ticket_id = t.id
     LEFT JOIN time_slots s ON b.time_slot = s.label
     WHERE b.id = ?
-  `).get(id);
+  `).get(id) as any;
 }
 
 export function getBookingsByOrderNumber(orderNum: number) {

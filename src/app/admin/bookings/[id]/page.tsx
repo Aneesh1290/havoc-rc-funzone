@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { 
-  fetchBookingByIdAction, 
+import {
+  fetchBookingByIdAction,
   fetchBookingsByOrderNumberAction,
-  updateBookingStatusAction, 
+  updateBookingStatusAction,
   updateBookingPaymentRefAction,
   updateBookingTagsAction,
   updateBookingWristbandNumberAction,
@@ -17,15 +17,32 @@ import {
   upgradeBookingItemAction,
   updateBookingScheduleAndContactAction,
   fetchTicketsAction,
-  fetchTimeSlotsAction
+  fetchTimeSlotsAction,
+  fetchSimulatorListAction,
+  fetchTakenSimulatorSlotsAction,
+  updateBookingSimulatorAction
 } from "@/app/actions/tickets";
 import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail, RotateCcw } from "lucide-react";
+import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail, RotateCcw, Gamepad2 } from "lucide-react";
 import Link from "next/link";
-import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
+import { SimPerkBadgeList, parseSimPerkDisplay } from "@/components/SimPerkBadgeList";
+
+const BASE_30MIN_SIM_SLOTS = [
+  "11AM-11:30AM", "11:30AM-12PM",
+  "12PM-12:30PM", "12:30PM-1PM",
+  "1PM-1:30PM", "1:30PM-2PM",
+  "2PM-2:30PM", "2:30PM-3PM",
+  "3PM-3:30PM", "3:30PM-4PM",
+  "4PM-4:30PM", "4:30PM-5PM",
+  "5PM-5:30PM", "5:30PM-6PM",
+  "6PM-6:30PM", "6:30PM-7PM",
+  "7PM-7:30PM", "7:30PM-8PM",
+  "8PM-8:30PM", "8:30PM-9PM",
+  "9PM-9:30PM", "9:30PM-10PM"
+];
 
 interface EditingBandState {
   id: number;
@@ -82,6 +99,21 @@ export default function OrderDetailPage() {
   const [customDiffAmount, setCustomDiffAmount] = useState<string>("");
   const [isSubmittingUpgrade, setIsSubmittingUpgrade] = useState(false);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+
+  // VIP Simulator Perk state for Upgrade & item assignment
+  const [availableSimulators, setAvailableSimulators] = useState<Array<{ id: number | string; name: string; category?: string }>>([]);
+  const [takenSimSlotsMap, setTakenSimSlotsMap] = useState<Record<string, string[]>>({});
+  const [loadingTakenSlots, setLoadingTakenSlots] = useState(false);
+  const [upgradeSimChoice, setUpgradeSimChoice] = useState<'now' | 'later'>('now');
+  const [upgradeSimSelections, setUpgradeSimSelections] = useState<Array<{ simName: string; simSlot: string }>>([]);
+
+  // Dedicated Simulator Modal state
+  const [isSimModalOpen, setIsSimModalOpen] = useState(false);
+  const [simModalItem, setSimModalItem] = useState<any | null>(null);
+  const [simModalChoice, setSimModalChoice] = useState<'assign' | 'pending' | 'clear'>('assign');
+  const [simModalSelections, setSimModalSelections] = useState<Array<{ simName: string; simSlot: string }>>([]);
+  const [isSubmittingSimModal, setIsSubmittingSimModal] = useState(false);
+  const [simModalError, setSimModalError] = useState<string | null>(null);
 
   // Reschedule (Date & Slot) State
   const [isRescheduleModalOpen, setIsRescheduleModalOpen] = useState(false);
@@ -283,6 +315,21 @@ export default function OrderDetailPage() {
     }
   };
 
+  const loadTakenSlotsForSim = async (simName: string, date: string) => {
+    if (!simName || !date) return;
+    const cacheKey = `${simName}_${date}`;
+    if (takenSimSlotsMap[cacheKey]) return;
+    try {
+      setLoadingTakenSlots(true);
+      const taken = await fetchTakenSimulatorSlotsAction(simName, date);
+      setTakenSimSlotsMap(prev => ({ ...prev, [cacheKey]: taken }));
+    } catch (err) {
+      console.error("Error fetching taken simulator slots:", err);
+    } finally {
+      setLoadingTakenSlots(false);
+    }
+  };
+
   // Upgrade Handlers
   const handleOpenUpgradeModal = async (item: any) => {
     setUpgradingItem(item);
@@ -291,9 +338,18 @@ export default function OrderDetailPage() {
     setUpgradePaymentMode("Cash");
     setUpgradePaymentRef("");
     setCustomDiffAmount("");
+    setUpgradeSimChoice("now");
     setIsUpgradeModalOpen(true);
     try {
-      const allTickets = await fetchTicketsAction();
+      const [allTickets, simList] = await Promise.all([
+        fetchTicketsAction(),
+        availableSimulators.length > 0 ? Promise.resolve(availableSimulators) : fetchSimulatorListAction()
+      ]);
+
+      if (simList && simList.length > 0) {
+        setAvailableSimulators(simList);
+      }
+
       const validTargets = (allTickets || []).filter(
         (t: any) => t.id !== item.ticket_id && t.active && !t.is_addon && !t.name.toUpperCase().includes("ORGANISATION")
       );
@@ -302,6 +358,22 @@ export default function OrderDetailPage() {
         const higher = validTargets.find((t: any) => Number(t.price) > Number(item.ticket_price || 0));
         setTargetUpgradeTicketId(higher ? higher.id : validTargets[0].id);
       }
+
+      // Initialize simulator selections for the item's quantity
+      const qty = Math.max(1, item.quantity || 1);
+      const defaultSimName = simList?.[0]?.name || "Flight Sim Pro (Airbus Edition)";
+      const itemDate = item.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+
+      const existing = parseSimPerkDisplay(item.simulator_name, item.simulator_slot);
+      const initialSelections: Array<{ simName: string; simSlot: string }> = [];
+      for (let i = 0; i < qty; i++) {
+        const ex = existing[i];
+        const sName = (ex && ex.simulatorName && !ex.simulatorName.toLowerCase().includes("pending") && !ex.simulatorName.toLowerCase().includes("simulator")) ? ex.simulatorName : defaultSimName;
+        const sSlot = (ex && ex.slotLabel && !ex.slotLabel.toLowerCase().includes("pending")) ? ex.slotLabel : "";
+        initialSelections.push({ simName: sName, simSlot: sSlot });
+        loadTakenSlotsForSim(sName, itemDate);
+      }
+      setUpgradeSimSelections(initialSelections);
     } catch (err) {
       console.error("Failed to load tickets for upgrade:", err);
     }
@@ -315,6 +387,33 @@ export default function OrderDetailPage() {
     setIsSubmittingUpgrade(true);
     setUpgradeError(null);
     try {
+      const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
+      const isTargetVip = selectedTarget ? Boolean(selectedTarget.has_simulator_perk || (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))) : false;
+
+      let simNameToSend: string | null | undefined = undefined;
+      let simSlotToSend: string | null | undefined = undefined;
+
+      if (isTargetVip) {
+        if (upgradeSimChoice === "later") {
+          simNameToSend = "Pending Desk Assignment";
+          simSlotToSend = "Slot Pending";
+        } else {
+          const missing = upgradeSimSelections.some(s => !s.simName || !s.simSlot);
+          if (missing) {
+            setUpgradeError("Please select both a simulator machine and a 30-min time slot for all participants, or choose 'Assign Later at Reception'.");
+            setIsSubmittingUpgrade(false);
+            return;
+          }
+          if (upgradeSimSelections.length === 1) {
+            simNameToSend = upgradeSimSelections[0].simName;
+            simSlotToSend = upgradeSimSelections[0].simSlot;
+          } else {
+            simNameToSend = upgradeSimSelections.map((s, i) => `#${i + 1} (P${i + 1}): ${s.simName}`).join(" | ");
+            simSlotToSend = upgradeSimSelections.map((s, i) => `#${i + 1} (P${i + 1} - ${s.simName}): ${s.simSlot}`).join(" • ");
+          }
+        }
+      }
+
       const targetOrderNum = booking.order_number || booking.id;
       const res = await upgradeBookingItemAction({
         orderNumber: targetOrderNum,
@@ -323,7 +422,9 @@ export default function OrderDetailPage() {
         paymentConfirmed: upgradePaymentConfirmed,
         paymentMode: upgradePaymentMode,
         paymentRef: upgradePaymentRef.trim() || undefined,
-        customDiffAmount: customDiffAmount !== "" && !isNaN(Number(customDiffAmount)) ? Number(customDiffAmount) : undefined
+        customDiffAmount: customDiffAmount !== "" && !isNaN(Number(customDiffAmount)) ? Number(customDiffAmount) : undefined,
+        simulatorName: simNameToSend,
+        simulatorSlot: simSlotToSend
       });
 
       if (!res.success) {
@@ -338,6 +439,91 @@ export default function OrderDetailPage() {
       setUpgradeError(err.message || "Failed to process upgrade.");
     } finally {
       setIsSubmittingUpgrade(false);
+    }
+  };
+
+  // Dedicated Simulator Allocation Handlers
+  const handleOpenSimModal = async (item: any) => {
+    setSimModalItem(item);
+    setSimModalError(null);
+    setSimModalChoice("assign");
+    setIsSimModalOpen(true);
+    try {
+      let simList = availableSimulators;
+      if (!simList || simList.length === 0) {
+        simList = await fetchSimulatorListAction();
+        setAvailableSimulators(simList);
+      }
+      const qty = Math.max(1, item.quantity || 1);
+      const defaultSimName = simList?.[0]?.name || "Flight Sim Pro (Airbus Edition)";
+      const itemDate = item.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+
+      const existing = parseSimPerkDisplay(item.simulator_name, item.simulator_slot);
+      const initial: Array<{ simName: string; simSlot: string }> = [];
+      for (let i = 0; i < qty; i++) {
+        const ex = existing[i];
+        const sName = (ex && ex.simulatorName && !ex.simulatorName.toLowerCase().includes("pending") && !ex.simulatorName.toLowerCase().includes("simulator")) ? ex.simulatorName : defaultSimName;
+        const sSlot = (ex && ex.slotLabel && !ex.slotLabel.toLowerCase().includes("pending")) ? ex.slotLabel : "";
+        initial.push({ simName: sName, simSlot: sSlot });
+        loadTakenSlotsForSim(sName, itemDate);
+      }
+      setSimModalSelections(initial);
+    } catch (err: any) {
+      console.error("Failed to prepare simulator modal:", err);
+      setSimModalError(err.message || "Failed to load simulator data");
+    }
+  };
+
+  const handleConfirmSimModal = async () => {
+    if (!simModalItem) return;
+    setIsSubmittingSimModal(true);
+    setSimModalError(null);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      let simNameToSend: string | null = null;
+      let simSlotToSend: string | null = null;
+
+      if (simModalChoice === 'clear') {
+        simNameToSend = null;
+        simSlotToSend = null;
+      } else if (simModalChoice === 'pending') {
+        simNameToSend = "Pending Desk Assignment";
+        simSlotToSend = "Slot Pending";
+      } else {
+        const missing = simModalSelections.some(s => !s.simName || !s.simSlot);
+        if (missing) {
+          setSimModalError("Please select both a simulator machine and a 30-min time slot for all participants, or select 'Mark as Pending'.");
+          setIsSubmittingSimModal(false);
+          return;
+        }
+        if (simModalSelections.length === 1) {
+          simNameToSend = simModalSelections[0].simName;
+          simSlotToSend = simModalSelections[0].simSlot;
+        } else {
+          simNameToSend = simModalSelections.map((s, i) => `#${i + 1} (P${i + 1}): ${s.simName}`).join(" | ");
+          simSlotToSend = simModalSelections.map((s, i) => `#${i + 1} (P${i + 1} - ${s.simName}): ${s.simSlot}`).join(" • ");
+        }
+      }
+
+      const res = await updateBookingSimulatorAction({
+        orderNumber: targetOrderNum,
+        bookingItemId: simModalItem.id,
+        simulatorName: simNameToSend,
+        simulatorSlot: simSlotToSend
+      });
+
+      if (!res.success) {
+        setSimModalError(res.error || "Failed to update simulator slot.");
+        return;
+      }
+
+      setIsSimModalOpen(false);
+      setSimModalItem(null);
+      await loadBooking();
+    } catch (err: any) {
+      setSimModalError(err.message || "Failed to update simulator slot.");
+    } finally {
+      setIsSubmittingSimModal(false);
     }
   };
 
@@ -425,7 +611,7 @@ export default function OrderDetailPage() {
       .then(data => {
         if (data?.user) setSessionUser(data.user);
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   const canManageStatus = hasUserPermission(sessionUser, "bookings:status");
@@ -490,7 +676,7 @@ export default function OrderDetailPage() {
   const isPartiallyFulfilled = !allCanceled && !allActiveFulfilled && anyFulfilled;
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
-  
+
   // Check if any order item has recorded total_amount
   const hasRecordedTotal = orderItems.some(item => item.total_amount !== null && item.total_amount !== undefined && !isNaN(Number(item.total_amount)));
   const rawSumTotal = orderItems.reduce((acc, item) => acc + Number(item.total_amount || 0), 0);
@@ -925,11 +1111,10 @@ export default function OrderDetailPage() {
 
       {/* Notification Feedback Banner */}
       {advanceStatusMsg && (
-        <div className={`p-4 rounded-2xl border text-sm flex items-start justify-between gap-3 ${
-          advanceStatusMsg.type === "success" 
-            ? "bg-emerald-50 border-emerald-200 text-emerald-900" 
+        <div className={`p-4 rounded-2xl border text-sm flex items-start justify-between gap-3 ${advanceStatusMsg.type === "success"
+            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
             : "bg-red-50 border-red-200 text-red-900"
-        }`}>
+          }`}>
           <div className="space-y-1">
             <p className="font-bold flex items-center gap-2">
               <span>{advanceStatusMsg.type === "success" ? "✓" : "✕"}</span>
@@ -946,7 +1131,7 @@ export default function OrderDetailPage() {
               </p>
             )}
           </div>
-          <button 
+          <button
             onClick={() => setAdvanceStatusMsg(null)}
             className="text-gray-400 hover:text-gray-600 p-1"
           >
@@ -972,10 +1157,10 @@ export default function OrderDetailPage() {
 
       {/* Main Two-Column Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        
+
         {/* Left Column (Items + Payment Info) */}
         <div className="lg:col-span-8 space-y-6">
-          
+
           {/* VIP Band Offer Banner if Coupon Used */}
           {(booking.applied_coupon || orderItems.some(i => i.applied_coupon)) && (() => {
             const couponCode = booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon;
@@ -1130,9 +1315,9 @@ export default function OrderDetailPage() {
                 const itemIsCanceled = (item.fulfillment_status || "").toLowerCase() === "canceled" || (item.fulfillment_status || "").toLowerCase() === "cancelled";
                 const itemIsFulfilled = (item.fulfillment_status || "").toLowerCase() === "fulfilled" || (item.fulfillment_status || "").toLowerCase() === "attended";
                 const isAddonActivity = Boolean(
-                  item.is_addon === 1 || 
+                  item.is_addon === 1 ||
                   (item.ticket_name && (
-                    item.ticket_name.toUpperCase().includes("EXCAVATOR") || 
+                    item.ticket_name.toUpperCase().includes("EXCAVATOR") ||
                     item.ticket_name.toUpperCase().includes("DUMP") ||
                     item.ticket_name.toUpperCase().includes("ADDON") ||
                     item.ticket_name.toUpperCase().includes("ADD-ON")
@@ -1145,7 +1330,7 @@ export default function OrderDetailPage() {
                       {/* Ticket Type & Sub-Category Band Row */}
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="font-extrabold text-gray-900 text-sm tracking-tight uppercase">
-                          {isOrgReservation 
+                          {isOrgReservation
                             ? `${booking?.organization_type || "Organisation"} Reservation Session`
                             : (item.ticket_name ? item.ticket_name.replace("_", " ") : "Havoc Funzone Pass")}
                         </span>
@@ -1156,7 +1341,7 @@ export default function OrderDetailPage() {
                           if (catBand) {
                             const badgeStyle = getWristbandBadgeStyle(catBand.color_hex);
                             return (
-                              <span 
+                              <span
                                 className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
                                 style={{
                                   backgroundColor: badgeStyle.backgroundColor,
@@ -1164,9 +1349,9 @@ export default function OrderDetailPage() {
                                   color: badgeStyle.color
                                 }}
                               >
-                                <span 
+                                <span
                                   className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
-                                  style={{ 
+                                  style={{
                                     backgroundColor: catBand.color_hex,
                                     borderColor: badgeStyle.dotBorderColor
                                   }}
@@ -1357,7 +1542,7 @@ export default function OrderDetailPage() {
                               const band = getSlotWristbandColor(item.time_slot, item.slot_color, item.slot_color_name);
                               const badgeStyle = getWristbandBadgeStyle(band.hex);
                               return (
-                                <span 
+                                <span
                                   className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold border shadow-xs"
                                   style={{
                                     backgroundColor: badgeStyle.backgroundColor,
@@ -1365,9 +1550,9 @@ export default function OrderDetailPage() {
                                     color: badgeStyle.color
                                   }}
                                 >
-                                  <span 
+                                  <span
                                     className="w-2.5 h-2.5 rounded-full border shrink-0 shadow-inner"
-                                    style={{ 
+                                    style={{
                                       backgroundColor: band.hex,
                                       borderColor: badgeStyle.dotBorderColor
                                     }}
@@ -1468,12 +1653,61 @@ export default function OrderDetailPage() {
                           </>
                         )}
                       </div>
-                      <div className="max-w-md">
-                        <SimPerkBadgeList 
-                          simNameStr={item.simulator_name} 
-                          simSlotStr={item.simulator_slot} 
-                        />
-                      </div>
+                      {/* VIP Simulator Perks Section */}
+                      {(() => {
+                        const isVipTicket = item.ticket_name && (item.ticket_name.toUpperCase().includes("VIP") || item.has_simulator_perk === 1);
+                        const hasSimData = Boolean(item.simulator_name || item.simulator_slot);
+                        const isPending = !hasSimData || 
+                          (item.simulator_name && item.simulator_name.toLowerCase().includes("pending")) || 
+                          (item.simulator_slot && item.simulator_slot.toLowerCase().includes("pending"));
+
+                        if (!isVipTicket && !hasSimData) return null;
+
+                        if (hasSimData && !isPending) {
+                          return (
+                            <div className="max-w-md space-y-1">
+                              <SimPerkBadgeList
+                                simNameStr={item.simulator_name}
+                                simSlotStr={item.simulator_slot}
+                              />
+                              {canManageStatus && !itemIsCanceled && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenSimModal(item)}
+                                  className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-600 hover:text-orange-700 bg-orange-100/70 hover:bg-orange-100 px-2 py-0.5 rounded-md transition-colors cursor-pointer"
+                                  title="Change Simulator Rig or Slot"
+                                >
+                                  <Gamepad2 className="w-3 h-3" />
+                                  <span>Change Simulator / Slot ✎</span>
+                                </button>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (isVipTicket && canManageStatus && !itemIsCanceled) {
+                          return (
+                            <div className="mt-2 rounded-xl border border-amber-300 bg-amber-50/80 p-2.5 text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2 max-w-md">
+                              <div className="flex items-center gap-1.5 font-bold">
+                                <span className="text-sm">⚠️</span>
+                                <span className="text-[11px] font-black uppercase tracking-wider text-amber-800">
+                                  VIP Simulator Perk: Slot Pending
+                                </span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => handleOpenSimModal(item)}
+                                className="inline-flex items-center gap-1 text-xs font-black text-white bg-amber-600 hover:bg-amber-700 px-3 py-1 rounded-lg transition-colors shadow-2xs cursor-pointer active:scale-95"
+                              >
+                                <Gamepad2 className="w-3.5 h-3.5" />
+                                <span>+ Assign Simulator Slot</span>
+                              </button>
+                            </div>
+                          );
+                        }
+
+                        return null;
+                      })()}
                     </div>
 
                     <div className="flex items-center gap-6 self-start sm:self-auto text-sm">
@@ -1533,126 +1767,126 @@ export default function OrderDetailPage() {
 
           {/* Payment Info Card */}
           {!booking?.organization_name && (
-          <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <h2 className="text-lg font-bold text-gray-900">Payment info</h2>
-              {isPaid ? (
-                <span className="px-2.5 py-0.5 rounded text-xs font-black uppercase bg-green-50 text-green-700 border border-green-200">
-                  PAID
-                </span>
-              ) : (
-                <span className="px-2.5 py-0.5 rounded text-xs font-black uppercase bg-amber-50 text-amber-700 border border-amber-200">
-                  UNPAID
-                </span>
-              )}
-            </div>
-
-            <div className="space-y-2.5 pt-1 text-sm text-gray-600">
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Tariff Subtotal</span>
-                <span className="font-medium text-gray-900">₹{baseItemsSubtotal.toFixed(2)}</span>
-              </div>
-              {discountTotal > 0 && (
-                <div className="flex justify-between items-center text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                  <span className="flex items-center gap-1.5 text-xs">
-                    <span>🏷️ Coupon Discount</span>
-                    {(booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon) && (
-                      <span className="font-mono bg-emerald-200/80 text-emerald-950 px-1.5 py-0.5 rounded text-[11px] font-black border border-emerald-300">
-                        {booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon}
-                      </span>
-                    )}
+            <div className="bg-white rounded-2xl border border-gray-200 p-6 sm:p-8 shadow-sm space-y-4">
+              <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                <h2 className="text-lg font-bold text-gray-900">Payment info</h2>
+                {isPaid ? (
+                  <span className="px-2.5 py-0.5 rounded text-xs font-black uppercase bg-green-50 text-green-700 border border-green-200">
+                    PAID
                   </span>
-                  <span>-₹{discountTotal.toFixed(2)}</span>
-                </div>
-              )}
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Shipping / Desk Booking</span>
-                <span className="text-green-600 font-bold">Free</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-gray-500">Tax (18% GST)</span>
-                <span className="font-medium text-gray-900">₹{taxGst.toFixed(2)}</span>
-              </div>
-            </div>
-
-            <div className="pt-4 border-t border-gray-100 flex justify-between items-center text-xl font-black text-gray-900">
-              <span>Total</span>
-              <span className="text-2xl text-[#0d1b2a]">₹{totalAmount.toFixed(2)}</span>
-            </div>
-
-            <div className="flex justify-between items-center text-sm font-semibold text-gray-500 pt-1">
-              <span>Amount due</span>
-              <span className={amountDue > 0 ? "text-amber-600 font-bold" : "text-gray-900 font-medium"}>
-                ₹{amountDue.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Transaction ID / Payment Reference Section */}
-            <div className="pt-3 border-t border-gray-100 space-y-1.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  Transaction ID / Payment Ref
-                </span>
-                {canCollectPayment && !isEditingPaymentRef && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPaymentRefInput(booking.payment_ref || "");
-                      setIsEditingPaymentRef(true);
-                    }}
-                    className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
-                  >
-                    <Edit2 className="w-3 h-3" />
-                    <span>{booking.payment_ref ? "Edit" : "+ Add Transaction ID"}</span>
-                  </button>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded text-xs font-black uppercase bg-amber-50 text-amber-700 border border-amber-200">
+                    UNPAID
+                  </span>
                 )}
               </div>
 
-              {isEditingPaymentRef ? (
-                <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-150">
-                  <input
-                    type="text"
-                    value={paymentRefInput}
-                    onChange={(e) => setPaymentRefInput(e.target.value)}
-                    placeholder="e.g. UPI Ref / Cash / POS Slip"
-                    className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    disabled={isSavingRef}
-                    onClick={handleSavePaymentRef}
-                    className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs disabled:opacity-50"
-                  >
-                    {isSavingRef ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditingPaymentRef(false);
-                      setPaymentRefInput(booking.payment_ref || "");
-                    }}
-                    className="px-2.5 py-1.5 text-gray-500 hover:text-gray-700 text-xs font-semibold"
-                  >
-                    Cancel
-                  </button>
+              <div className="space-y-2.5 pt-1 text-sm text-gray-600">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Tariff Subtotal</span>
+                  <span className="font-medium text-gray-900">₹{baseItemsSubtotal.toFixed(2)}</span>
                 </div>
-              ) : (
-                <div className="bg-gray-50/80 border border-gray-200/80 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-800 flex items-center justify-between">
-                  <span className="truncate">
-                    {booking.payment_ref ? booking.payment_ref : <span className="font-sans text-gray-400 font-normal italic">No transaction reference recorded</span>}
+                {discountTotal > 0 && (
+                  <div className="flex justify-between items-center text-emerald-700 font-bold bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                    <span className="flex items-center gap-1.5 text-xs">
+                      <span>🏷️ Coupon Discount</span>
+                      {(booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon) && (
+                        <span className="font-mono bg-emerald-200/80 text-emerald-950 px-1.5 py-0.5 rounded text-[11px] font-black border border-emerald-300">
+                          {booking.applied_coupon || orderItems.find(i => i.applied_coupon)?.applied_coupon}
+                        </span>
+                      )}
+                    </span>
+                    <span>-₹{discountTotal.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Shipping / Desk Booking</span>
+                  <span className="text-green-600 font-bold">Free</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Tax (18% GST)</span>
+                  <span className="font-medium text-gray-900">₹{taxGst.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-gray-100 flex justify-between items-center text-xl font-black text-gray-900">
+                <span>Total</span>
+                <span className="text-2xl text-[#0d1b2a]">₹{totalAmount.toFixed(2)}</span>
+              </div>
+
+              <div className="flex justify-between items-center text-sm font-semibold text-gray-500 pt-1">
+                <span>Amount due</span>
+                <span className={amountDue > 0 ? "text-amber-600 font-bold" : "text-gray-900 font-medium"}>
+                  ₹{amountDue.toFixed(2)}
+                </span>
+              </div>
+
+              {/* Transaction ID / Payment Reference Section */}
+              <div className="pt-3 border-t border-gray-100 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Transaction ID / Payment Ref
                   </span>
+                  {canCollectPayment && !isEditingPaymentRef && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaymentRefInput(booking.payment_ref || "");
+                        setIsEditingPaymentRef(true);
+                      }}
+                      className="text-xs font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                      <span>{booking.payment_ref ? "Edit" : "+ Add Transaction ID"}</span>
+                    </button>
+                  )}
                 </div>
-              )}
+
+                {isEditingPaymentRef ? (
+                  <div className="flex items-center gap-2 pt-1 animate-in fade-in duration-150">
+                    <input
+                      type="text"
+                      value={paymentRefInput}
+                      onChange={(e) => setPaymentRefInput(e.target.value)}
+                      placeholder="e.g. UPI Ref / Cash / POS Slip"
+                      className="flex-1 bg-gray-50 border border-gray-300 rounded-xl px-3 py-1.5 text-xs font-medium text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      autoFocus
+                    />
+                    <button
+                      type="button"
+                      disabled={isSavingRef}
+                      onClick={handleSavePaymentRef}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs transition-colors shadow-xs disabled:opacity-50"
+                    >
+                      {isSavingRef ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsEditingPaymentRef(false);
+                        setPaymentRefInput(booking.payment_ref || "");
+                      }}
+                      className="px-2.5 py-1.5 text-gray-500 hover:text-gray-700 text-xs font-semibold"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-gray-50/80 border border-gray-200/80 rounded-xl px-3 py-2 text-xs font-mono font-bold text-gray-800 flex items-center justify-between">
+                    <span className="truncate">
+                      {booking.payment_ref ? booking.payment_ref : <span className="font-sans text-gray-400 font-normal italic">No transaction reference recorded</span>}
+                    </span>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
           )}
 
         </div>
 
         {/* Right Column (Order info + Tags) */}
         <div className="lg:col-span-4 space-y-6">
-          
+
           {/* Order Info Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
             <h2 className="text-base font-bold text-gray-900 mb-4 border-b border-gray-100 pb-3">
@@ -1679,7 +1913,7 @@ export default function OrderDetailPage() {
                   </button>
                 )}
               </div>
-              
+
               {isEditingContact ? (
                 <div className="space-y-3 pt-1">
                   <div>
@@ -1792,7 +2026,7 @@ export default function OrderDetailPage() {
                 </div>
               </div>
             ) : (
-              <div 
+              <div
                 onClick={() => setIsEditingTags(true)}
                 className="border border-dashed border-gray-300 hover:border-[#ff5a1f] rounded-xl p-3 text-center cursor-pointer transition-colors text-xs text-gray-500 hover:text-[#ff5a1f]"
               >
@@ -1918,7 +2152,7 @@ export default function OrderDetailPage() {
         const currentUnitPrice = Number(upgradingItem.ticket_price || 0);
         const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
         const targetUnitPrice = selectedTarget ? Number(selectedTarget.price || 0) : 0;
-        
+
         const unitDiff = Math.max(0, targetUnitPrice - currentUnitPrice);
         const subtotalDiff = unitDiff * currentQty;
         const autoDiffWithGst = Math.round(subtotalDiff * 1.18);
@@ -1975,11 +2209,10 @@ export default function OrderDetailPage() {
                       <label
                         key={t.id}
                         onClick={() => setTargetUpgradeTicketId(t.id)}
-                        className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${
-                          isSelected
+                        className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${isSelected
                             ? "border-indigo-600 bg-indigo-50/70 shadow-xs ring-1 ring-indigo-500"
                             : "border-gray-200 bg-white hover:bg-gray-50"
-                        }`}
+                          }`}
                       >
                         <div className="flex items-center gap-2.5">
                           <input
@@ -2010,6 +2243,178 @@ export default function OrderDetailPage() {
                   })}
                 </div>
               </div>
+
+              {/* VIP Simulator Perk Allocation Box (If upgrading to VIP Participant / Simulator Perk Ticket) */}
+              {selectedTarget && (selectedTarget.has_simulator_perk === 1 || (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))) && (
+                <div className="p-4 bg-orange-50/70 rounded-2xl border-2 border-orange-200 text-xs space-y-3.5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="p-1 rounded-md bg-[#ff5a1f] text-white shadow-2xs">
+                        <Gamepad2 className="w-4 h-4" />
+                      </span>
+                      <div>
+                        <span className="font-black text-gray-900 text-sm block">
+                          VIP Simulator Perk Allocation
+                        </span>
+                        <span className="text-[11px] text-orange-800">
+                          Included: 30-min session per participant ({currentQty} {currentQty === 1 ? 'person' : 'people'})
+                        </span>
+                      </div>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-200/80 text-orange-950 font-mono">
+                      Included
+                    </span>
+                  </div>
+
+                  {/* Choice: Now vs Later */}
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <label
+                      onClick={() => setUpgradeSimChoice("now")}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                        upgradeSimChoice === "now"
+                          ? "border-[#ff5a1f] bg-white shadow-xs font-bold text-orange-950 ring-1 ring-orange-400"
+                          : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="upgradeSimChoice"
+                        checked={upgradeSimChoice === "now"}
+                        onChange={() => setUpgradeSimChoice("now")}
+                        className="text-orange-600 focus:ring-orange-500"
+                      />
+                      <span>Assign Rig & Slot Now</span>
+                    </label>
+
+                    <label
+                      onClick={() => setUpgradeSimChoice("later")}
+                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                        upgradeSimChoice === "later"
+                          ? "border-amber-500 bg-white shadow-xs font-bold text-amber-950 ring-1 ring-amber-400"
+                          : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="upgradeSimChoice"
+                        checked={upgradeSimChoice === "later"}
+                        onChange={() => setUpgradeSimChoice("later")}
+                        className="text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>Assign Later at Reception</span>
+                    </label>
+                  </div>
+
+                  {upgradeSimChoice === "later" ? (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 space-y-1">
+                      <span className="font-bold flex items-center gap-1.5 text-amber-950">
+                        <span>🕒</span>
+                        <span>Pending Desk Allocation</span>
+                      </span>
+                      <p>
+                        The ticket will upgrade immediately to <strong>{selectedTarget.name ? selectedTarget.name.replace("_", " ") : "VIP Package"}</strong>. The simulator session will be saved as <em>Pending Desk Assignment</em>, and reception or the simulator operator can assign the specific machine & 30-min time slot when the guest checks in.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3 pt-1">
+                      {Array.from({ length: currentQty }).map((_, idx) => {
+                        const currentSel = upgradeSimSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
+                        const itemDate = upgradingItem?.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                        const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
+
+                        return (
+                          <div key={idx} className="bg-white rounded-xl border border-orange-200 p-3 shadow-2xs space-y-2.5">
+                            <div className="flex items-center justify-between">
+                              <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
+                                <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
+                                  {idx + 1}
+                                </span>
+                                <span>{currentQty > 1 ? `Participant #${idx + 1}` : 'Simulator Rig & Slot Selection'}</span>
+                              </span>
+                              {currentSel.simSlot ? (
+                                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
+                                  ✓ Slot: {currentSel.simSlot}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-amber-700 font-bold">
+                                  * Select 30-min slot
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Simulator Rig Selector */}
+                            <div>
+                              <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                Choose Simulator Rig
+                              </label>
+                              <select
+                                value={currentSel.simName}
+                                onChange={(e) => {
+                                  const newSim = e.target.value;
+                                  const next = [...upgradeSimSelections];
+                                  next[idx] = { simName: newSim, simSlot: "" };
+                                  setUpgradeSimSelections(next);
+                                  loadTakenSlotsForSim(newSim, itemDate);
+                                }}
+                                className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                              >
+                                {availableSimulators.map((s) => (
+                                  <option key={s.id} value={s.name}>
+                                    {s.name} {s.category ? `(${s.category})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* 30-min Time Slot Grid */}
+                            <div>
+                              <div className="flex items-center justify-between mb-1">
+                                <label className="text-[10px] uppercase font-bold text-gray-500">
+                                  30-Min Time Slot ({itemDate})
+                                </label>
+                                {loadingTakenSlots && (
+                                  <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                    <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking availability...
+                                  </span>
+                                )}
+                              </div>
+                              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                {BASE_30MIN_SIM_SLOTS.map((slot) => {
+                                  const isTaken = takenList.includes(slot);
+                                  const isSelected = currentSel.simSlot === slot;
+                                  return (
+                                    <button
+                                      key={slot}
+                                      type="button"
+                                      disabled={isTaken}
+                                      onClick={() => {
+                                        const next = [...upgradeSimSelections];
+                                        next[idx] = { ...currentSel, simSlot: slot };
+                                        setUpgradeSimSelections(next);
+                                      }}
+                                      title={isTaken ? "Occupied / Booked by another guest" : `Select ${slot}`}
+                                      className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
+                                        isSelected
+                                          ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
+                                          : isTaken
+                                          ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
+                                          : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
+                                      }`}
+                                    >
+                                      {slot}
+                                      {isTaken && <span className="block text-[8px] font-normal no-underline">Occupied</span>}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Price Difference Breakdown Box */}
               <div className="p-4 bg-gradient-to-br from-indigo-50/80 via-white to-violet-50/60 rounded-xl border-2 border-indigo-200 text-xs space-y-2">
@@ -2053,9 +2458,8 @@ export default function OrderDetailPage() {
                 <span className="text-xs font-bold text-gray-800 block">Upgrade Payment Settlement</span>
 
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${
-                    upgradePaymentConfirmed ? "border-emerald-500 bg-emerald-50/50 text-emerald-950 font-bold" : "border-gray-200 text-gray-600"
-                  }`}>
+                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${upgradePaymentConfirmed ? "border-emerald-500 bg-emerald-50/50 text-emerald-950 font-bold" : "border-gray-200 text-gray-600"
+                    }`}>
                     <input
                       type="radio"
                       name="paymentOption"
@@ -2065,9 +2469,8 @@ export default function OrderDetailPage() {
                     <span>Payment Collected</span>
                   </label>
 
-                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${
-                    !upgradePaymentConfirmed ? "border-amber-500 bg-amber-50/50 text-amber-950 font-bold" : "border-gray-200 text-gray-600"
-                  }`}>
+                  <label className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer ${!upgradePaymentConfirmed ? "border-amber-500 bg-amber-50/50 text-amber-950 font-bold" : "border-gray-200 text-gray-600"
+                    }`}>
                     <input
                       type="radio"
                       name="paymentOption"
@@ -2167,9 +2570,8 @@ export default function OrderDetailPage() {
                 <div>
                   <label className="text-xs font-bold text-gray-700 block mb-1">Apply Reschedule To</label>
                   <div className="grid grid-cols-2 gap-2 text-xs">
-                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
-                      rescheduleScope === 'order' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
-                    }`}>
+                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${rescheduleScope === 'order' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
+                      }`}>
                       <input
                         type="radio"
                         name="rescheduleScope"
@@ -2179,9 +2581,8 @@ export default function OrderDetailPage() {
                       <span>All Items in Order</span>
                     </label>
 
-                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
-                      rescheduleScope === 'item' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
-                    }`}>
+                    <label className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${rescheduleScope === 'item' ? "border-indigo-500 bg-indigo-50/60 font-bold text-indigo-950" : "border-gray-200 text-gray-600"
+                      }`}>
                       <input
                         type="radio"
                         name="rescheduleScope"
@@ -2302,6 +2703,230 @@ export default function OrderDetailPage() {
                 {isSubmittingReschedule && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Save Rescheduled Slot</span>
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign / Change VIP Simulator Slot Modal */}
+      {isSimModalOpen && simModalItem && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+            {/* Modal Header */}
+            <div className="px-6 py-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-[#ff5a1f] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+                  <Gamepad2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-gray-900 tracking-tight">Assign VIP Simulator Perk</h3>
+                  <p className="text-xs text-gray-500">
+                    Order {orderCode} • {simModalItem.ticket_name ? simModalItem.ticket_name.replace("_", " ") : "VIP Package"} ({simModalItem.quantity || 1} {simModalItem.quantity === 1 ? 'person' : 'people'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => !isSubmittingSimModal && setIsSimModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors"
+                disabled={isSubmittingSimModal}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4 overflow-y-auto">
+              {/* Mode choice: Assign Rig & Slot vs Keep Pending */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <label
+                  onClick={() => setSimModalChoice('assign')}
+                  className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                    simModalChoice === 'assign' ? "border-[#ff5a1f] bg-orange-50/70 font-bold text-orange-950 ring-1 ring-orange-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="simModalChoice"
+                    checked={simModalChoice === 'assign'}
+                    onChange={() => setSimModalChoice('assign')}
+                    className="text-orange-600 focus:ring-orange-500"
+                  />
+                  <span>Assign Rig & Slot</span>
+                </label>
+
+                <label
+                  onClick={() => setSimModalChoice('pending')}
+                  className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                    simModalChoice === 'pending' ? "border-amber-500 bg-amber-50/70 font-bold text-amber-950 ring-1 ring-amber-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="simModalChoice"
+                    checked={simModalChoice === 'pending'}
+                    onChange={() => setSimModalChoice('pending')}
+                    className="text-amber-600 focus:ring-amber-500"
+                  />
+                  <span>Mark as Pending</span>
+                </label>
+              </div>
+
+              {simModalChoice === 'pending' ? (
+                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1.5">
+                  <span className="font-bold flex items-center gap-1.5 text-amber-950 text-sm">
+                    <span>🕒</span>
+                    <span>Pending Desk Allocation</span>
+                  </span>
+                  <p>
+                    The simulator perk will be saved as <strong>Pending Desk Assignment</strong>. Front desk staff or the simulator operator can assign the specific rig and 30-minute time slot when the guest arrives.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {Array.from({ length: Math.max(1, simModalItem.quantity || 1) }).map((_, idx) => {
+                    const currentSel = simModalSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
+                    const itemDate = simModalItem.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                    const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
+
+                    return (
+                      <div key={idx} className="bg-gray-50/80 rounded-2xl border border-gray-200 p-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
+                            <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
+                              {idx + 1}
+                            </span>
+                            <span>{(simModalItem.quantity || 1) > 1 ? `Participant #${idx + 1}` : 'Simulator Rig & Slot'}</span>
+                          </span>
+                          {currentSel.simSlot ? (
+                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
+                              ✓ {currentSel.simSlot}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-amber-700 font-bold">
+                              * Select time slot
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Simulator Rig Selector */}
+                        <div>
+                          <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                            Choose Simulator Rig
+                          </label>
+                          <select
+                            value={currentSel.simName}
+                            onChange={(e) => {
+                              const newSim = e.target.value;
+                              const next = [...simModalSelections];
+                              next[idx] = { simName: newSim, simSlot: "" };
+                              setSimModalSelections(next);
+                              loadTakenSlotsForSim(newSim, itemDate);
+                            }}
+                            className="w-full text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                          >
+                            {availableSimulators.map((s) => (
+                              <option key={s.id} value={s.name}>
+                                {s.name} {s.category ? `(${s.category})` : ""}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* 30-min Slot Grid */}
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-[10px] uppercase font-bold text-gray-500">
+                              30-Min Time Slot ({itemDate})
+                            </label>
+                            {loadingTakenSlots && (
+                              <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking availability...
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                            {BASE_30MIN_SIM_SLOTS.map((slot) => {
+                              const isTaken = takenList.includes(slot);
+                              const isSelected = currentSel.simSlot === slot;
+                              return (
+                                <button
+                                  key={slot}
+                                  type="button"
+                                  disabled={isTaken}
+                                  onClick={() => {
+                                    const next = [...simModalSelections];
+                                    next[idx] = { ...currentSel, simSlot: slot };
+                                    setSimModalSelections(next);
+                                  }}
+                                  title={isTaken ? "Occupied / Booked by another guest" : `Select ${slot}`}
+                                  className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
+                                    isSelected
+                                      ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
+                                      : isTaken
+                                      ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
+                                      : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
+                                  }`}
+                                >
+                                  {slot}
+                                  {isTaken && <span className="block text-[8px] font-normal no-underline">Occupied</span>}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {simModalError && (
+                <div className="text-xs text-red-700 font-bold bg-red-50 border border-red-200 p-3 rounded-xl flex items-start gap-2">
+                  <span className="shrink-0">⚠️</span>
+                  <span>{simModalError}</span>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => setSimModalChoice('clear')}
+                disabled={isSubmittingSimModal}
+                className="text-xs text-gray-500 hover:text-rose-600 transition-colors font-semibold cursor-pointer"
+              >
+                Clear Simulator Perk
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSimModalOpen(false)}
+                  disabled={isSubmittingSimModal}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-200 transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmSimModal}
+                  disabled={isSubmittingSimModal}
+                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#ff5a1f] hover:bg-[#e04f1a] active:scale-95 text-white shadow-md shadow-orange-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isSubmittingSimModal ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Slot...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Save Simulator Slot</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>

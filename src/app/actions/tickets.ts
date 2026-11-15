@@ -79,6 +79,7 @@ import {
   addAddonToOrder,
   removeBookingItem,
   upgradeBookingItem,
+  updateBookingItemSimulator,
   updateBookingScheduleAndContact
 } from "@/lib/db";
 import {
@@ -807,6 +808,8 @@ export async function upgradeBookingItemAction(params: {
   paymentMode?: string;
   paymentRef?: string;
   customDiffAmount?: number | null;
+  simulatorName?: string | null;
+  simulatorSlot?: string | null;
 }) {
   const session = await checkSessionAction();
   if (!hasUserPermission(session, "bookings:status") && !hasUserPermission(session, "bookings:payment")) {
@@ -814,12 +817,93 @@ export async function upgradeBookingItemAction(params: {
   }
 
   try {
+    const bookingRow = getBookingById(params.bookingItemId) as any;
+    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.created_at, bookingRow?.payment_status);
+
+    // If item had existing simulator slots and new ones are being set (or cleared), release old ones
+    if (bookingRow?.simulator_name && bookingRow?.simulator_slot && params.simulatorName !== undefined) {
+      await releaseSimulatorSlots(orderCode, params.bookingItemId).catch(err => console.error("Error releasing old sim slots:", err));
+    }
+
     const result = upgradeBookingItem(params);
+
+    // If new simulator slot was selected, lock it in PostgreSQL
+    if (params.simulatorName && params.simulatorSlot && !params.simulatorName.toLowerCase().includes("pending") && !params.simulatorSlot.toLowerCase().includes("pending")) {
+      const assignments = parseSimulatorSlotAssignments(params.simulatorName, params.simulatorSlot);
+      for (let idx = 0; idx < assignments.length; idx++) {
+        const item = assignments[idx];
+        if (item.simulatorName && item.slotLabel) {
+          const itemOrderId = assignments.length > 1 ? `${orderCode}_${params.bookingItemId}_${idx + 1}` : `${orderCode}_${params.bookingItemId}`;
+          await lockSimulatorSlot({
+            simulatorName: item.simulatorName,
+            bookingDate: bookingRow?.booking_date || new Date().toISOString().split('T')[0],
+            bookingTime: item.slotLabel,
+            sourceOrderId: itemOrderId,
+            customerName: bookingRow?.customer_name,
+            customerEmail: bookingRow?.customer_email,
+            customerPhone: bookingRow?.customer_phone,
+            status: 'CONFIRMED'
+          });
+        }
+      }
+    }
+
     revalidatePath('/admin/bookings');
     revalidatePath(`/admin/bookings/${params.orderNumber}`);
     return { ...result };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to upgrade package." };
+  }
+}
+
+export async function updateBookingSimulatorAction(params: {
+  orderNumber: number;
+  bookingItemId: number;
+  simulatorName: string | null;
+  simulatorSlot: string | null;
+}) {
+  const session = await checkSessionAction();
+  if (!hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: You do not have permission to manage simulator slots." };
+  }
+
+  try {
+    const bookingRow = getBookingById(params.bookingItemId) as any;
+    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.created_at, bookingRow?.payment_status);
+
+    // Release old slots
+    if (bookingRow?.simulator_name && bookingRow?.simulator_slot) {
+      await releaseSimulatorSlots(orderCode, params.bookingItemId).catch(err => console.error("Error releasing old sim slots:", err));
+    }
+
+    updateBookingItemSimulator(params);
+
+    // Lock new slots if provided and not pending
+    if (params.simulatorName && params.simulatorSlot && !params.simulatorName.toLowerCase().includes("pending") && !params.simulatorSlot.toLowerCase().includes("pending")) {
+      const assignments = parseSimulatorSlotAssignments(params.simulatorName, params.simulatorSlot);
+      for (let idx = 0; idx < assignments.length; idx++) {
+        const item = assignments[idx];
+        if (item.simulatorName && item.slotLabel) {
+          const itemOrderId = assignments.length > 1 ? `${orderCode}_${params.bookingItemId}_${idx + 1}` : `${orderCode}_${params.bookingItemId}`;
+          await lockSimulatorSlot({
+            simulatorName: item.simulatorName,
+            bookingDate: bookingRow?.booking_date || new Date().toISOString().split('T')[0],
+            bookingTime: item.slotLabel,
+            sourceOrderId: itemOrderId,
+            customerName: bookingRow?.customer_name,
+            customerEmail: bookingRow?.customer_email,
+            customerPhone: bookingRow?.customer_phone,
+            status: 'CONFIRMED'
+          });
+        }
+      }
+    }
+
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${params.orderNumber}`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to update simulator perk." };
   }
 }
 

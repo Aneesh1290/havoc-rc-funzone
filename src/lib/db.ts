@@ -407,7 +407,7 @@ export function initDB() {
     insert.run('VISITOR', 300, 10, 1, 0, 30, null);
     insert.run('PARTICIPANT', 1000, 10, 1, 0, 30, null);
     insert.run('VIP_VISITOR', 500, 10, 1, 0, 30, null);
-    insert.run('VIP_PARTICIPANT', 1500, 6, 1, 1, 30, '30-Min Havoc Sim Podium Session');
+    insert.run('VIP_PARTICIPANT', 2000, 6, 1, 1, 60, '60-Min Havoc Sim Podium Session');
   }
 
   // Seed default admin user if table is empty

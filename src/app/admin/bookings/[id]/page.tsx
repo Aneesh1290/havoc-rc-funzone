@@ -363,6 +363,39 @@ export default function OrderDetailPage() {
     }
   };
 
+  // Synchronize upgradeSimSelections length when target upgrade ticket changes
+  useEffect(() => {
+    if (!isUpgradeModalOpen || !upgradingItem || !targetUpgradeTicketId) return;
+    const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
+    if (!selectedTarget) return;
+
+    const isTargetVip = Boolean(
+      selectedTarget.has_simulator_perk === 1 || 
+      (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))
+    );
+    if (!isTargetVip) return;
+
+    const perkDuration = selectedTarget.perk_duration_mins || (selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30);
+    const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
+    const qty = Math.max(1, upgradingItem.quantity || 1);
+    const totalNeeded = qty * requiredSlotsPerTicket;
+    const defaultSimName = availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)";
+    const itemDate = upgradingItem.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+
+    setUpgradeSimSelections(prev => {
+      if (prev.length === totalNeeded) return prev;
+      const next = [...prev];
+      while (next.length < totalNeeded) {
+        next.push({ simName: defaultSimName, simSlot: "" });
+      }
+      const sliced = next.slice(0, totalNeeded);
+      sliced.forEach(s => {
+        if (s.simName) loadTakenSlotsForSim(s.simName, itemDate);
+      });
+      return sliced;
+    });
+  }, [targetUpgradeTicketId, isUpgradeModalOpen, upgradingItem, upgradeTicketsList, availableSimulators, booking?.booking_date]);
+
   // Upgrade Handlers
   const handleOpenUpgradeModal = async (item: any) => {
     setUpgradingItem(item);
@@ -384,19 +417,25 @@ export default function OrderDetailPage() {
         (t: any) => t.id !== item.ticket_id && t.active && !t.is_addon && !t.name.toUpperCase().includes("ORGANISATION")
       );
       setUpgradeTicketsList(validTargets);
+      let targetTicket: any = null;
       if (validTargets.length > 0) {
         const higher = validTargets.find((t: any) => Number(t.price) > Number(item.ticket_price || 0));
-        setTargetUpgradeTicketId(higher ? higher.id : validTargets[0].id);
+        targetTicket = higher ? higher : validTargets[0];
+        setTargetUpgradeTicketId(targetTicket.id);
       }
 
-      // Initialize simulator selections for the item's quantity
+      // Initialize simulator selections based on perk duration (VIP Participant = 60 mins -> 2 sessions per person)
+      const isTargetVip = targetTicket ? Boolean(targetTicket.has_simulator_perk === 1 || (targetTicket.name && targetTicket.name.toUpperCase().includes("VIP_PARTICIPANT"))) : false;
+      const perkDuration = isTargetVip ? (targetTicket?.perk_duration_mins || (targetTicket?.name?.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30)) : 30;
+      const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
       const qty = Math.max(1, item.quantity || 1);
+      const totalSlotsNeeded = qty * requiredSlotsPerTicket;
       const defaultSimName = simList?.[0]?.name || "Flight Sim Pro (Airbus Edition)";
       const itemDate = item.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
 
       const existing = parseSimPerkDisplay(item.simulator_name, item.simulator_slot);
       const initialSelections: Array<{ simName: string; simSlot: string }> = [];
-      for (let i = 0; i < qty; i++) {
+      for (let i = 0; i < totalSlotsNeeded; i++) {
         const ex = existing[i];
         const sName = (ex && ex.simulatorName && !ex.simulatorName.toLowerCase().includes("pending") && !ex.simulatorName.toLowerCase().includes("simulator")) ? ex.simulatorName : defaultSimName;
         const sSlot = (ex && ex.slotLabel && !ex.slotLabel.toLowerCase().includes("pending")) ? ex.slotLabel : "";
@@ -419,6 +458,9 @@ export default function OrderDetailPage() {
     try {
       const selectedTarget = upgradeTicketsList.find(t => t.id === Number(targetUpgradeTicketId));
       const isTargetVip = selectedTarget ? Boolean(selectedTarget.has_simulator_perk || (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))) : false;
+      const perkDuration = isTargetVip ? (selectedTarget?.perk_duration_mins || (selectedTarget?.name?.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30)) : 30;
+      const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
+      const currentQty = Math.max(1, upgradingItem.quantity || 1);
 
       let simNameToSend: string | null | undefined = undefined;
       let simSlotToSend: string | null | undefined = undefined;
@@ -430,7 +472,7 @@ export default function OrderDetailPage() {
         } else {
           const missing = upgradeSimSelections.some(s => !s.simName || !s.simSlot);
           if (missing) {
-            setUpgradeError("Please select both a simulator machine and a 30-min time slot for all participants, or choose 'Assign Later at Reception'.");
+            setUpgradeError(`Please select both a simulator machine and a 30-min time slot for all ${upgradeSimSelections.length > 1 ? `${upgradeSimSelections.length} sessions` : 'participants'}, or choose 'Assign Later at Reception'.`);
             setIsSubmittingUpgrade(false);
             return;
           }
@@ -438,8 +480,16 @@ export default function OrderDetailPage() {
             simNameToSend = upgradeSimSelections[0].simName;
             simSlotToSend = upgradeSimSelections[0].simSlot;
           } else {
-            simNameToSend = upgradeSimSelections.map((s, i) => `#${i + 1} (P${i + 1}): ${s.simName}`).join(" | ");
-            simSlotToSend = upgradeSimSelections.map((s, i) => `#${i + 1} (P${i + 1} - ${s.simName}): ${s.simSlot}`).join(" • ");
+            simNameToSend = upgradeSimSelections.map((s, i) => {
+              const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+              return currentQty > 1 ? `#${i + 1} (P${pNum}): ${s.simName}` : `#${i + 1}: ${s.simName}`;
+            }).join(" | ");
+            simSlotToSend = upgradeSimSelections.map((s, i) => {
+              const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+              return currentQty > 1 
+                ? `#${i + 1} (P${pNum} - ${s.simName}): ${s.simSlot}` 
+                : `#${i + 1} (${s.simName}): ${s.simSlot}`;
+            }).join(" • ");
           }
         }
       }
@@ -482,13 +532,17 @@ export default function OrderDetailPage() {
         simList = await fetchSimulatorListAction();
         setAvailableSimulators(simList);
       }
+      const isVip = Boolean(item.ticket_name && item.ticket_name.toUpperCase().includes("VIP_PARTICIPANT")) || item.has_simulator_perk === 1;
+      const perkDuration = isVip ? (item.perk_duration_mins || (item.ticket_name?.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30)) : 30;
+      const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
       const qty = Math.max(1, item.quantity || 1);
+      const totalNeeded = qty * requiredSlotsPerTicket;
       const defaultSimName = simList?.[0]?.name || "Flight Sim Pro (Airbus Edition)";
       const itemDate = item.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
 
       const existing = parseSimPerkDisplay(item.simulator_name, item.simulator_slot);
       const initial: Array<{ simName: string; simSlot: string }> = [];
-      for (let i = 0; i < qty; i++) {
+      for (let i = 0; i < totalNeeded; i++) {
         const ex = existing[i];
         const sName = (ex && ex.simulatorName && !ex.simulatorName.toLowerCase().includes("pending") && !ex.simulatorName.toLowerCase().includes("simulator")) ? ex.simulatorName : defaultSimName;
         const sSlot = (ex && ex.slotLabel && !ex.slotLabel.toLowerCase().includes("pending")) ? ex.slotLabel : "";
@@ -518,9 +572,14 @@ export default function OrderDetailPage() {
         simNameToSend = "Pending Desk Assignment";
         simSlotToSend = "Slot Pending";
       } else {
+        const isVip = Boolean(simModalItem.ticket_name && simModalItem.ticket_name.toUpperCase().includes("VIP_PARTICIPANT")) || simModalItem.has_simulator_perk === 1;
+        const perkDuration = isVip ? (simModalItem.perk_duration_mins || (simModalItem.ticket_name?.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30)) : 30;
+        const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
+        const itemQty = Math.max(1, simModalItem.quantity || 1);
+
         const missing = simModalSelections.some(s => !s.simName || !s.simSlot);
         if (missing) {
-          setSimModalError("Please select both a simulator machine and a 30-min time slot for all participants, or select 'Mark as Pending'.");
+          setSimModalError(`Please select both a simulator machine and a 30-min time slot for all ${simModalSelections.length > 1 ? `${simModalSelections.length} sessions` : 'participants'}, or select 'Mark as Pending'.`);
           setIsSubmittingSimModal(false);
           return;
         }
@@ -528,8 +587,16 @@ export default function OrderDetailPage() {
           simNameToSend = simModalSelections[0].simName;
           simSlotToSend = simModalSelections[0].simSlot;
         } else {
-          simNameToSend = simModalSelections.map((s, i) => `#${i + 1} (P${i + 1}): ${s.simName}`).join(" | ");
-          simSlotToSend = simModalSelections.map((s, i) => `#${i + 1} (P${i + 1} - ${s.simName}): ${s.simSlot}`).join(" • ");
+          simNameToSend = simModalSelections.map((s, i) => {
+            const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+            return itemQty > 1 ? `#${i + 1} (P${pNum}): ${s.simName}` : `#${i + 1}: ${s.simName}`;
+          }).join(" | ");
+          simSlotToSend = simModalSelections.map((s, i) => {
+            const pNum = Math.floor(i / requiredSlotsPerTicket) + 1;
+            return itemQty > 1 
+              ? `#${i + 1} (P${pNum} - ${s.simName}): ${s.simSlot}` 
+              : `#${i + 1} (${s.simName}): ${s.simSlot}`;
+          }).join(" • ");
         }
       }
 
@@ -2266,214 +2333,246 @@ export default function OrderDetailPage() {
               </div>
 
               {/* VIP Simulator Perk Allocation Box (If upgrading to VIP Participant / Simulator Perk Ticket) */}
-              {selectedTarget && (selectedTarget.has_simulator_perk === 1 || (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))) && (
-                <div className="p-4 bg-orange-50/70 rounded-2xl border-2 border-orange-200 text-xs space-y-3.5">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <span className="p-1 rounded-md bg-[#ff5a1f] text-white shadow-2xs">
-                        <Gamepad2 className="w-4 h-4" />
-                      </span>
-                      <div>
-                        <span className="font-black text-gray-900 text-sm block">
-                          VIP Simulator Perk Allocation
+              {selectedTarget && (selectedTarget.has_simulator_perk === 1 || (selectedTarget.name && selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT"))) && (() => {
+                const perkDuration = selectedTarget.perk_duration_mins || (selectedTarget.name.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30);
+                const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
+
+                return (
+                  <div className="p-4 bg-orange-50/70 rounded-2xl border-2 border-orange-200 text-xs space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="p-1 rounded-md bg-[#ff5a1f] text-white shadow-2xs">
+                          <Gamepad2 className="w-4 h-4" />
                         </span>
-                        <span className="text-[11px] text-orange-800">
-                          Included: 30-min session per participant ({currentQty} {currentQty === 1 ? 'person' : 'people'})
-                        </span>
+                        <div>
+                          <span className="font-black text-gray-900 text-sm block">
+                            VIP Simulator Perk Allocation
+                          </span>
+                          <span className="text-[11px] text-orange-800">
+                            {requiredSlotsPerTicket > 1
+                              ? `Included: 1-Hour Sim Podium session per participant (${currentQty} ${currentQty === 1 ? 'person' : 'people'} • 2 × 30-min sessions each)`
+                              : `Included: 30-min session per participant (${currentQty} ${currentQty === 1 ? 'person' : 'people'})`}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-200/80 text-orange-950 font-mono">
-                      Included
-                    </span>
-                  </div>
-
-                  {/* Choice: Now vs Later */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <label
-                      onClick={() => setUpgradeSimChoice("now")}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                        upgradeSimChoice === "now"
-                          ? "border-[#ff5a1f] bg-white shadow-xs font-bold text-orange-950 ring-1 ring-orange-400"
-                          : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="upgradeSimChoice"
-                        checked={upgradeSimChoice === "now"}
-                        onChange={() => setUpgradeSimChoice("now")}
-                        className="text-orange-600 focus:ring-orange-500"
-                      />
-                      <span>Assign Rig & Slot Now</span>
-                    </label>
-
-                    <label
-                      onClick={() => setUpgradeSimChoice("later")}
-                      className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
-                        upgradeSimChoice === "later"
-                          ? "border-amber-500 bg-white shadow-xs font-bold text-amber-950 ring-1 ring-amber-400"
-                          : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
-                      }`}
-                    >
-                      <input
-                        type="radio"
-                        name="upgradeSimChoice"
-                        checked={upgradeSimChoice === "later"}
-                        onChange={() => setUpgradeSimChoice("later")}
-                        className="text-amber-600 focus:ring-amber-500"
-                      />
-                      <span>Assign Later at Reception</span>
-                    </label>
-                  </div>
-
-                  {upgradeSimChoice === "later" ? (
-                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 space-y-1">
-                      <span className="font-bold flex items-center gap-1.5 text-amber-950">
-                        <span>🕒</span>
-                        <span>Pending Desk Allocation</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-orange-200/80 text-orange-950 font-mono">
+                        {requiredSlotsPerTicket > 1 ? "Included (1 Hour)" : "Included"}
                       </span>
-                      <p>
-                        The ticket will upgrade immediately to <strong>{selectedTarget.name ? selectedTarget.name.replace("_", " ") : "VIP Package"}</strong>. The simulator session will be saved as <em>Pending Desk Assignment</em>, and reception or the simulator operator can assign the specific machine & 30-min time slot when the guest checks in.
-                      </p>
                     </div>
-                  ) : (
-                    <div className="space-y-3 pt-1">
-                      {Array.from({ length: currentQty }).map((_, idx) => {
-                        const currentSel = upgradeSimSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
-                        const itemDate = upgradingItem?.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
-                        const visitSlot = upgradingItem?.time_slot || booking?.time_slot || "";
-                        const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllUpgradeSlots);
-                        const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
-                        return (
-                          <div key={idx} className="bg-white rounded-xl border border-orange-200 p-3 shadow-2xs space-y-2.5">
-                            <div className="flex items-center justify-between">
-                              <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
-                                <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
-                                  {idx + 1}
-                                </span>
-                                <span>{currentQty > 1 ? `Participant #${idx + 1}` : 'Simulator Rig & Slot Selection'}</span>
-                              </span>
-                              {currentSel.simSlot ? (
-                                <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
-                                  ✓ Slot: {currentSel.simSlot}
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-amber-700 font-bold">
-                                  * Select 30-min slot
-                                </span>
-                              )}
-                            </div>
+                    {/* Choice: Now vs Later */}
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <label
+                        onClick={() => setUpgradeSimChoice("now")}
+                        className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                          upgradeSimChoice === "now"
+                            ? "border-[#ff5a1f] bg-white shadow-xs font-bold text-orange-950 ring-1 ring-orange-400"
+                            : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="upgradeSimChoice"
+                          checked={upgradeSimChoice === "now"}
+                          onChange={() => setUpgradeSimChoice("now")}
+                          className="text-orange-600 focus:ring-orange-500"
+                        />
+                        <span>Assign Rig & Slot Now</span>
+                      </label>
 
-                            {/* Simulator Rig Selector */}
-                            <div>
-                              <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                Choose Simulator Rig
-                              </label>
-                              <select
-                                value={currentSel.simName}
-                                onChange={(e) => {
-                                  const newSim = e.target.value;
-                                  const next = [...upgradeSimSelections];
-                                  next[idx] = { simName: newSim, simSlot: "" };
-                                  setUpgradeSimSelections(next);
-                                  loadTakenSlotsForSim(newSim, itemDate);
-                                }}
-                                className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                              >
-                                {availableSimulators.map((s) => (
-                                  <option key={s.id} value={s.name}>
-                                    {s.name} {s.category ? `(${s.category})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
+                      <label
+                        onClick={() => setUpgradeSimChoice("later")}
+                        className={`flex items-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${
+                          upgradeSimChoice === "later"
+                            ? "border-amber-500 bg-white shadow-xs font-bold text-amber-950 ring-1 ring-amber-400"
+                            : "border-orange-200 bg-orange-50/40 text-gray-600 hover:bg-white"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="upgradeSimChoice"
+                          checked={upgradeSimChoice === "later"}
+                          onChange={() => setUpgradeSimChoice("later")}
+                          className="text-amber-600 focus:ring-amber-500"
+                        />
+                        <span>Assign Later at Reception</span>
+                      </label>
+                    </div>
 
-                            {/* 30-min Time Slot Grid */}
-                            <div>
-                              <div className="flex items-center justify-between mb-1">
-                                <div>
-                                  <label className="text-[10px] uppercase font-bold text-gray-500 block">
-                                    30-Min Time Slot ({itemDate})
-                                  </label>
-                                  {visitSlot && (
-                                    <span className="text-[10px] text-orange-700 font-semibold block">
-                                      {showAllUpgradeSlots 
-                                        ? "Showing all-day slots" 
-                                        : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
-                                    </span>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {loadingTakenSlots && (
-                                    <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                      <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
-                                    </span>
-                                  )}
-                                  {visitSlot && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setShowAllUpgradeSlots(prev => !prev)}
-                                      className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
-                                    >
-                                      {showAllUpgradeSlots ? "Filter after pass" : "Show all day"}
-                                    </button>
-                                  )}
-                                </div>
+                    {upgradeSimChoice === "later" ? (
+                      <div className="p-3 bg-amber-50 rounded-xl border border-amber-200/80 text-[11px] text-amber-900 space-y-1">
+                        <span className="font-bold flex items-center gap-1.5 text-amber-950">
+                          <span>🕒</span>
+                          <span>Pending Desk Allocation</span>
+                        </span>
+                        <p>
+                          The ticket will upgrade immediately to <strong>{selectedTarget.name ? selectedTarget.name.replace("_", " ") : "VIP Package"}</strong>. The simulator session will be saved as <em>Pending Desk Assignment</em>, and reception or the simulator operator can assign the specific machine & 30-min time slot when the guest checks in.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5 pt-1">
+                        {Array.from({ length: currentQty }).map((_, pIdx) => {
+                          return (
+                            <div key={pIdx} className="bg-white rounded-xl border border-orange-200 p-3 shadow-2xs space-y-3">
+                              <div className="flex items-center justify-between border-b border-orange-100 pb-2">
+                                <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
+                                  <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
+                                    {pIdx + 1}
+                                  </span>
+                                  <span>{currentQty > 1 ? `Participant #${pIdx + 1}` : (requiredSlotsPerTicket > 1 ? 'VIP Participant Simulator Allocation' : 'Simulator Rig & Slot Selection')}</span>
+                                </span>
+                                <span className="text-[10px] font-bold text-orange-950 uppercase tracking-wider bg-orange-100/80 px-2 py-0.5 rounded-full">
+                                  {requiredSlotsPerTicket > 1 ? "1 Hour (2 Sessions)" : "30-Min Session"}
+                                </span>
                               </div>
-                              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pr-1">
-                                {availableSlots.map((slot) => {
-                                  const isTakenInDb = takenList.includes(slot.label);
-                                  const isTakenByAnotherParticipant = upgradeSimSelections.some((other, oIdx) =>
-                                    oIdx !== idx &&
-                                    other.simName === currentSel.simName &&
-                                    other.simSlot === slot.label
-                                  );
-                                  const isTaken = isTakenInDb || isTakenByAnotherParticipant;
-                                  const isSelected = currentSel.simSlot === slot.label;
-                                  const titleText = isTakenByAnotherParticipant
-                                    ? `Already chosen by another participant in this booking`
-                                    : isTakenInDb
-                                    ? "Occupied / Booked in Sim Podium"
-                                    : `Select ${slot.label}`;
+
+                              <div className="space-y-3">
+                                {Array.from({ length: requiredSlotsPerTicket }).map((_, sIdx) => {
+                                  const globalIdx = pIdx * requiredSlotsPerTicket + sIdx;
+                                  const currentSel = upgradeSimSelections[globalIdx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
+                                  const itemDate = upgradingItem?.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                                  const visitSlot = upgradingItem?.time_slot || booking?.time_slot || "";
+                                  const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllUpgradeSlots);
+                                  const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
                                   return (
-                                    <button
-                                      key={slot.label}
-                                      type="button"
-                                      disabled={isTaken}
-                                      onClick={() => {
-                                        const next = [...upgradeSimSelections];
-                                        next[idx] = { ...currentSel, simSlot: slot.label };
-                                        setUpgradeSimSelections(next);
-                                      }}
-                                      title={titleText}
-                                      className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
-                                        isSelected
-                                          ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
-                                          : isTaken
-                                          ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
-                                          : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
-                                      }`}
-                                    >
-                                      {slot.label}
-                                      {isTaken && (
-                                        <span className="block text-[8px] font-normal no-underline">
-                                          {isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                    <div key={sIdx} className={`rounded-xl p-2.5 space-y-2.5 border ${requiredSlotsPerTicket > 1 ? "bg-orange-50/30 border-orange-200/70" : "border-transparent !p-0"}`}>
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-[11px] text-gray-800 uppercase tracking-tight">
+                                          {requiredSlotsPerTicket > 1 ? `Session ${sIdx + 1} (30 Mins)` : "Selection"}
                                         </span>
-                                      )}
-                                    </button>
+                                        {currentSel.simSlot ? (
+                                          <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
+                                            ✓ Slot: {currentSel.simSlot}
+                                          </span>
+                                        ) : (
+                                          <span className="text-[10px] text-amber-700 font-bold">
+                                            * Select 30-min slot
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {/* Simulator Rig Selector */}
+                                      <div>
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                          Choose Simulator Rig {requiredSlotsPerTicket > 1 ? `(Session ${sIdx + 1})` : ''}
+                                        </label>
+                                        <select
+                                          value={currentSel.simName}
+                                          onChange={(e) => {
+                                            const newSim = e.target.value;
+                                            const next = [...upgradeSimSelections];
+                                            next[globalIdx] = { simName: newSim, simSlot: "" };
+                                            setUpgradeSimSelections(next);
+                                            loadTakenSlotsForSim(newSim, itemDate);
+                                          }}
+                                          className="w-full text-xs font-bold text-gray-900 bg-gray-50 border border-gray-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                                        >
+                                          {availableSimulators.map((s) => (
+                                            <option key={s.id} value={s.name}>
+                                              {s.name} {s.category ? `(${s.category})` : ""}
+                                            </option>
+                                          ))}
+                                        </select>
+                                      </div>
+
+                                      {/* 30-min Time Slot Grid */}
+                                      <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                          <div>
+                                            <label className="text-[10px] uppercase font-bold text-gray-500 block">
+                                              30-Min Time Slot ({itemDate})
+                                            </label>
+                                            {visitSlot && (
+                                              <span className="text-[10px] text-orange-700 font-semibold block">
+                                                {showAllUpgradeSlots 
+                                                  ? "Showing all-day slots" 
+                                                  : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            {loadingTakenSlots && (
+                                              <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                                <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
+                                              </span>
+                                            )}
+                                            {visitSlot && pIdx === 0 && sIdx === 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setShowAllUpgradeSlots(prev => !prev)}
+                                                className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
+                                              >
+                                                {showAllUpgradeSlots ? "Filter after pass" : "Show all day"}
+                                              </button>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-36 overflow-y-auto pr-1">
+                                          {availableSlots.map((slot) => {
+                                            const isTakenInDb = takenList.includes(slot.label);
+                                            const isSlotTakenBySameParticipant = upgradeSimSelections.some((other, oIdx) =>
+                                              oIdx !== globalIdx &&
+                                              Math.floor(oIdx / requiredSlotsPerTicket) === pIdx &&
+                                              other.simSlot === slot.label
+                                            );
+                                            const isTakenByAnotherParticipant = upgradeSimSelections.some((other, oIdx) =>
+                                              oIdx !== globalIdx &&
+                                              other.simName === currentSel.simName &&
+                                              other.simSlot === slot.label
+                                            );
+                                            const isTaken = isTakenInDb || isSlotTakenBySameParticipant || isTakenByAnotherParticipant;
+                                            const isSelected = currentSel.simSlot === slot.label;
+                                            const titleText = isSlotTakenBySameParticipant
+                                              ? `Participant #${pIdx + 1} already has another session at ${slot.label}`
+                                              : isTakenByAnotherParticipant
+                                              ? `Already chosen by another session in this booking`
+                                              : isTakenInDb
+                                              ? "Occupied / Booked in Sim Podium"
+                                              : `Select ${slot.label}`;
+
+                                            return (
+                                              <button
+                                                key={slot.label}
+                                                type="button"
+                                                disabled={isTaken}
+                                                onClick={() => {
+                                                  const next = [...upgradeSimSelections];
+                                                  next[globalIdx] = { ...currentSel, simSlot: slot.label };
+                                                  setUpgradeSimSelections(next);
+                                                }}
+                                                title={titleText}
+                                                className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
+                                                  isSelected
+                                                    ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
+                                                    : isTaken
+                                                    ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
+                                                    : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
+                                                }`}
+                                              >
+                                                {slot.label}
+                                                {isTaken && (
+                                                  <span className="block text-[8px] font-normal no-underline">
+                                                    {isSlotTakenBySameParticipant ? "Busy" : isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                                  </span>
+                                                )}
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    </div>
                                   );
                                 })}
                               </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Upgrade Summary Notice (No Payment Needed) */}
               <div className="p-3.5 bg-emerald-50/80 rounded-xl border border-emerald-200 text-xs flex items-center justify-between text-emerald-950">
@@ -2691,266 +2790,298 @@ export default function OrderDetailPage() {
       )}
 
       {/* Assign / Change VIP Simulator Slot Modal */}
-      {isSimModalOpen && simModalItem && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
-            {/* Modal Header */}
-            <div className="px-6 py-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100 flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#ff5a1f] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
-                  <Gamepad2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-black text-gray-900 tracking-tight">Assign VIP Simulator Perk</h3>
-                  <p className="text-xs text-gray-500">
-                    Order {orderCode} • {simModalItem.ticket_name ? simModalItem.ticket_name.replace("_", " ") : "VIP Package"} ({simModalItem.quantity || 1} {simModalItem.quantity === 1 ? 'person' : 'people'})
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => !isSubmittingSimModal && setIsSimModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors"
-                disabled={isSubmittingSimModal}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {isSimModalOpen && simModalItem && (() => {
+        const isVipParticipant = Boolean(simModalItem.ticket_name && simModalItem.ticket_name.toUpperCase().includes("VIP_PARTICIPANT")) || simModalItem.has_simulator_perk === 1;
+        const perkDuration = isVipParticipant ? (simModalItem.perk_duration_mins || (simModalItem.ticket_name?.toUpperCase().includes("VIP_PARTICIPANT") ? 60 : 30)) : 30;
+        const requiredSlotsPerTicket = perkDuration >= 60 ? Math.floor(perkDuration / 30) : 1;
+        const itemQty = Math.max(1, simModalItem.quantity || 1);
 
-            <div className="p-6 space-y-4 overflow-y-auto">
-              {/* Mode choice: Assign Rig & Slot vs Keep Pending */}
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <label
-                  onClick={() => setSimModalChoice('assign')}
-                  className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
-                    simModalChoice === 'assign' ? "border-[#ff5a1f] bg-orange-50/70 font-bold text-orange-950 ring-1 ring-orange-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl max-w-lg w-full shadow-2xl border border-gray-100 overflow-hidden animate-in zoom-in-95 duration-150 max-h-[90vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="px-6 py-4 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-100 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#ff5a1f] text-white flex items-center justify-center shadow-md shadow-orange-500/20">
+                    <Gamepad2 className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-gray-900 tracking-tight">Assign VIP Simulator Perk</h3>
+                    <p className="text-xs text-gray-500">
+                      Order {orderCode} • {simModalItem.ticket_name ? simModalItem.ticket_name.replace("_", " ") : "VIP Package"} ({itemQty} {itemQty === 1 ? 'person' : 'people'} • {requiredSlotsPerTicket > 1 ? '1 Hour / 2 × 30-min sessions each' : '30-min session'})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => !isSubmittingSimModal && setIsSimModalOpen(false)}
+                  className="p-1.5 rounded-full hover:bg-white/80 text-gray-400 hover:text-gray-700 transition-colors"
+                  disabled={isSubmittingSimModal}
                 >
-                  <input
-                    type="radio"
-                    name="simModalChoice"
-                    checked={simModalChoice === 'assign'}
-                    onChange={() => setSimModalChoice('assign')}
-                    className="text-orange-600 focus:ring-orange-500"
-                  />
-                  <span>Assign Rig & Slot</span>
-                </label>
-
-                <label
-                  onClick={() => setSimModalChoice('pending')}
-                  className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
-                    simModalChoice === 'pending' ? "border-amber-500 bg-amber-50/70 font-bold text-amber-950 ring-1 ring-amber-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="simModalChoice"
-                    checked={simModalChoice === 'pending'}
-                    onChange={() => setSimModalChoice('pending')}
-                    className="text-amber-600 focus:ring-amber-500"
-                  />
-                  <span>Mark as Pending</span>
-                </label>
+                  <X className="w-5 h-5" />
+                </button>
               </div>
 
-              {simModalChoice === 'pending' ? (
-                <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1.5">
-                  <span className="font-bold flex items-center gap-1.5 text-amber-950 text-sm">
-                    <span>🕒</span>
-                    <span>Pending Desk Allocation</span>
-                  </span>
-                  <p>
-                    The simulator perk will be saved as <strong>Pending Desk Assignment</strong>. Front desk staff or the simulator operator can assign the specific rig and 30-minute time slot when the guest arrives.
-                  </p>
+              <div className="p-6 space-y-4 overflow-y-auto">
+                {/* Mode choice: Assign Rig & Slot vs Keep Pending */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <label
+                    onClick={() => setSimModalChoice('assign')}
+                    className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                      simModalChoice === 'assign' ? "border-[#ff5a1f] bg-orange-50/70 font-bold text-orange-950 ring-1 ring-orange-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="simModalChoice"
+                      checked={simModalChoice === 'assign'}
+                      onChange={() => setSimModalChoice('assign')}
+                      className="text-orange-600 focus:ring-orange-500"
+                    />
+                    <span>Assign Rig & Slot</span>
+                  </label>
+
+                  <label
+                    onClick={() => setSimModalChoice('pending')}
+                    className={`p-2.5 rounded-xl border cursor-pointer flex items-center gap-2 ${
+                      simModalChoice === 'pending' ? "border-amber-500 bg-amber-50/70 font-bold text-amber-950 ring-1 ring-amber-400" : "border-gray-200 text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="simModalChoice"
+                      checked={simModalChoice === 'pending'}
+                      onChange={() => setSimModalChoice('pending')}
+                      className="text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>Mark as Pending</span>
+                  </label>
                 </div>
-              ) : (
-                <div className="space-y-4">
-                  {Array.from({ length: Math.max(1, simModalItem.quantity || 1) }).map((_, idx) => {
-                    const currentSel = simModalSelections[idx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
-                    const itemDate = simModalItem.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
-                    const visitSlot = simModalItem.time_slot || booking?.time_slot || "";
-                    const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllSimModalSlots);
-                    const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
-                    return (
-                      <div key={idx} className="bg-gray-50/80 rounded-2xl border border-gray-200 p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
-                            <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
-                              {idx + 1}
+                {simModalChoice === 'pending' ? (
+                  <div className="p-4 bg-amber-50 rounded-2xl border border-amber-200 text-xs text-amber-900 space-y-1.5">
+                    <span className="font-bold flex items-center gap-1.5 text-amber-950 text-sm">
+                      <span>🕒</span>
+                      <span>Pending Desk Allocation</span>
+                    </span>
+                    <p>
+                      The simulator perk will be saved as <strong>Pending Desk Assignment</strong>. Front desk staff or the simulator operator can assign the specific rig and 30-minute time slot when the guest arrives.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5">
+                    {Array.from({ length: itemQty }).map((_, pIdx) => {
+                      return (
+                        <div key={pIdx} className="bg-orange-50/30 rounded-2xl border border-orange-200 p-3.5 space-y-3">
+                          <div className="flex items-center justify-between border-b border-orange-100 pb-2">
+                            <span className="font-extrabold text-xs text-gray-900 uppercase tracking-tight flex items-center gap-1.5">
+                              <span className="w-5 h-5 rounded-full bg-orange-100 text-[#ff5a1f] flex items-center justify-center text-[10px] font-black">
+                                {pIdx + 1}
+                              </span>
+                              <span>{itemQty > 1 ? `Participant #${pIdx + 1}` : (requiredSlotsPerTicket > 1 ? 'VIP Participant Simulator Allocation' : 'Simulator Rig & Slot')}</span>
                             </span>
-                            <span>{(simModalItem.quantity || 1) > 1 ? `Participant #${idx + 1}` : 'Simulator Rig & Slot'}</span>
-                          </span>
-                          {currentSel.simSlot ? (
-                            <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
-                              ✓ {currentSel.simSlot}
+                            <span className="text-[10px] font-bold text-orange-950 uppercase tracking-wider bg-orange-100/80 px-2 py-0.5 rounded-full">
+                              {requiredSlotsPerTicket > 1 ? "1 Hour (2 Sessions)" : "30-Min Session"}
                             </span>
-                          ) : (
-                            <span className="text-[10px] text-amber-700 font-bold">
-                              * Select time slot
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Simulator Rig Selector */}
-                        <div>
-                          <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                            Choose Simulator Rig
-                          </label>
-                          <select
-                            value={currentSel.simName}
-                            onChange={(e) => {
-                              const newSim = e.target.value;
-                              const next = [...simModalSelections];
-                              next[idx] = { simName: newSim, simSlot: "" };
-                              setSimModalSelections(next);
-                              loadTakenSlotsForSim(newSim, itemDate);
-                            }}
-                            className="w-full text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
-                          >
-                            {availableSimulators.map((s) => (
-                              <option key={s.id} value={s.name}>
-                                {s.name} {s.category ? `(${s.category})` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* 30-min Slot Grid */}
-                        <div>
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div>
-                              <label className="text-[10px] uppercase font-bold text-gray-500 block">
-                                30-Min Time Slot ({itemDate})
-                              </label>
-                              {visitSlot && (
-                                <span className="text-[10px] text-[#ff5a1f] font-semibold block">
-                                  {showAllSimModalSlots 
-                                    ? "Showing all-day slots" 
-                                    : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2">
-                              {loadingTakenSlots && (
-                                <span className="text-[10px] text-gray-400 flex items-center gap-1">
-                                  <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
-                                </span>
-                              )}
-                              {visitSlot && (
-                                <button
-                                  type="button"
-                                  onClick={() => setShowAllSimModalSlots(prev => !prev)}
-                                  className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
-                                >
-                                  {showAllSimModalSlots ? "Filter after pass" : "Show all day"}
-                                </button>
-                              )}
-                            </div>
                           </div>
-                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
-                            {availableSlots.map((slot) => {
-                              const isTakenInDb = takenList.includes(slot.label);
-                              const isTakenByAnotherParticipant = simModalSelections.some((other, oIdx) =>
-                                oIdx !== idx &&
-                                other.simName === currentSel.simName &&
-                                other.simSlot === slot.label
-                              );
-                              const isTaken = isTakenInDb || isTakenByAnotherParticipant;
-                              const isSelected = currentSel.simSlot === slot.label;
-                              const titleText = isTakenByAnotherParticipant
-                                ? `Already chosen by another participant in this booking`
-                                : isTakenInDb
-                                ? "Occupied / Booked in Sim Podium"
-                                : `Select ${slot.label}`;
+
+                          <div className="space-y-3">
+                            {Array.from({ length: requiredSlotsPerTicket }).map((_, sIdx) => {
+                              const globalIdx = pIdx * requiredSlotsPerTicket + sIdx;
+                              const currentSel = simModalSelections[globalIdx] || { simName: availableSimulators[0]?.name || "Flight Sim Pro (Airbus Edition)", simSlot: "" };
+                              const itemDate = simModalItem.booking_date || booking?.booking_date || new Date().toISOString().split("T")[0];
+                              const visitSlot = simModalItem.time_slot || booking?.time_slot || "";
+                              const availableSlots = getAvailableSimulatorSlots(visitSlot, showAllSimModalSlots);
+                              const takenList = takenSimSlotsMap[`${currentSel.simName}_${itemDate}`] || [];
 
                               return (
-                                <button
-                                  key={slot.label}
-                                  type="button"
-                                  disabled={isTaken}
-                                  onClick={() => {
-                                    const next = [...simModalSelections];
-                                    next[idx] = { ...currentSel, simSlot: slot.label };
-                                    setSimModalSelections(next);
-                                  }}
-                                  title={titleText}
-                                  className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
-                                    isSelected
-                                      ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
-                                      : isTaken
-                                      ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
-                                      : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
-                                  }`}
-                                >
-                                  {slot.label}
-                                  {isTaken && (
-                                    <span className="block text-[8px] font-normal no-underline">
-                                      {isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                <div key={sIdx} className={`rounded-xl p-2.5 space-y-2.5 border ${requiredSlotsPerTicket > 1 ? "bg-white border-orange-200/70" : "border-transparent !p-0"}`}>
+                                  <div className="flex items-center justify-between">
+                                    <span className="font-bold text-[11px] text-gray-800 uppercase tracking-tight">
+                                      {requiredSlotsPerTicket > 1 ? `Session ${sIdx + 1} (30 Mins)` : "Selection"}
                                     </span>
-                                  )}
-                                </button>
+                                    {currentSel.simSlot ? (
+                                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold text-[10px] border border-emerald-200">
+                                        ✓ {currentSel.simSlot}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-amber-700 font-bold">
+                                        * Select time slot
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Simulator Rig Selector */}
+                                  <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                      Choose Simulator Rig {requiredSlotsPerTicket > 1 ? `(Session ${sIdx + 1})` : ''}
+                                    </label>
+                                    <select
+                                      value={currentSel.simName}
+                                      onChange={(e) => {
+                                        const newSim = e.target.value;
+                                        const next = [...simModalSelections];
+                                        next[globalIdx] = { simName: newSim, simSlot: "" };
+                                        setSimModalSelections(next);
+                                        loadTakenSlotsForSim(newSim, itemDate);
+                                      }}
+                                      className="w-full text-xs font-bold text-gray-900 bg-white border border-gray-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-500 cursor-pointer"
+                                    >
+                                      {availableSimulators.map((s) => (
+                                        <option key={s.id} value={s.name}>
+                                          {s.name} {s.category ? `(${s.category})` : ""}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* 30-min Slot Grid */}
+                                  <div>
+                                    <div className="flex items-center justify-between mb-1.5">
+                                      <div>
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block">
+                                          30-Min Time Slot ({itemDate})
+                                        </label>
+                                        {visitSlot && (
+                                          <span className="text-[10px] text-[#ff5a1f] font-semibold block">
+                                            {showAllSimModalSlots 
+                                              ? "Showing all-day slots" 
+                                              : `Available after pass (${visitSlot.split("-")[1]?.trim() || visitSlot})`}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {loadingTakenSlots && (
+                                          <span className="text-[10px] text-gray-400 flex items-center gap-1">
+                                            <Loader2 className="w-2.5 h-2.5 animate-spin" /> Checking...
+                                          </span>
+                                        )}
+                                        {visitSlot && pIdx === 0 && sIdx === 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setShowAllSimModalSlots(prev => !prev)}
+                                            className="text-[10px] text-indigo-600 hover:text-indigo-800 underline font-semibold cursor-pointer"
+                                          >
+                                            {showAllSimModalSlots ? "Filter after pass" : "Show all day"}
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                                      {availableSlots.map((slot) => {
+                                        const isTakenInDb = takenList.includes(slot.label);
+                                        const isSlotTakenBySameParticipant = simModalSelections.some((other, oIdx) =>
+                                          oIdx !== globalIdx &&
+                                          Math.floor(oIdx / requiredSlotsPerTicket) === pIdx &&
+                                          other.simSlot === slot.label
+                                        );
+                                        const isTakenByAnotherParticipant = simModalSelections.some((other, oIdx) =>
+                                          oIdx !== globalIdx &&
+                                          other.simName === currentSel.simName &&
+                                          other.simSlot === slot.label
+                                        );
+                                        const isTaken = isTakenInDb || isSlotTakenBySameParticipant || isTakenByAnotherParticipant;
+                                        const isSelected = currentSel.simSlot === slot.label;
+                                        const titleText = isSlotTakenBySameParticipant
+                                          ? `Participant #${pIdx + 1} already has another session at ${slot.label}`
+                                          : isTakenByAnotherParticipant
+                                          ? `Already chosen by another session in this booking`
+                                          : isTakenInDb
+                                          ? "Occupied / Booked in Sim Podium"
+                                          : `Select ${slot.label}`;
+
+                                        return (
+                                          <button
+                                            key={slot.label}
+                                            type="button"
+                                            disabled={isTaken}
+                                            onClick={() => {
+                                              const next = [...simModalSelections];
+                                              next[globalIdx] = { ...currentSel, simSlot: slot.label };
+                                              setSimModalSelections(next);
+                                            }}
+                                            title={titleText}
+                                            className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center border transition-all ${
+                                              isSelected
+                                                ? "bg-[#ff5a1f] text-white border-[#ff5a1f] shadow-xs"
+                                                : isTaken
+                                                ? "bg-gray-100 text-gray-400 border-gray-200 line-through cursor-not-allowed opacity-60"
+                                                : "bg-white text-gray-700 border-gray-200 hover:border-orange-400 hover:bg-orange-50/50 cursor-pointer"
+                                            }`}
+                                          >
+                                            {slot.label}
+                                            {isTaken && (
+                                              <span className="block text-[8px] font-normal no-underline">
+                                                {isSlotTakenBySameParticipant ? "Busy" : isTakenByAnotherParticipant ? "Selected" : "Occupied"}
+                                              </span>
+                                            )}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      );
+                    })}
+                  </div>
+                )}
 
-              {simModalError && (
-                <div className="text-xs text-red-700 font-bold bg-red-50 border border-red-200 p-3 rounded-xl flex items-start gap-2">
-                  <span className="shrink-0">⚠️</span>
-                  <span>{simModalError}</span>
-                </div>
-              )}
-            </div>
+                {simModalError && (
+                  <div className="text-xs text-red-700 font-bold bg-red-50 border border-red-200 p-3 rounded-xl flex items-start gap-2">
+                    <span className="shrink-0">⚠️</span>
+                    <span>{simModalError}</span>
+                  </div>
+                )}
+              </div>
 
-            {/* Modal Footer */}
-            <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between shrink-0">
-              <button
-                type="button"
-                onClick={() => setSimModalChoice('clear')}
-                disabled={isSubmittingSimModal}
-                className="text-xs text-gray-500 hover:text-rose-600 transition-colors font-semibold cursor-pointer"
-              >
-                Clear Simulator Perk
-              </button>
-
-              <div className="flex items-center gap-2">
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between shrink-0">
                 <button
                   type="button"
-                  onClick={() => setIsSimModalOpen(false)}
+                  onClick={() => setSimModalChoice('clear')}
                   disabled={isSubmittingSimModal}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-200 transition-colors cursor-pointer"
+                  className="text-xs text-gray-500 hover:text-rose-600 transition-colors font-semibold cursor-pointer"
                 >
-                  Cancel
+                  Clear Simulator Perk
                 </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmSimModal}
-                  disabled={isSubmittingSimModal}
-                  className="px-5 py-2 rounded-xl text-xs font-bold bg-[#ff5a1f] hover:bg-[#e04f1a] active:scale-95 text-white shadow-md shadow-orange-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  {isSubmittingSimModal ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving Slot...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Save Simulator Slot</span>
-                    </>
-                  )}
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsSimModalOpen(false)}
+                    disabled={isSubmittingSimModal}
+                    className="px-4 py-2 rounded-xl text-xs font-bold text-gray-600 hover:bg-gray-200 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSimModal}
+                    disabled={isSubmittingSimModal}
+                    className="px-5 py-2 rounded-xl text-xs font-bold bg-[#ff5a1f] hover:bg-[#e04f1a] active:scale-95 text-white shadow-md shadow-orange-500/20 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSubmittingSimModal ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving Slot...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save Simulator Slot</span>
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Issue Refund Modal */}
       {refundModalOpen && (

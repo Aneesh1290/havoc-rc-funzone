@@ -173,7 +173,11 @@ export async function POST(
 
     const iciciRes = await fetch(getIciciInitiateSaleUrl(), {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Origin': 'https://havocrcfunzone.in',
+        'Referer': 'https://havocrcfunzone.in/',
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(payload)
     });
 

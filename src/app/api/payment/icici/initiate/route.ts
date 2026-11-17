@@ -1,21 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { 
-  createOnlineCheckoutHold, 
-  deleteOnlineCheckoutHold, 
-  getBookedQuantities, 
+import {
+  createOnlineCheckoutHold,
+  deleteOnlineCheckoutHold,
+  getBookedQuantities,
   getTickets,
-  cleanupExpiredHolds 
+  cleanupExpiredHolds
 } from '@/lib/db';
-import { 
-  lockSimulatorSlot, 
-  deleteSimulatorSlotLocks, 
-  parseSimulatorSlotAssignments, 
-  getTakenSimulatorSlots 
+import {
+  lockSimulatorSlot,
+  deleteSimulatorSlotLocks,
+  parseSimulatorSlotAssignments,
+  getTakenSimulatorSlots
 } from '@/lib/simulator-db';
-import { 
-  getIciciAggregatorId, 
-  getIciciMerchantId, 
-  generateIciciHash, 
+import {
+  getIciciAggregatorId,
+  getIciciMerchantId,
+  generateIciciHash,
   getIciciInitiateSaleUrl,
   getIciciReturnBase
 } from '@/lib/icici';
@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
         const currentBooked = bookedRow ? bookedRow.total_booked : 0;
 
         if (currentBooked + quantity > ticketDef.capacity) {
-          return NextResponse.json({ 
-            error: `Selected slot for "${ticketDef.name}" on ${date} (${timeSlot}) is fully booked or being held by another guest.` 
+          return NextResponse.json({
+            error: `Selected slot for "${ticketDef.name}" on ${date} (${timeSlot}) is fully booked or being held by another guest.`
           }, { status: 409 });
         }
       }
@@ -171,6 +171,8 @@ export async function POST(req: NextRequest) {
     const iciciRes = await fetch(getIciciInitiateSaleUrl(), {
       method: 'POST',
       headers: {
+        'Origin': 'https://havocrcfunzone.in',
+        'Referer': 'https://havocrcfunzone.in/',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify(payload)
@@ -203,8 +205,8 @@ export async function POST(req: NextRequest) {
       deleteOnlineCheckoutHold(tempTxnId);
       await deleteSimulatorSlotLocks(tempTxnId);
     }
-    return NextResponse.json({ 
-      error: err.message || 'Failed to communicate with ICICI Gateway' 
+    return NextResponse.json({
+      error: err.message || 'Failed to communicate with ICICI Gateway'
     }, { status: 500 });
   }
 }

@@ -190,9 +190,9 @@ export async function initSimulatorLocksTable() {
   }
 }
 
-// Fast in-memory cache for taken simulator slots (20-second TTL to avoid duplicate remote PG calls)
+// Fast in-memory cache for taken simulator slots (60-second TTL to avoid duplicate remote PG calls)
 const takenSlotsCache = new Map<string, { data: string[]; timestamp: number }>();
-const TAKEN_SLOTS_CACHE_TTL = 20 * 1000;
+const TAKEN_SLOTS_CACHE_TTL = 60 * 1000;
 
 export function invalidateTakenSlotsCache() {
   takenSlotsCache.clear();

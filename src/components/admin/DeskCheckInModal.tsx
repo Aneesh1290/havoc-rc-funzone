@@ -198,11 +198,29 @@ export default function DeskCheckInModal({
   useEffect(() => {
     if (!isOpen || !activePaymentToken) return;
 
+    // Check payment status only when the browser tab is actively visible to avoid wasting database bandwidth
     const interval = setInterval(() => {
+      if (typeof document !== "undefined" && document.hidden) return;
       handleCheckPaymentStatus(activePaymentToken);
-    }, 4000); // Check every 4 seconds
+    }, 12000); // Check every 12 seconds instead of 4 seconds
 
-    return () => clearInterval(interval);
+    // Immediately check when staff returns to this tab
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        handleCheckPaymentStatus(activePaymentToken);
+      }
+    };
+
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
+    };
   }, [isOpen, activePaymentToken]);
 
   const handleClose = () => {

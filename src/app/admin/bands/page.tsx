@@ -467,7 +467,8 @@ export default function BandInventoryPage() {
     else setIsLoading(true);
 
     try {
-      const itemsLimit = pageSize === -1 ? 50000 : pageSize;
+      // Safe pagination limit: cap at 500 max to prevent massive egress payloads from Supabase
+      const itemsLimit = pageSize === -1 ? 500 : Math.min(pageSize, 500);
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
       const shouldFetchItems = activeTab === "master";

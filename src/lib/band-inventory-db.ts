@@ -208,7 +208,7 @@ export async function ensureBandInventorySeeded(force: boolean = false) {
 
 // In-memory cache for inventory summary (60s TTL; auto-invalidated on every stock mutation)
 let cachedBandSummary: { data: BandInventorySummary; timestamp: number } | null = null;
-const BAND_SUMMARY_CACHE_TTL = 60 * 1000;
+const BAND_SUMMARY_CACHE_TTL = 5 * 60 * 1000; // 5-minute cache to minimize expensive remote queries
 
 export function invalidateBandSummaryCache() {
   cachedBandSummary = null;
@@ -224,8 +224,10 @@ export async function getBandInventorySummary(): Promise<BandInventorySummary> {
 
   if (isPostgresActive()) {
     try {
-      // Run DDL check in background if needed, do not block read path
-      ensurePgSchema().catch(() => {});
+      // Run DDL check only once if not initialized, do not hammer Supabase with redundant DDL
+      if (!pgSchemaInitialized) {
+        ensurePgSchema().catch(() => {});
+      }
 
       const pgSummaryPromise = (async (): Promise<BandInventorySummary> => {
         // Run a single consolidated aggregation query for band_items instead of 4 separate full-table scans

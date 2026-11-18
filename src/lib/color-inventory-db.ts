@@ -1064,7 +1064,7 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
  */
 
 let cachedSubcategories: { data: SubcategoryBandItem[]; timestamp: number } | null = null;
-const SUBCAT_CACHE_TTL = 60 * 1000;
+const SUBCAT_CACHE_TTL = 5 * 60 * 1000; // 5-minute cache to reduce remote Postgres query load
 
 export function invalidateSubcategoryBandsCache() {
   cachedSubcategories = null;

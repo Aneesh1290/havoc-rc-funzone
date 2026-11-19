@@ -139,6 +139,8 @@ export async function processIciciRefund(params: {
   const res = await fetch(getIciciCommandUrl(), {
     method: 'POST',
     headers: {
+      'Origin': 'https://havocrcfunzone.in',
+      'Referer': 'https://havocrcfunzone.in/',
       'Content-Type': 'application/x-www-form-urlencoded'
     },
     body: formParams.toString()

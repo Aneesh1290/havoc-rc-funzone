@@ -1030,7 +1030,8 @@ export function getBookingById(id: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
@@ -1046,7 +1047,8 @@ export function getBookingsByOrderNumber(orderNum: number) {
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
@@ -1067,7 +1069,8 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
   const candidates = db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
-      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.wristband_number, b.category_wristband_number,
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
     FROM bookings b

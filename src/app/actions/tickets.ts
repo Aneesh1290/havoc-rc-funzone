@@ -604,6 +604,7 @@ export async function cancelBookingAction(id: number) {
 
 export async function issueRefundAction(params: {
   orderNumberOrId: number;
+  bookingId?: number;
   refundAmount: number;
   refundMethod: 'icici' | 'manual';
   reason?: string;
@@ -614,10 +615,40 @@ export async function issueRefundAction(params: {
     return { success: false, error: "Access denied: You do not have permission to process refunds." };
   }
 
-  const booking = getBookingById(params.orderNumberOrId) as any;
-  const targetNum = (booking && booking.order_number) ? booking.order_number : params.orderNumberOrId;
-  const groupRows = (getBookingsByOrderNumber(targetNum) || []) as any[];
-  const mainBooking = groupRows.length > 0 ? groupRows[0] : booking;
+  // 1. If explicit bookingId provided from detail page, resolve through direct booking first
+  let targetNum: number = params.orderNumberOrId;
+  let mainBooking: any = null;
+  let groupRows: any[] = [];
+
+  if (params.bookingId && params.bookingId > 0) {
+    const directBooking = getBookingById(params.bookingId) as any;
+    if (directBooking) {
+      mainBooking = directBooking;
+      targetNum = (directBooking.order_number && directBooking.order_number > 0) ? directBooking.order_number : directBooking.id;
+      groupRows = (getBookingsByOrderNumber(targetNum) || []) as any[];
+      if (groupRows.length === 0) groupRows = [directBooking];
+    }
+  }
+
+  // 2. If not yet resolved, try resolving group directly by order_number
+  if (!mainBooking) {
+    const rowsByOrder = (getBookingsByOrderNumber(params.orderNumberOrId) || []) as any[];
+    if (rowsByOrder.length > 0) {
+      groupRows = rowsByOrder;
+      targetNum = params.orderNumberOrId;
+      mainBooking = rowsByOrder[0];
+    }
+  }
+
+  // 3. Fall back to resolving by booking id
+  if (!mainBooking) {
+    const booking = getBookingById(params.orderNumberOrId) as any;
+    if (booking) {
+      targetNum = (booking.order_number && booking.order_number > 0) ? booking.order_number : booking.id;
+      groupRows = (getBookingsByOrderNumber(targetNum) || []) as any[];
+      mainBooking = groupRows.length > 0 ? groupRows[0] : booking;
+    }
+  }
 
   if (!mainBooking) {
     return { success: false, error: "Booking or order not found." };
@@ -658,7 +689,11 @@ export async function issueRefundAction(params: {
   let refundRef = `REF_${Date.now().toString().slice(-8)}`;
 
   // Process via ICICI Direct Payment Gateway
-  const originalTxnNo = mainBooking.icici_txn_id || mainBooking.payment_ref;
+  const originalTxnNo = mainBooking.icici_txn_id ||
+    mainBooking.payment_ref ||
+    groupRows.find(b => b.icici_txn_id && String(b.icici_txn_id).trim() !== "")?.icici_txn_id ||
+    groupRows.find(b => b.payment_ref && String(b.payment_ref).trim() !== "")?.payment_ref;
+
   if (!originalTxnNo) {
     return { 
       success: false, 

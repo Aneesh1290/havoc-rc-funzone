@@ -889,6 +889,7 @@ export default function OrderDetailPage() {
     try {
       const res = await issueRefundAction({
         orderNumberOrId: effectiveOrderNumber,
+        bookingId: booking?.id,
         refundAmount: finalRefundAmt,
         refundMethod: refundMethod,
         reason: refundReason.trim(),

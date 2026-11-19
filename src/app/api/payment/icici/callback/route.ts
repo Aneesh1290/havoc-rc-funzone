@@ -108,9 +108,9 @@ export async function POST(req: NextRequest) {
         // Check if booking already exists (e.g. duplicate callback from gateway)
         const db = getDbInstance();
         try {
-          const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(txnID, txnID) as { order_number: number } | undefined;
+          const existing = db.prepare('SELECT order_number, order_prefix FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(txnID, txnID) as { order_number: number; order_prefix?: string } | undefined;
           if (existing && existing.order_number) {
-            const finalOrderId = formatOrderNumber(existing.order_number);
+            const finalOrderId = formatOrderNumber(existing.order_number, existing.order_prefix || 'PAID');
             return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, redirectBase), 303);
           }
         } finally {
@@ -153,10 +153,10 @@ export async function POST(req: NextRequest) {
               }
             } catch (_) {}
 
-            // Find first booking's order_number
-            const firstRow = db.prepare('SELECT order_number, created_at FROM bookings WHERE id = ?').get(existingBookingIds[0]) as any;
+            // Find first booking's order_number and preserve its desk PAYDUE prefix
+            const firstRow = db.prepare('SELECT order_number, created_at, order_prefix FROM bookings WHERE id = ?').get(existingBookingIds[0]) as any;
             const existingOrderNo = firstRow?.order_number || existingBookingIds[0];
-            formattedOrderCode = formatOrderNumber(existingOrderNo, firstRow?.created_at, 'Paid');
+            formattedOrderCode = formatOrderNumber(existingOrderNo, firstRow?.order_prefix || 'PAYDUE');
             finalOrderId = formattedOrderCode;
 
             // Delete hold
@@ -165,10 +165,10 @@ export async function POST(req: NextRequest) {
             return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, redirectBase), 303);
           }
 
-          // Otherwise, sequential order number assigned strictly upon payment success for standard checkout!
+          // Otherwise, sequential order number assigned strictly upon payment success for standard online checkout!
           const orderNo = getNextOrderNumber();
           const createdAt = new Date().toISOString();
-          formattedOrderCode = formatOrderNumber(orderNo, createdAt);
+          formattedOrderCode = formatOrderNumber(orderNo, 'PAID');
           finalOrderId = formattedOrderCode;
 
           const couponCode = (items.length > 0 && items[0]?.appliedCoupon) ? String(items[0].appliedCoupon) : null;
@@ -177,8 +177,8 @@ export async function POST(req: NextRequest) {
               order_number, ticket_id, booking_date, time_slot, quantity, 
               customer_name, customer_email, customer_phone, total_amount, 
               payment_status, fulfillment_status, simulator_name, simulator_slot, 
-              created_at, payment_ref, icici_txn_id, applied_coupon
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Paid', 'Unfulfilled', ?, ?, ?, ?, ?, ?)
+              created_at, payment_ref, icici_txn_id, applied_coupon, order_prefix
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Paid', 'Unfulfilled', ?, ?, ?, ?, ?, ?, 'PAID')
           `);
 
           let firstBookingId: number | null = null;
@@ -344,9 +344,9 @@ export async function GET(req: NextRequest) {
   if ((responseCode === '0000' || responseCode === '000') && merchantTxnNo) {
     const db = getDbInstance();
     try {
-      const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number } | undefined;
+      const existing = db.prepare('SELECT order_number, order_prefix FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number; order_prefix?: string } | undefined;
       if (existing) {
-        const formattedExisting = formatOrderNumber(existing.order_number, null, 'Paid');
+        const formattedExisting = formatOrderNumber(existing.order_number, existing.order_prefix || 'PAID');
         return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedExisting)}`, redirectBase), 303);
       }
     } finally {

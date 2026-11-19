@@ -736,7 +736,7 @@ export default function OrderDetailPage() {
   }
 
   const effectiveOrderNumber = booking.order_number || booking.id;
-  const orderCode = formatOrderNumber(effectiveOrderNumber, booking.created_at, booking.payment_status);
+  const orderCode = formatOrderNumber(effectiveOrderNumber, booking.order_prefix);
 
   // Group-level statuses: aggregate across all items in order
   const allItems = orderItems.length > 0 ? orderItems : [booking];

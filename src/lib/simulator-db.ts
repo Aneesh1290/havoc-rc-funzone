@@ -335,15 +335,22 @@ export async function syncSimulatorOrderStatus(
   paymentStatus?: string
 ): Promise<boolean> {
   try {
-    const rawNum = String(orderNumberOrId).replace(/^#+PAYDUE_FZ_/, '').replace(/^#+/, '');
+    const rawNum = String(orderNumberOrId).replace(/^#+(PAYDUE|PAID)_FZ_/i, '').replace(/^#+/, '');
     const num = parseInt(rawNum, 10);
     const orderVariants: string[] = [
       `#PAYDUE_FZ_${rawNum}`,
       `PAYDUE_FZ_${rawNum}`,
-      `##PAYDUE_FZ_${rawNum}`
+      `#PAID_FZ_${rawNum}`,
+      `PAID_FZ_${rawNum}`,
+      `##PAYDUE_FZ_${rawNum}`,
+      `##PAID_FZ_${rawNum}`
     ];
     if (!isNaN(num)) {
-      orderVariants.push(`#PAYDUE_FZ_${num}`, `PAYDUE_FZ_${num}`, `##PAYDUE_FZ_${num}`);
+      orderVariants.push(
+        `#PAYDUE_FZ_${num}`, `PAYDUE_FZ_${num}`,
+        `#PAID_FZ_${num}`, `PAID_FZ_${num}`,
+        `##PAYDUE_FZ_${num}`, `##PAID_FZ_${num}`
+      );
     }
 
     // Determine target Sim Podium status

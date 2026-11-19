@@ -1,12 +1,20 @@
 /**
- * Generates the permanent order code format: #PAYDUE_FZ_33
- * Stays permanently consistent regardless of payment status changes.
+ * Generates the permanent order code format:
+ * - #PAID_FZ_33 (for direct Online Payment Gateway orders)
+ * - #PAYDUE_FZ_33 (for Pay at Desk orders, permanently preserved even if later paid)
  */
 export function formatOrderNumber(
   id: number, 
-  dateStr?: string | null, 
+  prefixOrDate?: string | null, 
   paymentStatus?: string | null
 ): string {
+  const p1 = String(prefixOrDate || '').trim().toUpperCase();
+  if (p1 === 'PAID') return `#PAID_FZ_${id}`;
+  if (p1 === 'PAYDUE') return `#PAYDUE_FZ_${id}`;
+
+  const p2 = String(paymentStatus || '').trim().toUpperCase();
+  if (p2 === 'PAID_GATEWAY' || p2 === 'PAID_ONLINE') return `#PAID_FZ_${id}`;
+
   return `#PAYDUE_FZ_${id}`;
 }
 

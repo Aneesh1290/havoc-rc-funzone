@@ -17,6 +17,7 @@ import { useRouter } from "next/navigation";
 export interface GroupedOrder {
   orderNumber: number;
   orderCode: string;
+  order_prefix?: string;
   created_at: string;
   customer_name: string;
   customer_email: string;
@@ -115,7 +116,8 @@ export default function BookingsPage() {
 
         map.set(orderNum, {
           orderNumber: orderNum,
-          orderCode: formatOrderNumber(orderNum, b.created_at, b.payment_status),
+          orderCode: formatOrderNumber(orderNum, b.order_prefix),
+          order_prefix: b.order_prefix || 'PAYDUE',
           created_at: b.created_at,
           customer_name: b.customer_name || "Guest Customer",
           customer_email: b.customer_email || "",
@@ -224,7 +226,7 @@ export default function BookingsPage() {
         order.fulfillment_status = "Unfulfilled";
       }
 
-      order.orderCode = formatOrderNumber(order.orderNumber, order.created_at, order.payment_status);
+      order.orderCode = formatOrderNumber(order.orderNumber, order.order_prefix);
     }
 
     return Array.from(map.values());

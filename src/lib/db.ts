@@ -285,6 +285,7 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_ref TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_reason TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refunded_at TEXT'); } catch (e) {}
+  try { db.exec("ALTER TABLE bookings ADD COLUMN order_prefix TEXT DEFAULT 'PAYDUE'"); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -596,8 +597,9 @@ export function addAddonToOrder(
       total_amount,
       payment_status,
       fulfillment_status,
+      order_prefix,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?)
   `).run(
     targetOrderNum,
     ticket.id,
@@ -609,6 +611,7 @@ export function addAddonToOrder(
     existing.customer_phone || '',
     lineTotal,
     existing.payment_status || 'Unpaid',
+    existing.order_prefix || 'PAYDUE',
     existing.created_at || new Date().toISOString()
   );
 
@@ -1015,6 +1018,7 @@ export function getAllBookings() {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
@@ -1031,6 +1035,7 @@ export function getBookingById(id: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
@@ -1048,6 +1053,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
@@ -1070,6 +1076,7 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name
@@ -1625,8 +1632,8 @@ export function addBatchBooking(
     INSERT INTO bookings (
       order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
-      payment_status, fulfillment_status, simulator_name, simulator_slot, applied_coupon, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?, ?, ?)
+      payment_status, fulfillment_status, simulator_name, simulator_slot, applied_coupon, order_prefix, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unfulfilled', ?, ?, ?, 'PAYDUE', ?)
   `);
 
   const insertedIds: number[] = [];
@@ -1738,8 +1745,8 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
       customer_name, customer_email, customer_phone, total_amount, 
       payment_status, fulfillment_status, tags,
       organization_name, organization_type, organization_notes,
-      deposit_amount, expected_guests, special_requests, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'Reserved', 'Unfulfilled', ?, ?, ?, ?, 0, ?, ?, ?)
+      deposit_amount, expected_guests, special_requests, order_prefix, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'Reserved', 'Unfulfilled', ?, ?, ?, ?, 0, ?, ?, 'PAYDUE', ?)
   `);
 
   const insertedIds: number[] = [];
@@ -1805,8 +1812,8 @@ export function addBooking(
     INSERT INTO bookings (
       order_number, ticket_id, booking_date, time_slot, quantity, 
       customer_name, customer_email, customer_phone, total_amount, 
-      payment_status, fulfillment_status, simulator_name, simulator_slot, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, ?)
+      payment_status, fulfillment_status, simulator_name, simulator_slot, order_prefix, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'Unpaid', 'Unfulfilled', ?, ?, 'PAYDUE', ?)
   `).run(orderNumber, ticketId, date, timeSlot, quantity, customerName, customerEmail, customerPhone, totalAmount, simulatorName || null, simulatorSlot || null, createdAt);
 
   return { id: Number(info.lastInsertRowid), orderNumber, createdAt };

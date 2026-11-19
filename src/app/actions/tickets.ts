@@ -588,7 +588,7 @@ export async function cancelBookingAction(id: number) {
   for (const b of groupRows) {
     if (b.simulator_name && b.simulator_slot) {
       try {
-        const orderId = formatOrderNumber(targetNum, b.created_at);
+        const orderId = formatOrderNumber(targetNum, b.order_prefix);
         await releaseSimulatorSlots(orderId, b.id);
       } catch (pgErr) {
         console.error("Failed to release PostgreSQL simulator slot lock for booking", b.id, pgErr);
@@ -739,7 +739,7 @@ export async function issueRefundAction(params: {
     for (const b of groupRows) {
       if (b.simulator_name && b.simulator_slot) {
         try {
-          const orderId = formatOrderNumber(targetNum, b.created_at);
+          const orderId = formatOrderNumber(targetNum, b.order_prefix);
           await releaseSimulatorSlots(orderId, b.id);
         } catch (pgErr) {
           console.error("Failed to release simulator slot for refunded booking", b.id, pgErr);
@@ -780,7 +780,7 @@ export async function deleteBookingsAction(ids: number[]) {
     for (const b of groupRows) {
       if (b.simulator_name && b.simulator_slot) {
         try {
-          const orderId = formatOrderNumber(orderNum, b.created_at);
+          const orderId = formatOrderNumber(orderNum, b.order_prefix);
           await releaseSimulatorSlots(orderId, b.id);
         } catch (pgErr) {
           console.error("Failed to release simulator slot for booking", b.id, pgErr);
@@ -853,7 +853,7 @@ export async function upgradeBookingItemAction(params: {
 
   try {
     const bookingRow = getBookingById(params.bookingItemId) as any;
-    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.created_at, bookingRow?.payment_status);
+    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.order_prefix);
 
     // If item had existing simulator slots and new ones are being set (or cleared), release old ones
     if (bookingRow?.simulator_name && bookingRow?.simulator_slot && params.simulatorName !== undefined) {
@@ -904,7 +904,7 @@ export async function updateBookingSimulatorAction(params: {
 
   try {
     const bookingRow = getBookingById(params.bookingItemId) as any;
-    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.created_at, bookingRow?.payment_status);
+    const orderCode = formatOrderNumber(params.orderNumber, bookingRow?.order_prefix);
 
     // Release old slots
     if (bookingRow?.simulator_name && bookingRow?.simulator_slot) {

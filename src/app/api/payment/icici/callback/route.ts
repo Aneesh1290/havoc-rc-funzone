@@ -6,7 +6,7 @@ import {
   getTickets 
 } from '@/lib/db';
 import { confirmSimulatorSlotLocks, deleteSimulatorSlotLocks } from '@/lib/simulator-db';
-import { generateIciciHash } from '@/lib/icici';
+import { generateIciciHash, getIciciReturnBase } from '@/lib/icici';
 import { sendBookingConfirmationEmail } from '@/lib/email';
 import { sendBookingConfirmationWhatsApp } from '@/lib/whatsapp';
 import { formatOrderNumber } from '@/lib/order-utils';
@@ -16,6 +16,23 @@ import path from 'path';
 function getDbInstance() {
   const dbPath = process.env.DB_PATH || (process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'havoc.db') : path.resolve(process.cwd(), 'havoc.db'));
   return new Database(dbPath);
+}
+
+function getRedirectBaseUrl(req: NextRequest): string {
+  // 1. Production whitelisted domain from getIciciReturnBase
+  const returnBase = getIciciReturnBase();
+  if (returnBase && !returnBase.includes('localhost') && !returnBase.includes('127.0.0.1')) {
+    return returnBase;
+  }
+
+  // 2. Check X-Forwarded-Host from Render reverse proxy
+  const forwardedHost = req.headers.get('x-forwarded-host') || req.headers.get('host');
+  const forwardedProto = req.headers.get('x-forwarded-proto') || 'https';
+  if (forwardedHost && !forwardedHost.includes('localhost') && !forwardedHost.includes('10000')) {
+    return `${forwardedProto}://${forwardedHost}`;
+  }
+
+  return 'https://havocrcfunzone.in';
 }
 
 async function parseRequestBody(req: NextRequest): Promise<Record<string, any>> {
@@ -58,6 +75,7 @@ async function parseRequestBody(req: NextRequest): Promise<Record<string, any>> 
 }
 
 export async function POST(req: NextRequest) {
+  const redirectBase = getRedirectBaseUrl(req);
   const body = await parseRequestBody(req);
   console.log('[ICICI PG Callback] Received POST payload:', body);
 
@@ -72,7 +90,7 @@ export async function POST(req: NextRequest) {
 
   if (receivedHash && computedHash && receivedHash !== computedHash) {
     console.error('[ICICI Callback] Hash Mismatch!', { receivedHash, computedHash });
-    return NextResponse.redirect(new URL('/checkout.html?error=Payment+Verification+Failed', req.url), 303);
+    return NextResponse.redirect(new URL('/checkout.html?error=Payment+Verification+Failed', redirectBase), 303);
   }
 
   const baseOrderId = body.merchantTxnNo || body.responseParams?.merchantTxnNo || '';
@@ -93,12 +111,12 @@ export async function POST(req: NextRequest) {
           const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(txnID, txnID) as { order_number: number } | undefined;
           if (existing && existing.order_number) {
             const finalOrderId = formatOrderNumber(existing.order_number);
-            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, req.url), 303);
+            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, redirectBase), 303);
           }
         } finally {
           db.close();
         }
-        return NextResponse.redirect(new URL('/checkout.html?error=Hold+expired+or+booking+missing', req.url), 303);
+        return NextResponse.redirect(new URL('/checkout.html?error=Hold+expired+or+booking+missing', redirectBase), 303);
       }
 
       try {
@@ -144,7 +162,7 @@ export async function POST(req: NextRequest) {
             // Delete hold
             deleteOnlineCheckoutHold(baseOrderId);
 
-            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, req.url), 303);
+            return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, redirectBase), 303);
           }
 
           // Otherwise, sequential order number assigned strictly upon payment success for standard checkout!
@@ -286,11 +304,11 @@ export async function POST(req: NextRequest) {
         }
 
         // Redirect to success page
-        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedOrderCode)}`, req.url), 303);
+        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedOrderCode)}`, redirectBase), 303);
 
       } catch (parseErr) {
         console.error('[ICICI Callback] Error processing hold items:', parseErr);
-        return NextResponse.redirect(new URL('/checkout.html?error=Error+confirming+booking', req.url), 303);
+        return NextResponse.redirect(new URL('/checkout.html?error=Error+confirming+booking', redirectBase), 303);
       }
     }
   }
@@ -305,13 +323,14 @@ export async function POST(req: NextRequest) {
     } catch (pgErr) {
       console.error('[ICICI Callback] Error releasing simulator slot locks on cancel:', pgErr);
     }
-    return NextResponse.redirect(new URL(`/checkout.html?error=${encodeURIComponent(body.responseDescription || 'Payment Failed or Cancelled')}`, req.url), 303);
+    return NextResponse.redirect(new URL(`/checkout.html?error=${encodeURIComponent(body.responseDescription || 'Payment Failed or Cancelled')}`, redirectBase), 303);
   }
 
-  return NextResponse.redirect(new URL('/checkout.html?error=Payment+Failed+or+Cancelled', req.url), 303);
+  return NextResponse.redirect(new URL('/checkout.html?error=Payment+Failed+or+Cancelled', redirectBase), 303);
 }
 
 export async function GET(req: NextRequest) {
+  const redirectBase = getRedirectBaseUrl(req);
   // Support GET in case the gateway redirects user via GET with query params
   const searchParams = req.nextUrl.searchParams;
   const merchantTxnNo = searchParams.get('merchantTxnNo') || '';
@@ -319,7 +338,7 @@ export async function GET(req: NextRequest) {
   const orderId = searchParams.get('order_id') || searchParams.get('orderId');
 
   if (orderId) {
-    return NextResponse.redirect(new URL(`/success.html?order_id=${orderId}`, req.url), 303);
+    return NextResponse.redirect(new URL(`/success.html?order_id=${orderId}`, redirectBase), 303);
   }
 
   if ((responseCode === '0000' || responseCode === '000') && merchantTxnNo) {
@@ -328,7 +347,7 @@ export async function GET(req: NextRequest) {
       const existing = db.prepare('SELECT order_number FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number } | undefined;
       if (existing) {
         const formattedExisting = formatOrderNumber(existing.order_number, null, 'Paid');
-        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedExisting)}`, req.url), 303);
+        return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedExisting)}`, redirectBase), 303);
       }
     } finally {
       db.close();
@@ -340,5 +359,5 @@ export async function GET(req: NextRequest) {
     await deleteSimulatorSlotLocks(merchantTxnNo).catch(() => {});
   }
 
-  return NextResponse.redirect(new URL('/checkout.html?error=Payment+Cancelled', req.url), 303);
+  return NextResponse.redirect(new URL('/checkout.html?error=Payment+Cancelled', redirectBase), 303);
 }

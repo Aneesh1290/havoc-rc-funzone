@@ -1,7 +1,7 @@
 import { db, initDB } from "./db";
 import { simulatorPool } from "./simulator-db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex } from "./slotColors";
-import { getDistinctSlotColors, ensureColorInventorySchema, invalidateSubcategoryBandsCache } from "./color-inventory-db";
+import { getDistinctSlotColors, ensureColorInventorySchema, invalidateSubcategoryBandsCache, setOnColorInventoryChanged } from "./color-inventory-db";
 
 export * from "./band-types";
 import { 
@@ -121,23 +121,29 @@ async function ensurePgSchema() {
       `);
       pgSchemaInitialized = true;
 
-      // Safely sync active time_slots into PostgreSQL in parallel so both Havoc RC Fun Zone and Havoc Sim Podium see them
+      // Safely sync active time_slots into PostgreSQL ONLY if empty or missing, avoiding egress flood on cold starts
       try {
-        initDB();
-        const localSlots = db.prepare("SELECT label, start_hour, end_hour, active, sort_order, color, color_name, remark FROM time_slots WHERE active = 1").all() as any[];
-        await Promise.all(
-          localSlots.map(slot =>
-            simulatorPool.query(`
-              INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
-              VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-              ON CONFLICT (label) DO UPDATE 
-              SET color = COALESCE(time_slots.color, EXCLUDED.color),
-                  color_name = COALESCE(time_slots.color_name, EXCLUDED.color_name),
-                  sort_order = EXCLUDED.sort_order,
-                  active = EXCLUDED.active
-            `, [slot.label, slot.start_hour, slot.end_hour, slot.active ?? 1, slot.sort_order ?? 0, slot.color, slot.color_name, slot.remark])
-          )
-        );
+        const slotCheck = await simulatorPool.query("SELECT COUNT(*)::int as cnt FROM time_slots").catch(() => ({ rows: [] as any[] }));
+        const existingCount = slotCheck.rows[0]?.cnt || 0;
+        if (existingCount === 0) {
+          initDB();
+          const localSlots = db.prepare("SELECT label, start_hour, end_hour, active, sort_order, color, color_name, remark FROM time_slots WHERE active = 1").all() as any[];
+          if (localSlots.length > 0) {
+            await Promise.all(
+              localSlots.map(slot =>
+                simulatorPool.query(`
+                  INSERT INTO time_slots (label, start_hour, end_hour, active, sort_order, color, color_name, remark)
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                  ON CONFLICT (label) DO UPDATE 
+                  SET color = COALESCE(time_slots.color, EXCLUDED.color),
+                      color_name = COALESCE(time_slots.color_name, EXCLUDED.color_name),
+                      sort_order = EXCLUDED.sort_order,
+                      active = EXCLUDED.active
+                `, [slot.label, slot.start_hour, slot.end_hour, slot.active ?? 1, slot.sort_order ?? 0, slot.color, slot.color_name, slot.remark])
+              )
+            );
+          }
+        }
       } catch (slotSyncErr) {
         console.warn("[Band Inventory] Could not sync time_slots to Postgres:", slotSyncErr);
       }
@@ -206,14 +212,49 @@ export async function ensureBandInventorySeeded(force: boolean = false) {
   }
 }
 
-// In-memory cache for inventory summary (60s TTL; auto-invalidated on every stock mutation)
+// In-memory cache for inventory summary (10 min TTL; auto-invalidated on every stock mutation)
 let cachedBandSummary: { data: BandInventorySummary; timestamp: number } | null = null;
-const BAND_SUMMARY_CACHE_TTL = 5 * 60 * 1000; // 5-minute cache to minimize expensive remote queries
+const BAND_SUMMARY_CACHE_TTL = 10 * 60 * 1000; // 10-minute cache to minimize expensive remote queries
 
-export function invalidateBandSummaryCache() {
+// In-memory cache for paginated band items query (60s TTL; auto-invalidated on every stock mutation)
+interface CachedBandItems {
+  data: { items: BandItem[]; totalCount: number };
+  timestamp: number;
+}
+const bandItemsCache = new Map<string, CachedBandItems>();
+const BAND_ITEMS_CACHE_TTL = 60 * 1000; // 60 seconds
+
+export function invalidateBandItemsCache() {
+  bandItemsCache.clear();
+}
+
+// In-memory cache for band transactions query (60s TTL; auto-invalidated on every stock mutation)
+interface CachedBandTx {
+  data: { transactions: BandTransaction[]; totalCount: number };
+  timestamp: number;
+}
+const bandTxCache = new Map<string, CachedBandTx>();
+const BAND_TX_CACHE_TTL = 60 * 1000; // 60 seconds
+
+export function invalidateBandTransactionsCache() {
+  bandTxCache.clear();
+}
+
+export function invalidateAllBandCaches() {
   cachedBandSummary = null;
+  invalidateBandItemsCache();
+  invalidateBandTransactionsCache();
   invalidateSubcategoryBandsCache();
 }
+
+export function invalidateBandSummaryCache() {
+  invalidateAllBandCaches();
+}
+
+// Automatically flush band caches whenever color inventory or subcategory changes
+setOnColorInventoryChanged(() => {
+  invalidateAllBandCaches();
+});
 
 export async function getBandInventorySummary(): Promise<BandInventorySummary> {
   if (cachedBandSummary && Date.now() - cachedBandSummary.timestamp < BAND_SUMMARY_CACHE_TTL) {
@@ -827,6 +868,12 @@ export interface GetBandItemsOptions {
 }
 
 export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{ items: BandItem[]; totalCount: number }> {
+  const cacheKey = JSON.stringify(options);
+  const cached = bandItemsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < BAND_ITEMS_CACHE_TTL) {
+    return cached.data;
+  }
+
   await ensureBandInventorySeeded();
 
   if (isPostgresActive()) {
@@ -912,7 +959,13 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
         setTimeout(() => reject(new Error("PG items query timeout")), 4000)
       );
 
-      return await Promise.race([queryPromise, timeoutPromise]);
+      const res = await Promise.race([queryPromise, timeoutPromise]);
+      if (bandItemsCache.size > 100) {
+        const oldest = bandItemsCache.keys().next().value;
+        if (oldest) bandItemsCache.delete(oldest);
+      }
+      bandItemsCache.set(cacheKey, { data: res, timestamp: Date.now() });
+      return res;
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for items:", pgErr);
     }
@@ -992,7 +1045,13 @@ export async function getBandItems(options: GetBandItemsOptions = {}): Promise<{
   const rawItems = db.prepare(querySql).all(...params) as BandItem[];
 
   const items = rawItems.map(i => ({ ...i, category: "Standard" as BandCategory }));
-  return { items, totalCount };
+  const result = { items, totalCount };
+  if (bandItemsCache.size > 100) {
+    const oldest = bandItemsCache.keys().next().value;
+    if (oldest) bandItemsCache.delete(oldest);
+  }
+  bandItemsCache.set(cacheKey, { data: result, timestamp: Date.now() });
+  return result;
 }
 
 export async function getBandItemById(id: number): Promise<BandItem | undefined> {
@@ -1089,6 +1148,7 @@ export async function createBandItem(data: {
             [newId, cleanCode, data.color_name.trim(), data.color_hex.trim(), staffName, notes || 'Manual stock-in']
           );
           await client.query("COMMIT");
+          invalidateAllBandCaches();
           return { success: true, id: newId };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -1119,6 +1179,7 @@ export async function createBandItem(data: {
     });
 
     const newId = insertTx();
+    invalidateAllBandCaches();
     return { success: true, id: newId };
   } catch (err: any) {
     console.error("[Create Band Error]", err);
@@ -1261,7 +1322,9 @@ export async function bulkCreateBandItems(data: {
             console.warn("[Bulk Create Bands] Color inventory counter sync notice:", colSyncErr);
           }
 
-          return { success: true, createdCount };
+          invalidateAllBandCaches();
+          invalidateAllBandCaches();
+    return { success: true, createdCount };
         } catch (txErr) {
           await client.query("ROLLBACK");
           throw txErr;
@@ -1319,6 +1382,7 @@ export async function bulkCreateBandItems(data: {
       `).run(createdCount, data.color_hex.trim().toUpperCase(), data.color_name.trim().toUpperCase());
     } catch (e) {}
 
+    invalidateAllBandCaches();
     return { success: true, createdCount };
   } catch (err: any) {
     console.error("[Bulk Create Bands Error]", err);
@@ -1423,6 +1487,7 @@ export async function issueBandItem(data: {
         }
 
         const updated = await getBandItemById(band.id);
+        invalidateAllBandCaches();
         return { success: true, item: updated };
       } catch (pgErr) {
         console.warn("[Band Inventory] Fallback to SQLite for issueBandItem:", pgErr);
@@ -1463,6 +1528,7 @@ export async function issueBandItem(data: {
 
     tx();
     const updated = await getBandItemById(band.id);
+    invalidateAllBandCaches();
     return { success: true, item: updated };
   } catch (err: any) {
     console.error("[Issue Band Error]", err);
@@ -1549,6 +1615,7 @@ export async function returnBandItem(data: {
         }
 
         const updated = await getBandItemById(band.id);
+        invalidateAllBandCaches();
         return { success: true, item: updated };
       } catch (pgErr) {
         console.warn("[Band Inventory] Fallback to SQLite for returnBandItem:", pgErr);
@@ -1589,6 +1656,7 @@ export async function returnBandItem(data: {
 
     tx();
     const updated = await getBandItemById(band.id);
+    invalidateAllBandCaches();
     return { success: true, item: updated };
   } catch (err: any) {
     console.error("[Return Band Error]", err);
@@ -1633,6 +1701,7 @@ export async function stockOutBandItem(data: {
             [band.id, band.band_code, band.color_name, band.color_hex, staffName, reason]
           );
           await client.query("COMMIT");
+          invalidateAllBandCaches();
           return { success: true };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -1667,6 +1736,7 @@ export async function stockOutBandItem(data: {
     });
 
     tx();
+    invalidateAllBandCaches();
     return { success: true };
   } catch (err: any) {
     console.error("[Stock Out Band Error]", err);
@@ -1813,6 +1883,7 @@ export async function handoverWristbandsToReception(data: {
           await client.query("COMMIT");
 
           const codes = eligibleBands.map(b => b.band_code);
+          invalidateAllBandCaches();
           return {
             success: true,
             movedCount: codes.length,
@@ -1916,6 +1987,7 @@ export async function handoverWristbandsToReception(data: {
     }
 
     const codes = eligibleBands.map(b => b.band_code);
+    invalidateAllBandCaches();
     return {
       success: true,
       movedCount: codes.length,
@@ -2213,6 +2285,7 @@ export async function returnWristbandsFromReception(data: {
           await client.query("COMMIT");
 
           const codes = eligibleBands.map(b => b.band_code);
+          invalidateAllBandCaches();
           return {
             success: true,
             returnedCount: codes.length,
@@ -2277,6 +2350,7 @@ export async function returnWristbandsFromReception(data: {
     }
 
     const codes = eligibleBands.map(b => b.band_code);
+    invalidateAllBandCaches();
     return {
       success: true,
       returnedCount: codes.length,
@@ -2322,6 +2396,7 @@ export async function restoreBandItem(data: {
             [band.id, band.band_code, band.color_name, band.color_hex, staffName, notes]
           );
           await client.query("COMMIT");
+          invalidateAllBandCaches();
           return { success: true };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -2353,6 +2428,7 @@ export async function restoreBandItem(data: {
     });
 
     tx();
+    invalidateAllBandCaches();
     return { success: true };
   } catch (err: any) {
     console.error("[Restore Band Error]", err);
@@ -2402,6 +2478,7 @@ export async function updateBandItem(id: number, data: {
             id
           ]
         );
+        invalidateAllBandCaches();
         return { success: true };
       } catch (pgErr) {
         console.warn("[Band Inventory] Fallback to SQLite for updateBandItem:", pgErr);
@@ -2434,6 +2511,7 @@ export async function updateBandItem(id: number, data: {
       id
     );
 
+    invalidateAllBandCaches();
     return { success: true };
   } catch (err: any) {
     console.error("[Update Band Error]", err);
@@ -2451,6 +2529,7 @@ export async function deleteBandItem(id: number): Promise<{ success: boolean; er
           await client.query("DELETE FROM band_transactions WHERE band_id = $1", [id]);
           await client.query("DELETE FROM band_items WHERE id = $1", [id]);
           await client.query("COMMIT");
+          invalidateAllBandCaches();
           return { success: true };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -2469,6 +2548,7 @@ export async function deleteBandItem(id: number): Promise<{ success: boolean; er
       db.prepare("DELETE FROM band_items WHERE id = ?").run(id);
     });
     tx();
+    invalidateAllBandCaches();
     return { success: true };
   } catch (err: any) {
     console.error("[Delete Band Error]", err);
@@ -2490,6 +2570,7 @@ export async function bulkDeleteBandItems(ids: number[]): Promise<{ success: boo
           await client.query("DELETE FROM band_transactions WHERE band_id = ANY($1::int[])", [ids]);
           const res = await client.query("DELETE FROM band_items WHERE id = ANY($1::int[])", [ids]);
           await client.query("COMMIT");
+          invalidateAllBandCaches();
           return { success: true, count: res.rowCount || ids.length };
         } catch (txErr) {
           await client.query("ROLLBACK");
@@ -2509,6 +2590,7 @@ export async function bulkDeleteBandItems(ids: number[]): Promise<{ success: boo
       db.prepare(`DELETE FROM band_items WHERE id IN (${placeholders})`).run(...ids);
     });
     tx();
+    invalidateAllBandCaches();
     return { success: true, count: ids.length };
   } catch (err: any) {
     console.error("[Bulk Delete Band Error]", err);
@@ -2558,6 +2640,7 @@ export async function deleteAllBandInventory(options?: { resetStarterStock?: boo
       } catch (ignore) {}
     }
 
+    invalidateAllBandCaches();
     return { success: true };
   } catch (err: any) {
     console.error("[Delete All Band Inventory Error]", err);
@@ -2577,6 +2660,12 @@ export interface GetBandTransactionsOptions {
 }
 
 export async function getBandTransactions(options: GetBandTransactionsOptions = {}): Promise<{ transactions: BandTransaction[]; totalCount: number }> {
+  const cacheKey = JSON.stringify(options);
+  const cached = bandTxCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < BAND_TX_CACHE_TTL) {
+    return cached.data;
+  }
+
   await ensureBandInventorySeeded();
 
   if (isPostgresActive()) {
@@ -2633,7 +2722,13 @@ export async function getBandTransactions(options: GetBandTransactionsOptions = 
       }
 
       const txRes = await simulatorPool.query(querySql, params);
-      return { transactions: txRes.rows as BandTransaction[], totalCount };
+      const res = { transactions: txRes.rows as BandTransaction[], totalCount };
+      if (bandTxCache.size > 100) {
+        const oldest = bandTxCache.keys().next().value;
+        if (oldest) bandTxCache.delete(oldest);
+      }
+      bandTxCache.set(cacheKey, { data: res, timestamp: Date.now() });
+      return res;
     } catch (pgErr) {
       console.warn("[Band Inventory] Fallback to SQLite for getBandTransactions:", pgErr);
     }
@@ -2685,15 +2780,22 @@ export async function getBandTransactions(options: GetBandTransactionsOptions = 
     ORDER BY created_at DESC, id DESC
   `;
 
+  let transactions: BandTransaction[];
   if (options.limit && options.limit > 0) {
     querySql += ` LIMIT ? OFFSET ?`;
     const offset = Math.max(0, options.offset || 0);
-    const transactions = db.prepare(querySql).all(...params, options.limit, offset) as BandTransaction[];
-    return { transactions, totalCount };
+    transactions = db.prepare(querySql).all(...params, options.limit, offset) as BandTransaction[];
+  } else {
+    transactions = db.prepare(querySql).all(...params) as BandTransaction[];
   }
 
-  const transactions = db.prepare(querySql).all(...params) as BandTransaction[];
-  return { transactions, totalCount };
+  const res = { transactions, totalCount };
+  if (bandTxCache.size > 100) {
+    const oldest = bandTxCache.keys().next().value;
+    if (oldest) bandTxCache.delete(oldest);
+  }
+  bandTxCache.set(cacheKey, { data: res, timestamp: Date.now() });
+  return res;
 }
 
 /**
@@ -2719,6 +2821,7 @@ export async function standardizeAllBandCategories(): Promise<{ success: boolean
     console.warn("[Band Inventory] SQLite standardize error:", sqliteErr);
   }
 
+  invalidateAllBandCaches();
   return { success: true, updatedCount };
 }
 
@@ -2861,6 +2964,7 @@ export async function purgeOrResetColorStock(params: {
     console.warn("[purgeOrResetColorStock SQLite Error]", sqliteErr);
   }
 
+  invalidateAllBandCaches();
   return {
     success: true,
     purgedBandsCount,

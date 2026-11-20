@@ -190,10 +190,38 @@ export function getDistinctSubcategoryColors(): Array<{ hex: string; name: strin
   }
 }
 
+let cachedColorInventory: { data: WristbandColorInventoryItem[]; timestamp: number } | null = null;
+const COLOR_INV_CACHE_TTL = 5 * 60 * 1000; // 5-minute cache to avoid repeated remote queries
+
+export function invalidateColorInventoryCache() {
+  cachedColorInventory = null;
+}
+
+let onColorInventoryChanged: (() => void) | null = null;
+export function setOnColorInventoryChanged(cb: () => void) {
+  onColorInventoryChanged = cb;
+}
+
+export function notifyColorInventoryChanged() {
+  cachedColorInventory = null;
+  invalidateSubcategoryBandsCache();
+  if (onColorInventoryChanged) {
+    try {
+      onColorInventoryChanged();
+    } catch (e) {
+      console.warn("[Color Inventory] Error in onColorInventoryChanged callback:", e);
+    }
+  }
+}
+
 /**
  * Get all inventory records with live slot & subcategory mapping
  */
 export async function getColorInventory(): Promise<WristbandColorInventoryItem[]> {
+  if (cachedColorInventory && Date.now() - cachedColorInventory.timestamp < COLOR_INV_CACHE_TTL) {
+    return cachedColorInventory.data;
+  }
+
   await ensureColorInventorySchema();
 
   const slotColors = getDistinctSlotColors();
@@ -214,7 +242,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
         ORDER BY color_name ASC, color_hex ASC
       `);
 
-      return res.rows.map(r => {
+      const result = res.rows.map(r => {
         const hex = (r.color_hex || '').trim().toUpperCase();
         const activeSlotInfo = slotColorMap.get(hex);
         const activeSubcatInfo = subcatColorMap.get(hex);
@@ -232,6 +260,8 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
           updated_at: r.updated_at ? new Date(r.updated_at).toISOString() : undefined
         };
       });
+      cachedColorInventory = { data: result, timestamp: Date.now() };
+      return result;
     } catch (pgErr) {
       console.warn("[Color Inventory] PG query error, falling back to SQLite:", pgErr);
     }
@@ -245,7 +275,7 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
     ORDER BY color_name ASC, color_hex ASC
   `).all() as any[];
 
-  return sqliteRows.map(r => {
+  const sqliteResult = sqliteRows.map(r => {
     const hex = (r.color_hex || '').trim().toUpperCase();
     const activeSlotInfo = slotColorMap.get(hex);
     const activeSubcatInfo = subcatColorMap.get(hex);
@@ -263,6 +293,8 @@ export async function getColorInventory(): Promise<WristbandColorInventoryItem[]
       updated_at: r.updated_at
     };
   });
+  cachedColorInventory = { data: sqliteResult, timestamp: Date.now() };
+  return sqliteResult;
 }
 
 /**
@@ -381,6 +413,7 @@ export async function syncColorInventoryFromSlots(): Promise<{
     ? "Inventory is already up to date. No new records were added."
     : `Successfully synchronized ${addedCount} new colour record${addedCount > 1 ? 's' : ''} with quantity 0 (${addedColors.join(", ")}). Existing records remained untouched.`;
 
+  notifyColorInventoryChanged();
   return {
     success: true,
     addedCount,
@@ -447,6 +480,7 @@ export async function updateColorStock(params: {
           .run(row.quantity, row.color_hex);
       } catch (e) {}
 
+      notifyColorInventoryChanged();
       return {
         success: true,
         item: {
@@ -481,6 +515,7 @@ export async function updateColorStock(params: {
     db.prepare("UPDATE wristband_color_inventory SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(finalQty, id);
 
+    notifyColorInventoryChanged();
     return {
       success: true,
       item: {
@@ -641,6 +676,7 @@ export async function stockOutColorToReception(params: {
     console.warn("[stockOutColorToReception] Could not earmark individual band items:", err);
   }
 
+  notifyColorInventoryChanged();
   return {
     success: true,
     item: updatedItem,
@@ -772,6 +808,7 @@ export async function returnColorFromReception(params: {
     console.warn("[returnColorFromReception] Could not update physical band locations:", err);
   }
 
+  notifyColorInventoryChanged();
   return {
     success: true,
     item: updatedItem
@@ -829,6 +866,7 @@ export async function setColorReception(params: {
         `).run(row.quantity, row.in_reception, row.color_hex);
       } catch (e) {}
 
+      notifyColorInventoryChanged();
       return {
         success: true,
         item: {
@@ -862,6 +900,7 @@ export async function setColorReception(params: {
       WHERE id = ?
     `).run(newQty, cleanReception, id);
 
+    notifyColorInventoryChanged();
     return {
       success: true,
       item: {
@@ -912,6 +951,7 @@ export async function decrementReceptionCountByHex(colorHexOrName: string, amoun
   } catch (e) {
     console.warn("[Color Inventory] SQLite decrement reception error:", e);
   }
+  notifyColorInventoryChanged();
 }
 
 /**
@@ -946,6 +986,7 @@ export async function incrementReceptionCountByHex(colorHexOrName: string, amoun
   } catch (e) {
     console.warn("[Color Inventory] SQLite increment reception error:", e);
   }
+  notifyColorInventoryChanged();
 }
 
 /**
@@ -980,6 +1021,7 @@ export async function decrementColorStockByHex(colorHexOrName: string, amount: n
   } catch (e) {
     console.warn("[Color Inventory] SQLite decrement error:", e);
   }
+  notifyColorInventoryChanged();
 }
 
 /**
@@ -1050,7 +1092,7 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
       `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
     }
 
-    invalidateSubcategoryBandsCache();
+    notifyColorInventoryChanged();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete record" };
@@ -1064,7 +1106,7 @@ export async function deleteColorInventoryRecord(id: number): Promise<{ success:
  */
 
 let cachedSubcategories: { data: SubcategoryBandItem[]; timestamp: number } | null = null;
-const SUBCAT_CACHE_TTL = 5 * 60 * 1000; // 5-minute cache to reduce remote Postgres query load
+const SUBCAT_CACHE_TTL = 10 * 60 * 1000; // 10-minute cache to reduce remote Postgres query load
 
 export function invalidateSubcategoryBandsCache() {
   cachedSubcategories = null;
@@ -1401,7 +1443,7 @@ export async function updateSubcategoryBand(
       WHERE UPPER(color_hex) = ? OR UPPER(color_hex) = ? OR (color_name = ? AND ? != '')
     `).run(name, hex, oldHex, hex, oldName, oldName);
 
-    invalidateSubcategoryBandsCache();
+    notifyColorInventoryChanged();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to update subcategory band." };
@@ -1524,7 +1566,7 @@ export async function renameWristbandColor(params: {
       WHERE UPPER(color) = ? OR (color_name = ? AND ? != '')
     `).run(newName, newHex, oldHex, oldName, oldName);
 
-    invalidateSubcategoryBandsCache();
+    notifyColorInventoryChanged();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to rename wristband color." };
@@ -1550,7 +1592,7 @@ export async function toggleSubcategoryBandStatus(id: number, active: boolean): 
   try {
     initDB();
     db.prepare("UPDATE subcategory_bands SET active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(val, id);
-    invalidateSubcategoryBandsCache();
+    notifyColorInventoryChanged();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to toggle status." };
@@ -1615,7 +1657,7 @@ export async function deleteSubcategoryBand(id: number): Promise<{ success: bool
       `).run(targetHex, targetHex, targetName, targetName, targetName, targetName, targetName, targetName);
     }
 
-    invalidateSubcategoryBandsCache();
+    notifyColorInventoryChanged();
     return { success: true };
   } catch (sqliteErr: any) {
     return { success: false, error: sqliteErr.message || "Failed to delete subcategory band." };

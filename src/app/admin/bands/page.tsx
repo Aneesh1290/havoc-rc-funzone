@@ -194,6 +194,7 @@ export default function BandInventoryPage() {
 
   // Filters & Pagination for Master List
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [locationFilter, setLocationFilter] = useState("all");
   const [colorFilter, setColorFilter] = useState("all");
@@ -207,7 +208,23 @@ export default function BandInventoryPage() {
 
   // Filters for Movement Log
   const [movementSearch, setMovementSearch] = useState("");
+  const [debouncedMovementSearch, setDebouncedMovementSearch] = useState("");
   const [movementTypeFilter, setMovementTypeFilter] = useState("all");
+
+  // Debounce search keystrokes (350ms) to avoid sending high-frequency network queries on every character
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedMovementSearch(movementSearch);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [movementSearch]);
 
   // Modals
   const [isStockInModalOpen, setIsStockInModalOpen] = useState(false);
@@ -461,8 +478,8 @@ export default function BandInventoryPage() {
   const canManageStock = hasUserPermission(sessionUser, "bands:manage_stock");
   const canAssignBands = hasUserPermission(sessionUser, "bands:assign");
 
-  // Load initial data (only fetching active tab data to keep page loads lightning fast)
-  const loadData = async (showRefreshSpinner = false) => {
+  // Load initial data (only fetching active tab data to keep page loads lightning fast and preserve Supabase egress)
+  const loadData = async (showRefreshSpinner = false, forceRefreshSummary = false) => {
     if (showRefreshSpinner) setIsRefreshing(true);
     else setIsLoading(true);
 
@@ -471,15 +488,17 @@ export default function BandInventoryPage() {
       const itemsLimit = pageSize === -1 ? 500 : Math.min(pageSize, 500);
       const itemsOffset = pageSize === -1 ? 0 : Math.max(0, (currentPage - 1) * pageSize);
 
+      const shouldFetchSummary = forceRefreshSummary || showRefreshSpinner || !summary || activeTab === "summary" || activeTab === "reports";
+      const shouldFetchSubcat = forceRefreshSummary || showRefreshSpinner || configuredSubcategories.length === 0 || activeTab === "summary";
       const shouldFetchItems = activeTab === "master";
       const shouldFetchTx = activeTab === "movements";
       const shouldFetchCoupon = activeTab === "coupon_bands";
 
       const [summaryRes, itemsRes, txRes, subcatRes, couponBandRes, timeSlotsRes] = await Promise.all([
-        getBandInventorySummaryAction(),
+        shouldFetchSummary ? getBandInventorySummaryAction() : null,
         shouldFetchItems
           ? getBandItemsAction({
-              search: searchQuery,
+              search: debouncedSearchQuery,
               status: statusFilter,
               location: locationFilter,
               color_name: colorFilter,
@@ -492,12 +511,12 @@ export default function BandInventoryPage() {
           : null,
         shouldFetchTx
           ? getBandTransactionsAction({
-              search: movementSearch,
+              search: debouncedMovementSearch,
               type: movementTypeFilter,
               limit: 100,
             })
           : null,
-        getSubcategoryBandsAction(),
+        shouldFetchSubcat ? getSubcategoryBandsAction() : null,
         shouldFetchCoupon ? fetchCouponBandInventoryAction() : null,
         timeSlots.length > 0 ? Promise.resolve(timeSlots) : fetchTimeSlotsAction().catch(() => []),
       ]);
@@ -876,7 +895,7 @@ export default function BandInventoryPage() {
 
   useEffect(() => {
     loadData();
-  }, [activeTab, searchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, movementSearch, movementTypeFilter, sortBy, sortOrder]);
+  }, [activeTab, debouncedSearchQuery, statusFilter, locationFilter, colorFilter, categoryFilter, pageSize, currentPage, debouncedMovementSearch, movementTypeFilter, sortBy, sortOrder]);
 
   const handleSyncSlots = async () => {
     setIsSyncingSlots(true);
@@ -888,7 +907,7 @@ export default function BandInventoryPage() {
           type: "success",
           message: res.message || "Successfully synchronized slot colours to inventory.",
         });
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({
           type: "error",
@@ -965,7 +984,7 @@ export default function BandInventoryPage() {
           });
           setStockInError(null);
           setIsStockInModalOpen(false);
-          loadData();
+          loadData(false, true);
         } else {
           const errMsg = res.error || "Failed to generate bands.";
           setStockInError(errMsg);
@@ -985,7 +1004,7 @@ export default function BandInventoryPage() {
           setStockInError(null);
           setIsStockInModalOpen(false);
           setNewBandCode("");
-          loadData();
+          loadData(false, true);
         } else {
           const errMsg = res.error || "Failed to create band.";
           setStockInError(errMsg);
@@ -1026,7 +1045,7 @@ export default function BandInventoryPage() {
           message: `Wristband ${issueBandCode.toUpperCase()} successfully issued to ${issueCustomerName || "Player"}!` 
         });
         setIsIssueModalOpen(false);
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to issue wristband." });
       }
@@ -1061,7 +1080,7 @@ export default function BandInventoryPage() {
           message: `Wristband ${returnBandCode.toUpperCase()} recorded as returned (${returnCondition.toUpperCase()})!` 
         });
         setIsReturnModalOpen(false);
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to return wristband." });
       }
@@ -1078,7 +1097,7 @@ export default function BandInventoryPage() {
       const res = await restoreBandAction({ band_id: item.id });
       if (res.success) {
         setFeedback({ type: "success", message: `Wristband ${item.band_code} restored back to available stock!` });
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to restore band." });
       }
@@ -1093,7 +1112,7 @@ export default function BandInventoryPage() {
       const res = await stockOutBandAction({ band_id: item.id, reason: "Manual stock write-off / retired" });
       if (res.success) {
         setFeedback({ type: "success", message: `Wristband ${item.band_code} retired from inventory.` });
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to retire band." });
       }
@@ -1109,7 +1128,7 @@ export default function BandInventoryPage() {
       if (res.success) {
         setFeedback({ type: "success", message: `Wristband ${item.band_code} deleted.` });
         setSelectedItemIds((prev) => prev.filter((id) => id !== item.id));
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to delete band." });
       }
@@ -1129,7 +1148,7 @@ export default function BandInventoryPage() {
       if (res.success) {
         setFeedback({ type: "success", message: `Successfully deleted ${res.count} wristbands from inventory.` });
         setSelectedItemIds([]);
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to bulk delete bands." });
       }
@@ -1153,7 +1172,7 @@ export default function BandInventoryPage() {
         });
         setIsClearAllModalOpen(false);
         setSelectedItemIds([]);
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to clear inventory." });
       }
@@ -1189,7 +1208,7 @@ export default function BandInventoryPage() {
         setFeedback({ type: "success", message: `Wristband ${editingBand.band_code} updated.` });
         setIsEditBandModalOpen(false);
         setEditingBand(null);
-        loadData();
+        loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to update band." });
       }
@@ -1356,7 +1375,7 @@ export default function BandInventoryPage() {
           setManualBarcodeScan("");
           setIsManualBatchOpen(false);
           setManualBatchText("");
-          await loadData();
+          await loadData(false, true);
           return;
         } else {
           setFeedback({ type: "error", message: res.error || "Failed to handover bands." });
@@ -1388,7 +1407,7 @@ export default function BandInventoryPage() {
         setManualBarcodeScan("");
         setIsManualBatchOpen(false);
         setManualBatchText("");
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to record stock out." });
       }
@@ -1424,7 +1443,7 @@ export default function BandInventoryPage() {
             message: `Reception Count Corrected: '${selectedColorForAction.color_name}' reception is now set to ${directReceptionTarget}. Warehouse stock adjusted to ${res.item?.quantity ?? 0}.`
           });
           setIsReturnModalForColorOpen(false);
-          await loadData();
+          await loadData(false, true);
         } else {
           setFeedback({ type: "error", message: res.error || "Failed to set reception count." });
         }
@@ -1459,7 +1478,7 @@ export default function BandInventoryPage() {
         });
         setIsReturnModalForColorOpen(false);
         setColorReturnAmount(10);
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to return bands from reception." });
       }
@@ -1644,7 +1663,7 @@ export default function BandInventoryPage() {
           message: res.message || `Successfully transferred ${res.count} coupon bands!`
         });
         setIsCouponHandoverModalOpen(false);
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to handover coupon bands." });
       }
@@ -1669,7 +1688,7 @@ export default function BandInventoryPage() {
           message: `Successfully transferred ${res.count} selected coupon bands to ${targetLocation === "reception" ? "Reception Desk" : "Warehouse Storage"}!`
         });
         setSelectedCouponIds([]);
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to update locations" });
       }
@@ -1692,7 +1711,7 @@ export default function BandInventoryPage() {
           type: "success",
           message: `Moved coupon band ${item.code} to ${nextLoc === "reception" ? "Reception Desk" : "Warehouse Storage"}`
         });
-        await loadData();
+        await loadData(false, true);
       } else {
         setFeedback({ type: "error", message: res.error || "Failed to toggle location" });
       }

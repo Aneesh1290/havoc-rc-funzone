@@ -125,6 +125,7 @@ export default function SettingsPage() {
     enabled: true,
     instantAlertsEnabled: true,
     upcomingAlertsEnabled: true,
+    consolidateSlotAlerts: true,
     upcomingLeadMinutes: 30,
     brandName: "Havoc RC Fun Zone",
     upcomingTemplateName: "havoc_admin_booking_reminder",
@@ -135,7 +136,7 @@ export default function SettingsPage() {
   const [alertSuccessMsg, setAlertSuccessMsg] = useState<string | null>(null);
   const [alertErrorMsg, setAlertErrorMsg] = useState<string | null>(null);
   const [testAlertPhone, setTestAlertPhone] = useState("");
-  const [testAlertMode, setTestAlertMode] = useState<"upcoming" | "instant">("upcoming");
+  const [testAlertMode, setTestAlertMode] = useState<"slot_summary" | "upcoming" | "instant">("slot_summary");
   const [isTestAlertSending, setIsTestAlertSending] = useState(false);
   const [testAlertFeedback, setTestAlertFeedback] = useState<{ success: boolean; message: string } | null>(null);
   const [isManualChecking, setIsManualChecking] = useState(false);
@@ -219,9 +220,14 @@ export default function SettingsPage() {
     try {
       const res = await testAdminBookingAlertAction(targetPhone, testAlertMode);
       if (res.success) {
+        const modeLabel = testAlertMode === "slot_summary" 
+          ? "Consolidated Slot Summary (Multi-booking digest)"
+          : testAlertMode === "upcoming" 
+            ? "30-min prior single booking" 
+            : "instant booking";
         setTestAlertFeedback({ 
           success: true, 
-          message: `Test ${testAlertMode === "upcoming" ? "30-min prior" : "instant"} WhatsApp alert sent successfully to ${targetPhone}!` 
+          message: `Test ${modeLabel} WhatsApp alert sent successfully to ${targetPhone}!` 
         });
       } else {
         setTestAlertFeedback({ 
@@ -243,7 +249,7 @@ export default function SettingsPage() {
       const res = await triggerAdminUpcomingAlertsManualAction();
       setManualCheckFeedback({
         success: res.success,
-        message: res.message || (res.error ? res.error : "Upcoming check finished."),
+        message: res.message || (res.error ? String(res.error) : "Upcoming check finished."),
       });
     } catch (err: any) {
       setManualCheckFeedback({ success: false, message: err?.message || "Check failed" });
@@ -826,6 +832,24 @@ export default function SettingsPage() {
                   <span className="block text-[11px] text-gray-500">Alert admins immediately when an order is created or paid online.</span>
                 </div>
               </label>
+
+              <label className="flex items-start gap-3 cursor-pointer sm:col-span-2 pt-2 border-t border-gray-200">
+                <input
+                  type="checkbox"
+                  checked={adminAlertSettings.consolidateSlotAlerts}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, consolidateSlotAlerts: e.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="block text-xs font-bold text-purple-950 flex items-center gap-1.5">
+                    <span>Consolidated Slot Summary (Recommended)</span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800">Smart Digest</span>
+                  </span>
+                  <span className="block text-[11px] text-gray-600">
+                    If multiple customers book the same upcoming time slot (e.g. 10 bookings for 5PM–6PM), send admins <strong>1 combined summary message</strong> with the full roster instead of 10 separate chimes.
+                  </span>
+                </div>
+              </label>
             </div>
 
             {/* Timing, Brand & Template Settings */}
@@ -966,12 +990,23 @@ export default function SettingsPage() {
                       <input
                         type="radio"
                         name="testMode"
+                        value="slot_summary"
+                        checked={testAlertMode === "slot_summary"}
+                        onChange={() => setTestAlertMode("slot_summary")}
+                        className="text-purple-600 focus:ring-purple-500 h-3 w-3"
+                      />
+                      <span className="font-semibold text-purple-900">Consolidated Slot</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="testMode"
                         value="upcoming"
                         checked={testAlertMode === "upcoming"}
                         onChange={() => setTestAlertMode("upcoming")}
                         className="text-purple-600 focus:ring-purple-500 h-3 w-3"
                       />
-                      <span className="font-semibold text-purple-900">30-Min Prior (7 vars)</span>
+                      <span className="font-semibold text-purple-900">Single Booking</span>
                     </label>
                     <label className="inline-flex items-center gap-1 cursor-pointer">
                       <input

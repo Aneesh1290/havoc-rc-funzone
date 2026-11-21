@@ -331,6 +331,7 @@ export interface AdminBookingAlertSettings {
   enabled: boolean;
   instantAlertsEnabled: boolean;
   upcomingAlertsEnabled: boolean;
+  consolidateSlotAlerts: boolean;
   upcomingLeadMinutes: number;
   brandName: string;
   upcomingTemplateName: string;
@@ -341,6 +342,7 @@ export async function getAdminBookingAlertSettingsAction(): Promise<AdminBooking
   const enabled = getSiteSetting("admin_booking_alert_enabled", "1") !== "0";
   const instantAlertsEnabled = getSiteSetting("admin_instant_alert_enabled", "1") !== "0";
   const upcomingAlertsEnabled = getSiteSetting("admin_upcoming_alert_enabled", "1") !== "0";
+  const consolidateSlotAlerts = getSiteSetting("admin_consolidate_slot_alerts", "1") !== "0";
   const upcomingLeadMinutes = parseInt(getSiteSetting("admin_upcoming_lead_minutes", "30"), 10) || 30;
   const brandName = getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
   const upcomingTemplateName = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
@@ -354,6 +356,7 @@ export async function getAdminBookingAlertSettingsAction(): Promise<AdminBooking
     enabled,
     instantAlertsEnabled,
     upcomingAlertsEnabled,
+    consolidateSlotAlerts,
     upcomingLeadMinutes,
     brandName,
     upcomingTemplateName,
@@ -382,6 +385,7 @@ export async function updateAdminBookingAlertSettingsAction(settings: AdminBooki
     setSiteSetting("admin_booking_alert_enabled", settings.enabled ? "1" : "0", "Master toggle for WhatsApp booking notifications to admins");
     setSiteSetting("admin_instant_alert_enabled", settings.instantAlertsEnabled ? "1" : "0", "Send instant alert when new booking is confirmed");
     setSiteSetting("admin_upcoming_alert_enabled", settings.upcomingAlertsEnabled ? "1" : "0", "Send upcoming reminder 30 mins before scheduled slot");
+    setSiteSetting("admin_consolidate_slot_alerts", settings.consolidateSlotAlerts ? "1" : "0", "Group multiple bookings for same upcoming slot into 1 summary message");
     setSiteSetting("admin_upcoming_lead_minutes", String(settings.upcomingLeadMinutes || 30), "Lead time in minutes before slot to trigger reminder");
     setSiteSetting("admin_alert_brand_name", (settings.brandName || "Havoc RC Fun Zone").trim(), "Brand name sent in WhatsApp reminder (Variable {{1}})");
     setSiteSetting("admin_upcoming_template", (settings.upcomingTemplateName || "havoc_admin_booking_reminder").trim(), "Interakt template for upcoming booking reminder");
@@ -395,7 +399,7 @@ export async function updateAdminBookingAlertSettingsAction(settings: AdminBooki
   }
 }
 
-export async function testAdminBookingAlertAction(testPhone: string, mode: "upcoming" | "instant" = "upcoming") {
+export async function testAdminBookingAlertAction(testPhone: string, mode: "upcoming" | "instant" | "slot_summary" = "upcoming") {
   try {
     const session = await checkSessionAction();
     if (!session) {
@@ -409,7 +413,23 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
     const brandName = getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
     const templateName = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
 
-    if (mode === "upcoming") {
+    if (mode === "slot_summary") {
+      const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
+      const testResult = await sendAdminUpcomingReminderWhatsApp({
+        orderId: "3 Orders (05:00 PM - 06:00 PM)",
+        customerName: "Slot Summary (3 Bookings • 6 Racers)",
+        customerPhone: "2 Paid • 1 Due at Desk",
+        totalAmount: 3200,
+        paymentStatus: "Total: ₹3,200 (2 Paid, 1 Due)",
+        itemsSummary: "1. #101 Rahul S. (..3210): 2x Pro Pass [Paid]\n2. #102 Priya P. (..5678): 1x Rookie Pass [Due ₹800]\n3. #103 Zia School (..9999): 3x Excavator [Paid]",
+        timeSlot: "05:00 PM - 06:00 PM",
+        bookingDate: "Today",
+        adminPhone: testPhone.trim(),
+        brandName,
+        templateName,
+      });
+      return testResult;
+    } else if (mode === "upcoming") {
       const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
       const testResult = await sendAdminUpcomingReminderWhatsApp({
         orderId: "#TEST_FZ_" + Date.now().toString().slice(-4),
@@ -445,101 +465,22 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
   }
 }
 
-export async function triggerAdminUpcomingAlertsManualAction() {
+export async function triggerAdminUpcomingAlertsManualAction(): Promise<{
+  success: boolean;
+  message?: string;
+  error?: string;
+  dispatched?: number;
+  orders?: any[];
+  [key: string]: any;
+}> {
   try {
     const session = await checkSessionAction();
     if (!session) {
       return { success: false, error: "Unauthorized: Admin session required." };
     }
 
-    // Call internal check logic directly
-    const { getUnnotifiedTodayBookings, markBookingsAdminUpcomingNotified, getSiteSetting } = await import("@/lib/db");
-    const { getCurrentIstDetails, isBookingStartingSoon } = await import("@/lib/slot-time-utils");
-    const { dispatchUpcomingBookingAlertsToAdmins } = await import("@/lib/whatsapp");
-    const { formatOrderNumber } = await import("@/lib/order-utils");
-
-    const { todayIstStr, formattedIstTime } = getCurrentIstDetails();
-    const leadMinutes = parseInt(getSiteSetting("admin_upcoming_lead_minutes", "30"), 10) || 30;
-    const brandName = getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
-    const templateName = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
-
-    const rawRows = getUnnotifiedTodayBookings(todayIstStr);
-    if (!rawRows || rawRows.length === 0) {
-      return {
-        success: true,
-        message: `No unnotified bookings found for today (${todayIstStr}).`,
-        dispatched: 0,
-      };
-    }
-
-    const ordersMap = new Map<number, any[]>();
-    for (const row of rawRows) {
-      const orderNum = row.order_number || row.id;
-      if (!ordersMap.has(orderNum)) ordersMap.set(orderNum, []);
-      ordersMap.get(orderNum)!.push(row);
-    }
-
-    const dispatchedOrders: string[] = [];
-
-    for (const [orderNum, items] of ordersMap.entries()) {
-      if (!items || items.length === 0) continue;
-      const first = items[0];
-
-      const startingItem = items.find((item) => {
-        const { isStartingSoon } = isBookingStartingSoon(
-          item.booking_date || todayIstStr,
-          item.time_slot,
-          item.start_hour,
-          leadMinutes
-        );
-        return isStartingSoon;
-      });
-
-      if (!startingItem) continue;
-
-      let orderTotal = 0;
-      for (const item of items) {
-        orderTotal += item.total_amount !== null && item.total_amount !== undefined
-          ? Number(item.total_amount)
-          : (item.ticket_price || 0) * (item.quantity || 1);
-      }
-
-      const formattedOrderId = formatOrderNumber(orderNum, first.order_prefix || "PAID");
-      const passesSummary = items
-        .map((i) => `${i.quantity}x ${i.ticket_name || "RC Pass"} (${i.time_slot})`)
-        .join(", ");
-
-      const isPaid = (first.payment_status || "").toLowerCase() === "paid";
-      const paymentStatusLabel = isPaid
-        ? `Paid Online (₹${orderTotal.toLocaleString("en-IN")})`
-        : `Pay at Desk (₹${orderTotal.toLocaleString("en-IN")} Due)`;
-
-      await dispatchUpcomingBookingAlertsToAdmins({
-        orderId: formattedOrderId,
-        customerName: first.customer_name || "Guest Customer",
-        customerPhone: first.customer_phone || "",
-        totalAmount: orderTotal,
-        paymentStatus: paymentStatusLabel,
-        itemsSummary: passesSummary,
-        timeSlot: startingItem.time_slot,
-        bookingDate: startingItem.booking_date || todayIstStr,
-        brandName,
-        templateName,
-      });
-
-      const bookingIds = items.map((i) => i.id);
-      markBookingsAdminUpcomingNotified(bookingIds);
-      dispatchedOrders.push(formattedOrderId);
-    }
-
-    return {
-      success: true,
-      message: dispatchedOrders.length > 0
-        ? `Dispatched reminders for ${dispatchedOrders.length} order(s): ${dispatchedOrders.join(", ")}`
-        : `Checked bookings at ${formattedIstTime} IST — no slots are currently within the ${leadMinutes}-minute window.`,
-      dispatched: dispatchedOrders.length,
-      orders: dispatchedOrders,
-    };
+    const { runUpcomingBookingAlertsCheck } = await import("@/lib/upcoming-alert-runner");
+    return await runUpcomingBookingAlertsCheck();
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to trigger upcoming alerts check" };
   }

@@ -22,6 +22,7 @@ import type { SimPodiumSlot } from '@/lib/simulator-db';
 import { useCart } from '@/context/CartContext';
 import { Info, Check, X, Sparkles, ChevronRight, Ban, Plus } from 'lucide-react';
 import TicketGuidelinesSection from '@/components/tickets/TicketGuidelinesSection';
+import { matchesBookingDate } from '@/lib/slot-time-utils';
 
 export default function BookingProductPage({ params }: { params: Promise<{ month: string }> }) {
   const unwrappedParams = use(params);
@@ -347,7 +348,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   // Check if currently selected date or time slot is blocked for the chosen ticket
   const isSelectedSlotBlocked = Boolean(
     date && time && blockedSlots.some(b => 
-      (b.booking_date === date || b.booking_date === 'ALL') && 
+      matchesBookingDate(b.booking_date, date) && 
       (b.time_slot === time || b.time_slot === 'ALL_DAY') &&
       (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
     )
@@ -419,7 +420,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
     // Check if the date is manually blocked by admin (ALL_DAY on this date, or ALL_DAY on ALL dates)
     // If a ticket type is selected, check if blocked globally (ticket_id is null) OR blocked specifically for this pass
     const isDayBlockedByAdmin = blockedSlots.some(b => 
-      (b.booking_date === val || b.booking_date === 'ALL') && 
+      matchesBookingDate(b.booking_date, val) && 
       b.time_slot === 'ALL_DAY' &&
       (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
     );
@@ -565,7 +566,7 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
                   .map(slot => {
                     // Check if slot is blocked by admin (globally OR specifically for selected ticket pass)
                     const isBlockedSlot = blockedSlots.some(b => 
-                      (b.booking_date === date || b.booking_date === 'ALL') && 
+                      matchesBookingDate(b.booking_date, date) && 
                       (b.time_slot === slot.label || b.time_slot === 'ALL_DAY') &&
                       (!b.ticket_id || (selectedTicket && b.ticket_id === selectedTicket.id))
                     );

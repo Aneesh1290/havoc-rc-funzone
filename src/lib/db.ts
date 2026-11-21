@@ -2,6 +2,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { deleteSimulatorSlotLocks } from './simulator-db';
+import { normalizeBookingDateVariants, matchesBookingDate } from './slot-time-utils';
+
+export { normalizeBookingDateVariants, matchesBookingDate };
 
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
@@ -530,6 +533,29 @@ export function initDB() {
   } catch (e) {
     // ignore
   }
+
+  // Ensure blocked_slots table has ticket_id column
+  try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
+
+  // Synchronize blocked_slots across date formats (e.g. 2026-11-05 <-> Nov 05, Nov 22 <-> 2026-11-22)
+  try {
+    const existingBlocks = db.prepare("SELECT id, booking_date, time_slot, reason, ticket_id FROM blocked_slots WHERE booking_date != 'ALL'").all() as BlockedSlotRow[];
+    for (const b of existingBlocks) {
+      const vars = normalizeBookingDateVariants(b.booking_date);
+      for (const v of vars) {
+        if (v !== b.booking_date) {
+          try {
+            const exists = b.ticket_id
+              ? db.prepare("SELECT id FROM blocked_slots WHERE booking_date = ? AND time_slot = ? AND ticket_id = ?").get(v, b.time_slot, b.ticket_id)
+              : db.prepare("SELECT id FROM blocked_slots WHERE booking_date = ? AND time_slot = ? AND ticket_id IS NULL").get(v, b.time_slot);
+            if (!exists) {
+              db.prepare("INSERT OR IGNORE INTO blocked_slots (booking_date, time_slot, reason, ticket_id) VALUES (?, ?, ?, ?)").run(v, b.time_slot, b.reason || null, b.ticket_id || null);
+            }
+          } catch (insertErr) {}
+        }
+      }
+    }
+  } catch (syncBlocksErr) {}
 }
 
 // Auto-run schema migrations and initializations on module load
@@ -963,14 +989,16 @@ export function deleteAddon(id: number): void {
 }
 
 export function getBookedQuantities(date: string, timeSlot: string): { ticket_id: number, total_booked: number }[] {
+  const dateVariants = normalizeBookingDateVariants(date);
+  const placeholders = dateVariants.map(() => '?').join(', ');
   const booked = db.prepare(`
     SELECT ticket_id, SUM(quantity) as total_booked 
     FROM bookings 
-    WHERE booking_date = ? AND time_slot = ?
+    WHERE booking_date IN (${placeholders}) AND time_slot = ?
       AND LOWER(COALESCE(fulfillment_status, '')) NOT IN ('canceled', 'cancelled')
       AND LOWER(COALESCE(payment_status, '')) NOT IN ('refunded', 'canceled', 'cancelled')
     GROUP BY ticket_id
-  `).all(date, timeSlot) as { ticket_id: number, total_booked: number }[];
+  `).all(...dateVariants, timeSlot) as { ticket_id: number, total_booked: number }[];
 
   const bookedMap = new Map<number, number>();
   for (const b of booked) {
@@ -993,7 +1021,7 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
             const itemDate = item.date || item.booking_date;
             const itemSlot = item.timeSlot || item.time_slot || item.time;
             const ticketId = item.ticketId || item.ticket_id;
-            if (itemDate === date && itemSlot === timeSlot && ticketId) {
+            if (matchesBookingDate(itemDate, date) && itemSlot === timeSlot && ticketId) {
               const qty = Number(item.quantity) || 1;
               bookedMap.set(Number(ticketId), (bookedMap.get(Number(ticketId)) || 0) + qty);
             }
@@ -1800,7 +1828,10 @@ export function createOrganisationBooking(params: CreateOrganisationBookingParam
       // Block public booking for this slot if requested
       if (blockPublicSlots !== false) {
         try {
-          blockSlotOrDate(eventDate, slot, `Organisation Reservation: ${organizationName.trim()}`);
+          const variants = normalizeBookingDateVariants(eventDate);
+          for (const dv of variants) {
+            blockSlotOrDate(dv, slot, `Organisation Reservation: ${organizationName.trim()}`);
+          }
         } catch (blockErr) {
           console.warn("[Organisation Reservation] Could not block slot:", blockErr);
         }
@@ -2437,31 +2468,35 @@ export function getBlockedSlots(): BlockedSlotRow[] {
 }
 
 export function getBlockedSlotsForDate(date: string): BlockedSlotRow[] {
+  const variants = normalizeBookingDateVariants(date);
+  const placeholders = variants.map(() => '?').join(', ');
   return db.prepare(`
     SELECT b.*, t.name as ticket_name 
     FROM blocked_slots b
     LEFT JOIN tickets t ON b.ticket_id = t.id
-    WHERE b.booking_date = ? OR b.booking_date = 'ALL'
-  `).all(date.trim()) as BlockedSlotRow[];
+    WHERE b.booking_date IN (${placeholders}) OR b.booking_date = 'ALL'
+  `).all(...variants) as BlockedSlotRow[];
 }
 
 export function isDateOrSlotBlocked(date: string, timeSlot?: string, ticketId?: number): boolean {
+  const variants = normalizeBookingDateVariants(date);
+  const placeholders = variants.map(() => '?').join(', ');
   if (timeSlot) {
     const res = db.prepare(`
       SELECT COUNT(*) as count FROM blocked_slots
-      WHERE (booking_date = ? OR booking_date = 'ALL')
+      WHERE (booking_date IN (${placeholders}) OR booking_date = 'ALL')
         AND (time_slot = ? OR time_slot = 'ALL_DAY')
-        AND (ticket_id IS NULL OR ticket_id = ?)
-    `).get(date.trim(), timeSlot.trim(), ticketId || null) as { count: number };
+        AND (ticket_id IS NULL OR ? IS NULL OR ticket_id = ?)
+    `).get(...variants, timeSlot.trim(), ticketId || null, ticketId || null) as { count: number };
     return res.count > 0;
   } else {
     // Check if entire date is blocked
     const res = db.prepare(`
       SELECT COUNT(*) as count FROM blocked_slots
-      WHERE (booking_date = ? OR booking_date = 'ALL')
+      WHERE (booking_date IN (${placeholders}) OR booking_date = 'ALL')
         AND time_slot = 'ALL_DAY'
-        AND (ticket_id IS NULL OR ticket_id = ?)
-    `).get(date.trim(), ticketId || null) as { count: number };
+        AND (ticket_id IS NULL OR ? IS NULL OR ticket_id = ?)
+    `).get(...variants, ticketId || null, ticketId || null) as { count: number };
     return res.count > 0;
   }
 }

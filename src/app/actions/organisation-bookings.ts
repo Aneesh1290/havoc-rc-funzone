@@ -71,14 +71,15 @@ export async function createOrganisationBookingAction(params: CreateOrganisation
           // For each reserved RC Fun Zone time slot, lock each simulator
           // RC slots are 1-hour (e.g. "11AM-12PM"), which parseSimulatorSlotAssignments
           // automatically expands into two 30-minute sim slots
-          for (const rcSlot of params.timeSlots) {
-            for (const simName of simulatorsToBlock) {
+          for (let simIdx = 0; simIdx < simulatorsToBlock.length; simIdx++) {
+            const simName = simulatorsToBlock[simIdx];
+            const simCode = simName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || `SIM${simIdx + 1}`;
+            for (let slotIdx = 0; slotIdx < params.timeSlots.length; slotIdx++) {
+              const rcSlot = params.timeSlots[slotIdx];
               const assignments = parseSimulatorSlotAssignments(simName, rcSlot);
               for (let i = 0; i < assignments.length; i++) {
                 const a = assignments[i];
-                const slotOrderId = assignments.length > 1
-                  ? `${orderCode}_SIM_${i + 1}`
-                  : `${orderCode}_SIM`;
+                const slotOrderId = `${orderCode}_${simCode}_SLOT${slotIdx + 1}_${i + 1}`;
                 const res = await lockSimulatorSlot({
                   simulatorName: a.simulatorName,
                   bookingDate: params.eventDate,

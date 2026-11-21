@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getTickets, getTimeSlots, getBookedQuantities, cleanupExpiredHolds } from '@/lib/db';
+import { getTickets, getTimeSlots, getBookedQuantities, cleanupExpiredHolds, isDateOrSlotBlocked } from '@/lib/db';
 
 export async function GET(req: NextRequest) {
   try {
@@ -21,14 +21,16 @@ export async function GET(req: NextRequest) {
       const bookedMap = new Map(bookedQuantities.map(b => [b.ticket_id, b.total_booked]));
 
       const ticketAvailabilities = tickets.map(ticket => {
+        const isBlocked = isDateOrSlotBlocked(date, slot.label, ticket.id);
         const booked = bookedMap.get(ticket.id) || 0;
-        const available = Math.max(0, ticket.capacity - booked);
+        const available = isBlocked ? 0 : Math.max(0, ticket.capacity - booked);
         return {
           ticketId: ticket.id,
           ticketName: ticket.name,
           capacity: ticket.capacity,
           booked,
           available,
+          isBlocked,
           isSoldOut: available === 0
         };
       });

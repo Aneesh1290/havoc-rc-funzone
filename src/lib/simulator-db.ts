@@ -46,18 +46,46 @@ export function formatToSimulatorDate(rcDate: string, targetYear?: number): stri
     return trimmed;
   }
 
-  // Parse strings like "Oct 17", "October 17", "2026-10-17"
+  // Parse strings like "Oct 17", "October 17", "2026-11-22", "22-Nov-2026"
   const year = targetYear || new Date().getFullYear();
   let parsedDate: Date | null = null;
 
-  const parts = trimmed.split(/\s+/);
-  if (parts.length >= 2) {
-    const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-    const mStr = parts[0].toLowerCase().slice(0, 3);
-    const mIdx = monthNames.indexOf(mStr);
-    const day = parseInt(parts[1], 10);
-    if (mIdx >= 0 && !isNaN(day)) {
-      parsedDate = new Date(year, mIdx, day);
+  // 1. Check ISO format YYYY-MM-DD
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    parsedDate = new Date(y, m, d);
+  }
+
+  // 2. Check DD-MM-YYYY or DD-MMM-YYYY (e.g. 22-Nov-2026)
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})/);
+    if (dmyMatch) {
+      const d = parseInt(dmyMatch[1], 10);
+      const y = parseInt(dmyMatch[3], 10);
+      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+      const mIdx = /^\d+$/.test(dmyMatch[2])
+        ? parseInt(dmyMatch[2], 10) - 1
+        : monthNames.indexOf(dmyMatch[2].toLowerCase().slice(0, 3));
+      if (mIdx >= 0) {
+        parsedDate = new Date(y, mIdx, d);
+      }
+    }
+  }
+
+  // 3. Check "Oct 17" or "October 17"
+  if (!parsedDate || isNaN(parsedDate.getTime())) {
+    const parts = trimmed.split(/\s+/);
+    if (parts.length >= 2) {
+      const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+      const mStr = parts[0].toLowerCase().slice(0, 3);
+      const mIdx = monthNames.indexOf(mStr);
+      const day = parseInt(parts[1], 10);
+      if (mIdx >= 0 && !isNaN(day)) {
+        parsedDate = new Date(year, mIdx, day);
+      }
     }
   }
 
@@ -259,23 +287,27 @@ export async function lockSimulatorSlot(params: {
 
   try {
     const formattedDate = formatToSimulatorDate(bookingDate);
+    const cleanDate = formattedDate.replace(/\s*\([A-Za-z]+\)$/, '').trim();
+    const datesToLock = Array.from(new Set([formattedDate, cleanDate]));
 
     // 1. Lock slot in simulator_slot_locks table to enforce concurrency & live availability
-    await simulatorPool.query(
-      `INSERT INTO simulator_slot_locks 
-       (simulator_name, booking_date, booking_time, source_platform, source_order_id, customer_name, customer_phone, status, created_at)
-       VALUES ($1, $2, $3, 'HAVOC_RC_FUN_ZONE', $4, $5, $6, $7, NOW())
-       ON CONFLICT (simulator_name, booking_date, booking_time) 
-       DO UPDATE SET 
-         source_platform = EXCLUDED.source_platform,
-         source_order_id = EXCLUDED.source_order_id,
-         customer_name = EXCLUDED.customer_name,
-         customer_phone = EXCLUDED.customer_phone,
-         status = EXCLUDED.status,
-         created_at = NOW()
-       WHERE simulator_slot_locks.status = 'CANCELLED';`,
-      [simulatorName, formattedDate, bookingTime, sourceOrderId, customerName || null, customerPhone || null, status]
-    );
+    // Upsert unconditionally so admin reservations and confirmed locks succeed even if a row already existed
+    for (const d of datesToLock) {
+      await simulatorPool.query(
+        `INSERT INTO simulator_slot_locks 
+         (simulator_name, booking_date, booking_time, source_platform, source_order_id, customer_name, customer_phone, status, created_at)
+         VALUES ($1, $2, $3, 'HAVOC_RC_FUN_ZONE', $4, $5, $6, $7, NOW())
+         ON CONFLICT (simulator_name, booking_date, booking_time) 
+         DO UPDATE SET 
+           source_platform = EXCLUDED.source_platform,
+           source_order_id = EXCLUDED.source_order_id,
+           customer_name = EXCLUDED.customer_name,
+           customer_phone = EXCLUDED.customer_phone,
+           status = EXCLUDED.status,
+           created_at = NOW();`,
+        [simulatorName, d, bookingTime, sourceOrderId, customerName || null, customerPhone || null, status]
+      );
+    }
 
     // 2. Also record an official booking entry in Havoc Sim Podium's `bookings` table
     // so it shows up in their dashboard/admin panel alongside regular Sim Podium reservations.

@@ -134,3 +134,87 @@ export function isBookingStartingSoon(
 
   return { isStartingSoon, diffMinutes, slotStartMinutes };
 }
+
+/**
+ * Normalizes any booking date string (e.g. "2026-11-22", "Nov 22", "22-Nov-2026", "Nov 22 (Sun)")
+ * into all its common representations across Havoc RC Fun Zone and Sim Podium.
+ */
+export function normalizeBookingDateVariants(dateStr: string | null | undefined): string[] {
+  if (!dateStr) return [];
+  const raw = String(dateStr).trim();
+  if (raw === 'ALL') return ['ALL'];
+
+  const variants = new Set<string>([raw]);
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  let y: number | undefined;
+  let m: number | undefined; // 0-indexed
+  let d: number | undefined;
+
+  // 1. YYYY-MM-DD
+  const isoMatch = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    y = parseInt(isoMatch[1], 10);
+    m = parseInt(isoMatch[2], 10) - 1;
+    d = parseInt(isoMatch[3], 10);
+  }
+
+  // 2. DD-MM-YYYY or DD-MMM-YYYY (e.g. 22-Nov-2026)
+  if (y === undefined) {
+    const dmyMatch = raw.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})/);
+    if (dmyMatch) {
+      d = parseInt(dmyMatch[1], 10);
+      y = parseInt(dmyMatch[3], 10);
+      if (/^\d+$/.test(dmyMatch[2])) {
+        m = parseInt(dmyMatch[2], 10) - 1;
+      } else {
+        const mStr = dmyMatch[2].toLowerCase().slice(0, 3);
+        m = monthNames.findIndex(mn => mn.toLowerCase() === mStr);
+      }
+    }
+  }
+
+  // 3. MMM DD or MMM DD (Ddd) or MMM D (e.g. "Nov 22", "Nov 22 (Sun)")
+  if (y === undefined) {
+    const textMatch = raw.match(/^([A-Za-z]{3,9})\s+(\d{1,2})(?:\s*\([A-Za-z]{3}\))?/);
+    if (textMatch) {
+      const mStr = textMatch[1].slice(0, 3).toLowerCase();
+      m = monthNames.findIndex(mn => mn.toLowerCase() === mStr);
+      d = parseInt(textMatch[2], 10);
+      y = new Date().getFullYear();
+    }
+  }
+
+  if (y !== undefined && m !== undefined && m >= 0 && m < 12 && d !== undefined && d >= 1 && d <= 31) {
+    const dt = new Date(y, m, d);
+    const mName = monthNames[m];
+    const dPadded = String(d).padStart(2, '0');
+    const mPadded = String(m + 1).padStart(2, '0');
+    const dayOfWeek = dayNames[dt.getDay()];
+
+    variants.add(`${y}-${mPadded}-${dPadded}`);
+    variants.add(`${mName} ${dPadded}`);
+    variants.add(`${mName} ${d}`);
+    variants.add(`${mName} ${dPadded} (${dayOfWeek})`);
+    variants.add(`${mName} ${d} (${dayOfWeek})`);
+    variants.add(`${dPadded}-${mName}-${y}`);
+  }
+
+  return Array.from(variants);
+}
+
+/**
+ * Checks if two date representations refer to the exact same calendar day
+ */
+export function matchesBookingDate(d1: string | null | undefined, d2: string | null | undefined): boolean {
+  if (!d1 || !d2) return false;
+  const s1 = d1.trim();
+  const s2 = d2.trim();
+  if (s1 === 'ALL' || s2 === 'ALL') return true;
+  if (s1 === s2) return true;
+
+  const v1 = normalizeBookingDateVariants(s1);
+  const v2 = normalizeBookingDateVariants(s2);
+  return v1.some(v => v2.includes(v));
+}

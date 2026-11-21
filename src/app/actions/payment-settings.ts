@@ -241,7 +241,7 @@ export async function getAdvanceNotificationSettingsAction(): Promise<AdvanceNot
     enabled: getSiteSetting("advance_notify_enabled", "1") !== "0",
     hoursBefore: parseInt(getSiteSetting("advance_notify_hours_before", "24"), 10) || 24,
     brandName: getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone"),
-    templateName: getSiteSetting("advance_notify_template", process.env.INTERAKT_ADVANCE_NOTIFY_TEMPLATE || "havoc_payment_link"),
+    templateName: getSiteSetting("advance_notify_template", process.env.INTERAKT_ADVANCE_NOTIFY_TEMPLATE || "havoc_advance_booking_reminder"),
   };
 }
 
@@ -262,7 +262,7 @@ export async function updateAdvanceNotificationSettingsAction(settings: AdvanceN
     setSiteSetting("advance_notify_enabled", settings.enabled ? "1" : "0", "Enable advance booking notifications with payment links");
     setSiteSetting("advance_notify_hours_before", String(settings.hoursBefore || 24), "Target hours before booking to send advance notification");
     setSiteSetting("advance_notify_brand_name", (settings.brandName || "Havoc RC Fun Zone").trim(), "Brand name sent in advance notification WhatsApp message");
-    setSiteSetting("advance_notify_template", (settings.templateName || "havoc_payment_link").trim(), "Interakt template name for advance booking notification");
+    setSiteSetting("advance_notify_template", (settings.templateName || "havoc_advance_booking_reminder").trim(), "Interakt template name for advance booking notification");
 
     revalidatePath("/admin/settings");
     revalidatePath("/admin/bookings");
@@ -285,7 +285,7 @@ export async function testAdvanceReminderWhatsAppAction(testPhone: string): Prom
     }
 
     const brandName = getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone");
-    const templateName = getSiteSetting("advance_notify_template", "havoc_payment_link");
+    const templateName = getSiteSetting("advance_notify_template", "havoc_advance_booking_reminder");
 
     const { sendPaymentLinkWhatsApp } = await import("@/lib/whatsapp");
     return await sendPaymentLinkWhatsApp({
@@ -294,10 +294,10 @@ export async function testAdvanceReminderWhatsAppAction(testPhone: string): Prom
       totalAmount: 1534,
       paymentUrl: "https://havocrcfunzone.in/pay/test_advance_reminder",
       brandName: brandName,
-      orderSummary: "1x PARTICIPANT (4PM-5PM), 1x VISITOR (4PM-5PM)",
+      orderSummary: "1x PARTICIPANT, 1x VISITOR",
       bookingDate: "22-Nov-2026",
       timeSlot: "4PM-5PM",
-      orderId: "#PAYDUE_FZ_54",
+      orderId: "PAYDUE_FZ_54",
       templateName: templateName,
       isReminder: true,
     });

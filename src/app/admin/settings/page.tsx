@@ -115,7 +115,7 @@ export default function SettingsPage() {
     enabled: true,
     hoursBefore: 24,
     brandName: "Havoc RC Fun Zone",
-    templateName: "havoc_payment_link",
+    templateName: "havoc_advance_booking_reminder",
   });
   const [isAdvanceSaving, setIsAdvanceSaving] = useState(false);
   const [advanceSuccessMsg, setAdvanceSuccessMsg] = useState<string | null>(null);
@@ -761,11 +761,11 @@ export default function SettingsPage() {
                   type="text"
                   value={advanceNotifySettings.templateName}
                   onChange={(e) => setAdvanceNotifySettings(prev => ({ ...prev, templateName: e.target.value }))}
-                  placeholder="havoc_customer_reminder"
+                  placeholder="havoc_advance_booking_reminder"
                   className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Template slug in Interakt (e.g. <code>havoc_customer_reminder</code> or <code>havoc_payment_link</code>).
+                  Template slug in Interakt (e.g. <code>havoc_advance_booking_reminder</code>).
                 </p>
               </div>
             </div>
@@ -773,21 +773,22 @@ export default function SettingsPage() {
             {/* Template Variables Helper Guide */}
             <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-900 space-y-1.5">
               <div className="font-bold flex items-center gap-1.5 text-amber-950">
-                <span>💡 Reminder Notification Template Structure (Interakt / WhatsApp)</span>
+                <span>💡 Approved Template Mapping: <code>havoc_advance_booking_reminder</code></span>
               </div>
               <p className="text-[11px] text-amber-800 leading-relaxed">
-                To send as a friendly booking reminder (instead of a plain invoice link), create or select a <strong>Utility</strong> template in Interakt (e.g. <code>havoc_customer_reminder</code>) with these variables:
+                Matches your Interakt template layout with friendly reminder text and pre-filled payment link:
               </p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] font-mono bg-white/80 p-2.5 rounded-lg border border-amber-200 text-amber-900">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] font-mono bg-white/80 p-2.5 rounded-lg border border-amber-200 text-amber-900">
                 <div><code>&#123;&#123;1&#125;&#125;</code>: Guest Name</div>
                 <div><code>&#123;&#123;2&#125;&#125;</code>: Brand Name</div>
-                <div><code>&#123;&#123;3&#125;&#125;</code>: Date &amp; Slot</div>
-                <div><code>&#123;&#123;4&#125;&#125;</code>: Passes / Activity</div>
-                <div><code>&#123;&#123;5&#125;&#125;</code>: Amount Due (₹)</div>
-                <div><code>&#123;&#123;6&#125;&#125;</code>: Payment URL</div>
+                <div><code>&#123;&#123;3&#125;&#125;</code>: Order ID (#)</div>
+                <div><code>&#123;&#123;4&#125;&#125;</code>: Experience</div>
+                <div><code>&#123;&#123;5&#125;&#125;</code>: Date &amp; Time</div>
+                <div><code>&#123;&#123;6&#125;&#125;</code>: Amount Due (₹)</div>
+                <div><code>&#123;&#123;7&#125;&#125;</code>: Payment URL</div>
               </div>
               <p className="text-[10px] text-amber-700 italic">
-                * Note: If using the legacy <code>havoc_payment_link</code>, the system automatically uses 4 variables (Name, Brand, Amount, URL).
+                * Note: If switched to legacy <code>havoc_payment_link</code>, the system automatically uses 4 variables (Name, Brand, Amount, URL).
               </p>
             </div>
 

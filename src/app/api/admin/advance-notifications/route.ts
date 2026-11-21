@@ -215,7 +215,7 @@ export async function POST(req: NextRequest) {
     }
 
     const brandName = getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone");
-    const templateName = getSiteSetting("advance_notify_template", "havoc_payment_link");
+    const templateName = getSiteSetting("advance_notify_template", "havoc_advance_booking_reminder");
     const returnBase = process.env.ICICI_RETURN_BASE 
       || process.env.NEXT_PUBLIC_APP_URL 
       || (process.env.NODE_ENV === 'production' 

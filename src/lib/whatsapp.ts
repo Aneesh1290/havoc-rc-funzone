@@ -285,10 +285,30 @@ export async function sendPaymentLinkWhatsApp(
       }
 
       const formattedAmount = Number(totalAmount).toLocaleString("en-IN");
+      const cleanOrderId = (orderId || "").replace(/^#+/, "") || "BOOKING";
       const isFourVarLegacy = templateName.trim() === "havoc_payment_link";
+      const isSevenVarAdvance = templateName.trim() === "havoc_advance_booking_reminder" || templateName.toLowerCase().includes("advance");
 
-      // 6-variable reminder template values:
-      const reminderBodyValues = [
+      // 7-variable approved template (havoc_advance_booking_reminder):
+      // {{1}}: Name
+      // {{2}}: Brand Name
+      // {{3}}: Order ID (Template has "• Order ID: #{{3}}")
+      // {{4}}: Experience
+      // {{5}}: Date & Time
+      // {{6}}: Amount Due (Template has "• Amount Due: ₹{{6}}")
+      // {{7}}: Secure Payment Link
+      const sevenVarBodyValues = [
+        customerName || "Racer",                                // {{1}}: Name
+        brandName || "Havoc RC Fun Zone",                       // {{2}}: Brand Name
+        cleanOrderId,                                           // {{3}}: Order ID
+        (orderSummary || "RC Racing / Gaming Session").slice(0, 120), // {{4}}: Experience
+        dateSlotStr || "Scheduled Slot",                        // {{5}}: Date & Time
+        formattedAmount,                                        // {{6}}: Amount Due
+        paymentUrl,                                             // {{7}}: Secure Link
+      ];
+
+      // 6-variable generic reminder template:
+      const sixVarBodyValues = [
         customerName || "Racer",                                // {{1}}: Name
         brandName || "Havoc RC Fun Zone",                       // {{2}}: Brand
         dateSlotStr || "Scheduled Session",                     // {{3}}: Date & Slot
@@ -297,7 +317,7 @@ export async function sendPaymentLinkWhatsApp(
         paymentUrl,                                             // {{6}}: Payment Link
       ];
 
-      // 4-variable legacy template values:
+      // 4-variable legacy template (havoc_payment_link):
       const legacyBodyValues = [
         customerName || "Racer",        // {{1}}: Name
         brandName || "Havoc RC Fun Zone", // {{2}}: Brand Name
@@ -305,8 +325,13 @@ export async function sendPaymentLinkWhatsApp(
         paymentUrl,                     // {{4}}: Direct Payment Link
       ];
 
-      // Determine initial values to send
-      const initialValues = isFourVarLegacy ? legacyBodyValues : reminderBodyValues;
+      // Determine initial values to send based on template name
+      let initialValues = legacyBodyValues;
+      if (isSevenVarAdvance) {
+        initialValues = sevenVarBodyValues;
+      } else if (!isFourVarLegacy) {
+        initialValues = sixVarBodyValues;
+      }
 
       let response = await fetch("https://api.interakt.ai/v1/public/message/", {
         method: "POST",
@@ -326,10 +351,10 @@ export async function sendPaymentLinkWhatsApp(
         }),
       });
 
-      // If initial 6-value attempt failed with 4xx and we weren't already using legacy, retry with legacy 4-value structure
-      if (!response.ok && !isFourVarLegacy) {
+      // If initial attempt failed with 4xx and we weren't already using legacy, retry with legacy 4-value structure
+      if (!response.ok && initialValues !== legacyBodyValues) {
         const firstErr = await response.text();
-        console.warn(`[Interakt Reminder First Try Failed] Status ${response.status}. Retrying with 4-variable body values. Err: ${firstErr}`);
+        console.warn(`[Interakt Reminder First Try Failed] Status ${response.status}. Retrying with legacy 4-variable body values. Err: ${firstErr}`);
 
         response = await fetch("https://api.interakt.ai/v1/public/message/", {
           method: "POST",

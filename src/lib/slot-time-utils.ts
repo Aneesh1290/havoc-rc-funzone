@@ -33,9 +33,43 @@ export function getCurrentIstDetails(): { todayIstStr: string; nowMinutes: numbe
 export function normalizeDateToYmd(dateStr: string | null | undefined): string | null {
   if (!dateStr) return null;
   const clean = dateStr.trim();
-  const ymdMatch = clean.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (ymdMatch) {
-    return `${ymdMatch[1]}-${ymdMatch[2]}-${ymdMatch[3]}`;
+  if (clean === 'ALL') return 'ALL';
+
+  const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  // 1. YYYY-MM-DD
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = String(parseInt(isoMatch[2], 10)).padStart(2, '0');
+    const d = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  }
+
+  // 2. DD-MM-YYYY or DD-MMM-YYYY (e.g. 08-Nov-2026, 8/11/2026)
+  const dmyMatch = clean.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const d = String(parseInt(dmyMatch[1], 10)).padStart(2, '0');
+    const y = parseInt(dmyMatch[3], 10);
+    const mIdx = /^\d+$/.test(dmyMatch[2])
+      ? parseInt(dmyMatch[2], 10) - 1
+      : monthNames.indexOf(dmyMatch[2].toLowerCase().slice(0, 3));
+    if (mIdx >= 0) {
+      const m = String(mIdx + 1).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+  }
+
+  // 3. MMM DD or MMM DD (Ddd) (e.g. "Nov 8", "Nov 08 (Sun)")
+  const textMatch = clean.match(/^([A-Za-z]{3,9})\s+(\d{1,2})/);
+  if (textMatch) {
+    const mIdx = monthNames.indexOf(textMatch[1].toLowerCase().slice(0, 3));
+    const d = String(parseInt(textMatch[2], 10)).padStart(2, '0');
+    if (mIdx >= 0) {
+      const y = new Date().getFullYear();
+      const m = String(mIdx + 1).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
   }
 
   const parsed = new Date(clean);
@@ -217,4 +251,56 @@ export function matchesBookingDate(d1: string | null | undefined, d2: string | n
   const v1 = normalizeBookingDateVariants(s1);
   const v2 = normalizeBookingDateVariants(s2);
   return v1.some(v => v2.includes(v));
+}
+
+/**
+ * Checks whether a booking date is completely in the past (before today in IST/local time).
+ * Dates like "ALL" or future/today dates return false.
+ */
+export function isBookingDatePast(dateStr: string | null | undefined): boolean {
+  if (!dateStr) return false;
+  const clean = dateStr.trim();
+  if (clean === 'ALL') return false;
+
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const monthNames = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+  // 1. YYYY-MM-DD
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (isoMatch) {
+    const y = parseInt(isoMatch[1], 10);
+    const m = parseInt(isoMatch[2], 10) - 1;
+    const d = parseInt(isoMatch[3], 10);
+    const target = new Date(y, m, d, 23, 59, 59, 999);
+    return target < today;
+  }
+
+  // 2. DD-MM-YYYY or DD-MMM-YYYY (e.g. 08-Nov-2026)
+  const dmyMatch = clean.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})/);
+  if (dmyMatch) {
+    const d = parseInt(dmyMatch[1], 10);
+    const y = parseInt(dmyMatch[3], 10);
+    const m = /^\d+$/.test(dmyMatch[2])
+      ? parseInt(dmyMatch[2], 10) - 1
+      : monthNames.indexOf(dmyMatch[2].toLowerCase().slice(0, 3));
+    if (m >= 0) {
+      const target = new Date(y, m, d, 23, 59, 59, 999);
+      return target < today;
+    }
+  }
+
+  // 3. MMM DD or MMM DD (Ddd) (e.g. "Nov 8", "Nov 08 (Sun)")
+  const textMatch = clean.match(/^([A-Za-z]{3,9})\s+(\d{1,2})/);
+  if (textMatch) {
+    const m = monthNames.indexOf(textMatch[1].toLowerCase().slice(0, 3));
+    const d = parseInt(textMatch[2], 10);
+    if (m >= 0) {
+      const y = now.getFullYear();
+      const target = new Date(y, m, d, 23, 59, 59, 999);
+      return target < today;
+    }
+  }
+
+  return false;
 }

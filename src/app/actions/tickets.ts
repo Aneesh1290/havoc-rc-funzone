@@ -1430,7 +1430,19 @@ export async function deleteVipPerkAction(id: number) {
 
 // Blocked Slots / Dates Server Actions
 export async function fetchBlockedSlotsAction(): Promise<BlockedSlotRow[]> {
-  return getBlockedSlots();
+  return getBlockedSlots(false);
+}
+
+export async function cleanupExpiredBlockedSlotsAction(): Promise<{ success: boolean; purgedCount: number }> {
+  try {
+    const { cleanupExpiredBlockedSlots } = await import('@/lib/db');
+    const purgedCount = cleanupExpiredBlockedSlots();
+    revalidatePath('/admin/slots');
+    revalidatePath('/tickets');
+    return { success: true, purgedCount };
+  } catch (err: any) {
+    return { success: false, purgedCount: 0 };
+  }
 }
 
 export async function fetchBlockedSlotsForDateAction(date: string): Promise<BlockedSlotRow[]> {

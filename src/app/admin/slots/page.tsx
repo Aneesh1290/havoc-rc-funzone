@@ -66,6 +66,7 @@ import { previewHandoverRangeAction } from "@/app/actions/band-inventory";
 import type { WristbandColorInventoryItem, SubcategoryBandItem } from "@/lib/color-inventory-db";
 import type { BlockedSlotRow, TimeSlotRow, TicketRow } from "@/lib/db";
 import { WRISTBAND_PALETTE, getSlotWristbandColor, resolveColorNameToHex, getWristbandBadgeStyle } from "@/lib/slotColors";
+import { isBookingDatePast, normalizeDateToYmd } from "@/lib/slot-time-utils";
 
 const MONTH_NAMES = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun", 
@@ -890,7 +891,8 @@ export default function SlotsManagementPage() {
       const res = await unblockSlotAction(id);
       if (res.success) {
         setFeedback({ type: 'success', message: `Unblocked "${label}" successfully.` });
-        setBlockedList(prev => prev.filter(item => item.id !== id));
+        const freshBlocked = await fetchBlockedSlotsAction();
+        setBlockedList(freshBlocked);
       } else {
         setFeedback({ type: 'error', message: res.error || "Failed to unblock slot." });
       }
@@ -988,16 +990,38 @@ export default function SlotsManagementPage() {
     }
   };
 
-  const filteredBlockedList = blockedList.filter(item => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      item.booking_date.toLowerCase().includes(q) ||
-      item.time_slot.toLowerCase().includes(q) ||
-      (item.ticket_name && item.ticket_name.toLowerCase().includes(q)) ||
-      (item.reason && item.reason.toLowerCase().includes(q))
-    );
-  });
+  // Filter out expired past dates, match search query, and deduplicate format variants
+  const filteredBlockedList = (() => {
+    // 1. Exclude past dates (only show today, future, or 'ALL')
+    const currentOrFuture = blockedList.filter(item => !isBookingDatePast(item.booking_date));
+
+    // 2. Filter by search query
+    const searchFiltered = currentOrFuture.filter(item => {
+      if (!searchQuery.trim()) return true;
+      const q = searchQuery.toLowerCase();
+      return (
+        item.booking_date.toLowerCase().includes(q) ||
+        item.time_slot.toLowerCase().includes(q) ||
+        (item.ticket_name && item.ticket_name.toLowerCase().includes(q)) ||
+        (item.reason && item.reason.toLowerCase().includes(q))
+      );
+    });
+
+    // 3. Deduplicate date format variants for the same calendar date, slot, and ticket
+    const seen = new Set<string>();
+    const deduplicated: BlockedSlotRow[] = [];
+
+    for (const item of searchFiltered) {
+      const canonDate = normalizeDateToYmd(item.booking_date) || item.booking_date;
+      const key = `${canonDate}__${item.time_slot}__${item.ticket_id ?? 'all'}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        deduplicated.push(item);
+      }
+    }
+
+    return deduplicated;
+  })();
 
   return (
     <div className="max-w-6xl mx-auto space-y-8">

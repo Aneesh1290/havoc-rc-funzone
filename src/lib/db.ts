@@ -2,9 +2,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { deleteSimulatorSlotLocks } from './simulator-db';
-import { normalizeBookingDateVariants, matchesBookingDate } from './slot-time-utils';
+import { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast } from './slot-time-utils';
 
-export { normalizeBookingDateVariants, matchesBookingDate };
+export { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast };
 
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
@@ -537,10 +537,16 @@ export function initDB() {
   // Ensure blocked_slots table has ticket_id column
   try { db.exec('ALTER TABLE blocked_slots ADD COLUMN ticket_id INTEGER'); } catch (e) {}
 
-  // Synchronize blocked_slots across date formats (e.g. 2026-11-05 <-> Nov 05, Nov 22 <-> 2026-11-22)
+  // Automatically purge expired past blocked slots on startup
+  try {
+    cleanupExpiredBlockedSlots();
+  } catch (e) {}
+
+  // Synchronize active blocked_slots across date formats (e.g. 2026-11-22 <-> Nov 22)
   try {
     const existingBlocks = db.prepare("SELECT id, booking_date, time_slot, reason, ticket_id FROM blocked_slots WHERE booking_date != 'ALL'").all() as BlockedSlotRow[];
     for (const b of existingBlocks) {
+      if (isBookingDatePast(b.booking_date)) continue;
       const vars = normalizeBookingDateVariants(b.booking_date);
       for (const v of vars) {
         if (v !== b.booking_date) {
@@ -2458,13 +2464,42 @@ export interface BlockedSlotRow {
   created_at?: string;
 }
 
-export function getBlockedSlots(): BlockedSlotRow[] {
-  return db.prepare(`
+export function cleanupExpiredBlockedSlots(): number {
+  try {
+    const all = db.prepare("SELECT id, booking_date FROM blocked_slots WHERE booking_date != 'ALL'").all() as { id: number; booking_date: string }[];
+    const expiredIds: number[] = [];
+    for (const row of all) {
+      if (isBookingDatePast(row.booking_date)) {
+        expiredIds.push(row.id);
+      }
+    }
+    if (expiredIds.length > 0) {
+      const placeholders = expiredIds.map(() => '?').join(', ');
+      db.prepare(`DELETE FROM blocked_slots WHERE id IN (${placeholders})`).run(...expiredIds);
+      console.log(`[Blocked Slots Cleanup] Purged ${expiredIds.length} expired past blocked slot records.`);
+    }
+    return expiredIds.length;
+  } catch (err) {
+    console.error("[Blocked Slots Cleanup Error]", err);
+    return 0;
+  }
+}
+
+export function getBlockedSlots(includePast = false): BlockedSlotRow[] {
+  // Purge any expired records from the database
+  cleanupExpiredBlockedSlots();
+
+  const rows = db.prepare(`
     SELECT b.*, t.name as ticket_name 
     FROM blocked_slots b
     LEFT JOIN tickets t ON b.ticket_id = t.id
     ORDER BY b.id DESC
   `).all() as BlockedSlotRow[];
+
+  if (includePast) {
+    return rows;
+  }
+  return rows.filter(r => !isBookingDatePast(r.booking_date));
 }
 
 export function getBlockedSlotsForDate(date: string): BlockedSlotRow[] {
@@ -2519,6 +2554,15 @@ export function blockSlotOrDate(bookingDate: string, timeSlot: string, reason?: 
 }
 
 export function unblockSlot(id: number) {
+  const row = db.prepare('SELECT booking_date, time_slot, ticket_id FROM blocked_slots WHERE id = ?').get(id) as { booking_date: string; time_slot: string; ticket_id: number | null } | undefined;
+  if (row && row.booking_date !== 'ALL') {
+    const variants = normalizeBookingDateVariants(row.booking_date);
+    const placeholders = variants.map(() => '?').join(', ');
+    if (row.ticket_id) {
+      return db.prepare(`DELETE FROM blocked_slots WHERE booking_date IN (${placeholders}) AND time_slot = ? AND ticket_id = ?`).run(...variants, row.time_slot, row.ticket_id);
+    }
+    return db.prepare(`DELETE FROM blocked_slots WHERE booking_date IN (${placeholders}) AND time_slot = ? AND ticket_id IS NULL`).run(...variants, row.time_slot);
+  }
   return db.prepare('DELETE FROM blocked_slots WHERE id = ?').run(id);
 }
 

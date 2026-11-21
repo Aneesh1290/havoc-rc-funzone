@@ -23,6 +23,10 @@ import {
   Send,
   FileText,
   BellRing,
+  Phone,
+  Plus,
+  Trash2,
+  Smartphone,
 } from "lucide-react";
 import { changePasswordAction } from "@/app/login/actions";
 import { 
@@ -37,7 +41,11 @@ import {
   DeskPaymentLinkSettings,
   getAdvanceNotificationSettingsAction,
   updateAdvanceNotificationSettingsAction,
-  AdvanceNotificationSettings
+  AdvanceNotificationSettings,
+  getAdminBookingAlertSettingsAction,
+  updateAdminBookingAlertSettingsAction,
+  testAdminBookingAlertAction,
+  AdminBookingAlertSettings
 } from "@/app/actions/payment-settings";
 
 export default function SettingsPage() {
@@ -109,18 +117,33 @@ export default function SettingsPage() {
   const [advanceSuccessMsg, setAdvanceSuccessMsg] = useState<string | null>(null);
   const [advanceErrorMsg, setAdvanceErrorMsg] = useState<string | null>(null);
 
+  // Admin Booking WhatsApp Alert Settings State
+  const [adminAlertSettings, setAdminAlertSettings] = useState<AdminBookingAlertSettings>({
+    enabled: true,
+    phoneNumbers: [],
+  });
+  const [newPhoneNumber, setNewPhoneNumber] = useState("");
+  const [isAlertSaving, setIsAlertSaving] = useState(false);
+  const [alertSuccessMsg, setAlertSuccessMsg] = useState<string | null>(null);
+  const [alertErrorMsg, setAlertErrorMsg] = useState<string | null>(null);
+  const [testAlertPhone, setTestAlertPhone] = useState("");
+  const [isTestAlertSending, setIsTestAlertSending] = useState(false);
+  const [testAlertFeedback, setTestAlertFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
   useEffect(() => {
     async function loadAllSettings() {
       try {
         setIsPaymentLoading(true);
-        const [paymentData, deskPayData, advanceData] = await Promise.all([
+        const [paymentData, deskPayData, advanceData, alertData] = await Promise.all([
           getAdminPaymentSettingsAction(),
           getDeskPaymentLinkSettingsAction(),
           getAdvanceNotificationSettingsAction(),
+          getAdminBookingAlertSettingsAction(),
         ]);
         setPaymentSettings(paymentData);
         setDeskPaySettings(deskPayData);
         setAdvanceNotifySettings(advanceData);
+        setAdminAlertSettings(alertData);
       } catch (err: any) {
         console.error("Failed to load settings:", err);
       } finally {
@@ -129,6 +152,72 @@ export default function SettingsPage() {
     }
     loadAllSettings();
   }, []);
+
+  const handleAddPhoneNumber = () => {
+    const trimmed = newPhoneNumber.trim();
+    if (!trimmed) return;
+    if (adminAlertSettings.phoneNumbers.includes(trimmed)) {
+      setAlertErrorMsg("This phone number is already added.");
+      setTimeout(() => setAlertErrorMsg(null), 3000);
+      return;
+    }
+    setAdminAlertSettings(prev => ({
+      ...prev,
+      phoneNumbers: [...prev.phoneNumbers, trimmed],
+    }));
+    setNewPhoneNumber("");
+    setAlertErrorMsg(null);
+  };
+
+  const handleRemovePhoneNumber = (indexToRemove: number) => {
+    setAdminAlertSettings(prev => ({
+      ...prev,
+      phoneNumbers: prev.phoneNumbers.filter((_, idx) => idx !== indexToRemove),
+    }));
+  };
+
+  const handleSaveAdminAlertSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsAlertSaving(true);
+    setAlertSuccessMsg(null);
+    setAlertErrorMsg(null);
+
+    try {
+      const res = await updateAdminBookingAlertSettingsAction(adminAlertSettings);
+      if (res.success) {
+        setAlertSuccessMsg("Admin WhatsApp booking alert settings saved successfully!");
+        setTimeout(() => setAlertSuccessMsg(null), 4000);
+      } else {
+        setAlertErrorMsg(res.error || "Failed to save settings.");
+      }
+    } catch (err: any) {
+      setAlertErrorMsg(err?.message || "An unexpected error occurred.");
+    } finally {
+      setIsAlertSaving(false);
+    }
+  };
+
+  const handleSendTestAlert = async () => {
+    const targetPhone = testAlertPhone.trim() || adminAlertSettings.phoneNumbers[0];
+    if (!targetPhone) {
+      setTestAlertFeedback({ success: false, message: "Please enter or configure a phone number to test." });
+      return;
+    }
+    setIsTestAlertSending(true);
+    setTestAlertFeedback(null);
+    try {
+      const res = await testAdminBookingAlertAction(targetPhone);
+      if (res.success) {
+        setTestAlertFeedback({ success: true, message: `Test WhatsApp alert sent successfully to ${targetPhone}!` });
+      } else {
+        setTestAlertFeedback({ success: false, message: res.error || "Failed to send test alert. Check INTERAKT_API_KEY." });
+      }
+    } catch (err: any) {
+      setTestAlertFeedback({ success: false, message: err?.message || "Test dispatch failed" });
+    } finally {
+      setIsTestAlertSending(false);
+    }
+  };
 
   const handleSaveAdvanceNotifySettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -625,6 +714,169 @@ export default function SettingsPage() {
               >
                 {isAdvanceSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>{isAdvanceSaving ? "Saving..." : "Save Notification Settings"}</span>
+              </button>
+            </div>
+          </form>
+        </div>
+
+        {/* ========================================================================= */}
+        {/* 4. ADMIN BOOKING ALERTS (WHATSAPP)                                        */}
+        {/* ========================================================================= */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-4 mb-6">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-purple-50 text-purple-600 border border-purple-200">
+                <Smartphone className="w-5 h-5" />
+              </span>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Admin Booking Alerts (WhatsApp)</h3>
+                <p className="text-xs text-gray-500">
+                  Instantly notify managers and desk staff via WhatsApp whenever a new customer booking is placed (online or pay at desk).
+                </p>
+              </div>
+            </div>
+
+            {/* Enable/Disable Toggle */}
+            <button
+              type="button"
+              onClick={() => setAdminAlertSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                adminAlertSettings.enabled 
+                  ? "bg-purple-50 text-purple-700 border-purple-300" 
+                  : "bg-gray-100 text-gray-500 border-gray-300"
+              }`}
+            >
+              {adminAlertSettings.enabled ? <ToggleRight className="w-4 h-4 text-purple-600" /> : <ToggleLeft className="w-4 h-4 text-gray-400" />}
+              <span>{adminAlertSettings.enabled ? "Alerts Enabled" : "Alerts Disabled"}</span>
+            </button>
+          </div>
+
+          {alertSuccessMsg && (
+            <div className="mb-4 bg-purple-50 border border-purple-200 text-purple-800 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <Check className="w-4 h-4 text-purple-600 shrink-0" />
+              <span>{alertSuccessMsg}</span>
+            </div>
+          )}
+
+          {alertErrorMsg && (
+            <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-2.5 rounded-xl text-xs font-semibold flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+              <span>{alertErrorMsg}</span>
+            </div>
+          )}
+
+          <form onSubmit={handleSaveAdminAlertSettings} className="space-y-5">
+            <div>
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
+                Admin Phone Numbers (To Receive Alerts)
+              </label>
+
+              {/* Add number input bar */}
+              <div className="flex gap-2 mb-3">
+                <div className="relative flex-1">
+                  <span className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-gray-400">
+                    <Phone className="w-3.5 h-3.5" />
+                  </span>
+                  <input
+                    type="text"
+                    value={newPhoneNumber}
+                    onChange={(e) => setNewPhoneNumber(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleAddPhoneNumber();
+                      }
+                    }}
+                    placeholder="e.g. +91 9876543210"
+                    className="w-full border border-gray-300 rounded-xl pl-9 pr-3.5 py-2 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddPhoneNumber}
+                  className="bg-purple-600 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-purple-700 transition-all flex items-center gap-1.5 shadow-sm shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Number</span>
+                </button>
+              </div>
+
+              {/* Configured numbers chips */}
+              {adminAlertSettings.phoneNumbers.length > 0 ? (
+                <div className="flex flex-wrap gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                  {adminAlertSettings.phoneNumbers.map((phone, idx) => (
+                    <div
+                      key={idx}
+                      className="inline-flex items-center gap-2 bg-white border border-purple-200 text-purple-900 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-2xs"
+                    >
+                      <Phone className="w-3 h-3 text-purple-600" />
+                      <span>{phone}</span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemovePhoneNumber(idx)}
+                        className="text-gray-400 hover:text-red-500 p-0.5 rounded transition-colors"
+                        title="Remove number"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-4 bg-gray-50 border border-dashed border-gray-200 rounded-xl text-center text-xs text-gray-500">
+                  No admin phone numbers configured yet. Type a number above with country code (e.g. <code>+91 9876543210</code>) and tap <strong>Add Number</strong>.
+                </div>
+              )}
+
+              <p className="text-[11px] text-gray-400 mt-2">
+                Tip: Enter the complete phone number with country code (e.g. <code>+91</code> for India). Whenever any customer completes a booking, Interakt will send the confirmation message directly to each registered admin number.
+              </p>
+            </div>
+
+            {/* Test WhatsApp Alert dispatch section */}
+            <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl">
+              <div className="flex items-center gap-2 mb-2 text-xs font-bold text-purple-900">
+                <Smartphone className="w-4 h-4 text-purple-600" />
+                <span>Test Admin Notification</span>
+              </div>
+              <p className="text-[11px] text-purple-800/80 mb-3">
+                Send a sample WhatsApp booking alert right now to verify that your Interakt setup is functioning properly.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="text"
+                  value={testAlertPhone}
+                  onChange={(e) => setTestAlertPhone(e.target.value)}
+                  placeholder={adminAlertSettings.phoneNumbers[0] || "+91 9876543210"}
+                  className="flex-1 border border-purple-200 rounded-xl px-3.5 py-1.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendTestAlert}
+                  disabled={isTestAlertSending}
+                  className="bg-white border border-purple-300 text-purple-800 hover:bg-purple-100/60 px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-60 shadow-2xs shrink-0"
+                >
+                  {isTestAlertSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5 text-purple-600" />}
+                  <span>{isTestAlertSending ? "Sending..." : "Send Test Alert"}</span>
+                </button>
+              </div>
+
+              {testAlertFeedback && (
+                <div className={`mt-2.5 p-2 rounded-lg text-xs font-medium flex items-center gap-1.5 ${testAlertFeedback.success ? "bg-emerald-100/80 text-emerald-800" : "bg-red-100/80 text-red-800"}`}>
+                  {testAlertFeedback.success ? <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
+                  <span>{testAlertFeedback.message}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="submit"
+                disabled={isAlertSaving}
+                className="bg-purple-600 text-white px-6 py-2 rounded-xl text-xs font-bold hover:bg-purple-700 transition-all flex items-center gap-1.5 shadow-sm disabled:opacity-60"
+              >
+                {isAlertSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                <span>{isAlertSaving ? "Saving..." : "Save Admin Alert Settings"}</span>
               </button>
             </div>
           </form>

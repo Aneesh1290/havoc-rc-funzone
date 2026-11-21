@@ -8,7 +8,7 @@ import {
 import { confirmSimulatorSlotLocks, deleteSimulatorSlotLocks } from '@/lib/simulator-db';
 import { generateIciciHash, getIciciReturnBase } from '@/lib/icici';
 import { sendBookingConfirmationEmail } from '@/lib/email';
-import { sendBookingConfirmationWhatsApp } from '@/lib/whatsapp';
+import { sendBookingConfirmationWhatsApp, notifyAdminsBookingWhatsApp } from '@/lib/whatsapp';
 import { formatOrderNumber } from '@/lib/order-utils';
 import Database from 'better-sqlite3';
 import path from 'path';
@@ -311,6 +311,15 @@ export async function POST(req: NextRequest) {
               items: emailItems
             }).catch(e => console.error('[ICICI Callback] Confirmation WhatsApp error:', e));
           }
+
+          notifyAdminsBookingWhatsApp({
+            orderId: formattedOrderCode,
+            customerName: holdRow.customer_name || 'Customer',
+            customerPhone: holdRow.customer_phone || '',
+            totalAmount: holdRow.amount,
+            paymentStatus: 'Paid',
+            items: emailItems
+          }).catch(e => console.error('[ICICI Callback] Admin WhatsApp alert error:', e));
         } catch (commErr) {
           console.error('[ICICI Callback] Communication dispatch error:', commErr);
         }

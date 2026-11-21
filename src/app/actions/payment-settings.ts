@@ -327,3 +327,81 @@ export async function updateGoogleReviewSettingsAction(settings: GoogleReviewSet
   }
 }
 
+export interface AdminBookingAlertSettings {
+  enabled: boolean;
+  phoneNumbers: string[];
+}
+
+export async function getAdminBookingAlertSettingsAction(): Promise<AdminBookingAlertSettings> {
+  const enabled = getSiteSetting("admin_booking_alert_enabled", "1") !== "0";
+  const rawPhones = getSiteSetting("admin_booking_alert_phones", process.env.ADMIN_WHATSAPP_NUMBERS || "");
+  const phoneNumbers = rawPhones
+    .split(/[\n,;]+/)
+    .map(p => p.trim())
+    .filter(Boolean);
+
+  return {
+    enabled,
+    phoneNumbers,
+  };
+}
+
+export async function updateAdminBookingAlertSettingsAction(settings: AdminBookingAlertSettings) {
+  try {
+    const session = await checkSessionAction();
+    const canManageSettings = session && (
+      hasUserPermission(session, "settings") ||
+      session.role === "super_admin" || 
+      session.role === "Administrator" || 
+      session.role?.toLowerCase()?.includes("admin") ||
+      session.username?.toLowerCase() === "admin"
+    );
+    if (!session || !canManageSettings) {
+      return { success: false, error: "Unauthorized: Only administrators can update settings." };
+    }
+
+    const cleanPhones = Array.isArray(settings.phoneNumbers)
+      ? settings.phoneNumbers.map(p => p.trim()).filter(Boolean).join(", ")
+      : "";
+
+    setSiteSetting("admin_booking_alert_enabled", settings.enabled ? "1" : "0", "Enable WhatsApp booking notifications to admin phone numbers");
+    setSiteSetting("admin_booking_alert_phones", cleanPhones, "Comma-separated list of admin phone numbers to receive WhatsApp booking alerts");
+
+    revalidatePath("/admin/settings");
+    return { success: true };
+  } catch (err: any) {
+    console.error("Failed to update admin booking alert settings:", err);
+    return { success: false, error: err.message || "Failed to save admin alert settings" };
+  }
+}
+
+export async function testAdminBookingAlertAction(testPhone: string) {
+  try {
+    const session = await checkSessionAction();
+    if (!session) {
+      return { success: false, error: "Unauthorized: Admin session required." };
+    }
+
+    if (!testPhone || testPhone.trim().length < 7) {
+      return { success: false, error: "Please enter a valid phone number with country code (e.g. +91 9876543210)." };
+    }
+
+    const { sendBookingConfirmationWhatsApp } = await import("@/lib/whatsapp");
+    const testResult = await sendBookingConfirmationWhatsApp({
+      orderId: "TEST-ALERT-" + Date.now().toString().slice(-4),
+      customerName: "[TEST ALERT] Admin Setup",
+      customerPhone: testPhone.trim(),
+      totalAmount: 590,
+      paymentStatus: "Paid",
+      ticketName: "Test RC Fun Zone Booking",
+      quantity: 1,
+      date: new Date().toISOString().split("T")[0],
+      timeSlot: "12:00 PM - 01:00 PM"
+    });
+
+    return testResult;
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to send test alert" };
+  }
+}
+

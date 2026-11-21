@@ -84,7 +84,7 @@ export async function sendBookingConfirmationWhatsApp(
   params: BookingWhatsAppParams
 ): Promise<{ success: boolean; message: string; error?: string }> {
   try {
-    const interaktApiKey = process.env.INTERAKT_API_KEY;
+    const interaktApiKey = process.env.INTERAKT_API_KEY || getSiteSetting("interakt_api_key", "");
     if (!interaktApiKey) {
       console.warn("[WhatsApp Notification] INTERAKT_API_KEY not configured. Skipping WhatsApp message dispatch.");
       return { success: false, message: "INTERAKT_API_KEY is not configured" };
@@ -355,4 +355,72 @@ export async function sendPaymentLinkWhatsApp(
     message: `WhatsApp payment message prepared for ${cleanCountryCode} ${phoneNumber}`,
     waMeUrl,
   };
+}
+
+/**
+ * Dispatches automated WhatsApp booking notification to configured admin phone numbers.
+ * Reads admin phone numbers from database setting (admin_booking_alert_phones) or env (ADMIN_WHATSAPP_NUMBERS).
+ */
+export async function notifyAdminsBookingWhatsApp(
+  params: BookingWhatsAppParams
+): Promise<{ success: boolean; sentCount: number; errors: string[] }> {
+  try {
+    const isAlertEnabled = getSiteSetting("admin_booking_alert_enabled", "1") !== "0";
+    if (!isAlertEnabled) {
+      return { success: true, sentCount: 0, errors: [] };
+    }
+
+    const rawPhones = getSiteSetting(
+      "admin_booking_alert_phones",
+      process.env.ADMIN_WHATSAPP_NUMBERS || ""
+    );
+
+    const adminPhones = rawPhones
+      .split(/[\n,;]+/)
+      .map((p) => p.trim())
+      .filter((p) => p.length >= 7);
+
+    if (adminPhones.length === 0) {
+      return { success: true, sentCount: 0, errors: [] };
+    }
+
+    // Format customer name for admin's view with customer's phone if available
+    const custPhone = params.customerPhone ? ` [${params.customerPhone}]` : "";
+    const adminCustomerName = `[ADMIN] ${params.customerName || "Customer"}${custPhone}`;
+
+    const errors: string[] = [];
+    let sentCount = 0;
+
+    await Promise.allSettled(
+      adminPhones.map(async (adminPhone) => {
+        try {
+          const res = await sendBookingConfirmationWhatsApp({
+            ...params,
+            customerName: adminCustomerName.slice(0, 60),
+            customerPhone: adminPhone,
+          });
+          if (res.success) {
+            sentCount++;
+          } else if (res.error) {
+            errors.push(`${adminPhone}: ${res.error}`);
+          }
+        } catch (err: any) {
+          errors.push(`${adminPhone}: ${err.message}`);
+        }
+      })
+    );
+
+    if (sentCount > 0) {
+      console.log(`[Admin WhatsApp Alert] Dispatched booking alert to ${sentCount}/${adminPhones.length} admin numbers for Order ${params.orderId}`);
+    }
+
+    return {
+      success: errors.length === 0,
+      sentCount,
+      errors,
+    };
+  } catch (err: any) {
+    console.error("[Admin WhatsApp Alert Exception]", err);
+    return { success: false, sentCount: 0, errors: [err.message] };
+  }
 }

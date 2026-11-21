@@ -96,7 +96,7 @@ import {
 } from "@/lib/simulator-db";
 import { formatOrderNumber } from "@/lib/order-utils";
 import { sendBookingConfirmationEmail } from "@/lib/email";
-import { sendBookingConfirmationWhatsApp } from "@/lib/whatsapp";
+import { sendBookingConfirmationWhatsApp, notifyAdminsBookingWhatsApp } from "@/lib/whatsapp";
 import { checkSessionAction } from "@/app/login/actions";
 import { hasUserPermission } from "@/lib/permissions";
 import { revalidatePath } from "next/cache";
@@ -232,6 +232,22 @@ export async function addBookingAction(
         paymentStatus: 'Unpaid'
       }).catch(err => {
         console.error("Async confirmation WhatsApp error:", err);
+      });
+
+      notifyAdminsBookingWhatsApp({
+        orderId,
+        customerName,
+        customerPhone,
+        ticketName,
+        quantity,
+        date,
+        timeSlot,
+        totalAmount,
+        simulatorName,
+        simulatorSlot,
+        paymentStatus: 'Unpaid'
+      }).catch(err => {
+        console.error("Async admin confirmation WhatsApp alert error:", err);
       });
     } catch (waErr) {
       console.error("Failed to trigger confirmation WhatsApp:", waErr);
@@ -378,6 +394,17 @@ export async function createBatchOrderAction(
         items: orderItems
       }).catch(err => {
         console.error("Async batch confirmation WhatsApp error:", err);
+      });
+
+      notifyAdminsBookingWhatsApp({
+        orderId,
+        customerName,
+        customerPhone,
+        totalAmount,
+        paymentStatus: 'Unpaid',
+        items: orderItems
+      }).catch(err => {
+        console.error("Async batch admin confirmation WhatsApp alert error:", err);
       });
     } catch (waErr) {
       console.error("Failed to trigger batch confirmation WhatsApp:", waErr);

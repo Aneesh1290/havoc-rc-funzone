@@ -96,9 +96,17 @@ export async function getAdminPaymentSettingsAction(): Promise<AdminPaymentSetti
   const gatewayEnv = (getSiteSetting("payment_gateway_env", process.env.ICICI_ENV || "live") as GatewayEnvironment) || "live";
 
   const isUat = gatewayEnv === "test";
-  const defaultIciciMid = isUat ? "100000000007164" : (process.env.ICICI_MERCHANT_ID || "100000000553470");
-  const defaultIciciAgg = isUat ? "A100000000007164" : (process.env.ICICI_AGGREGATOR_ID || "100000000553469");
-  const defaultIciciKey = isUat ? "db06cca0-838b-4e01-8b20-6ac446ffb6bd" : (process.env.ICICI_SECRET_KEY || "863edfb6-97c3-4944-b7d8-021fd7248037");
+  const envMid = process.env.ICICI_MERCHANT_ID;
+  const envAgg = process.env.ICICI_AGGREGATOR_ID;
+  const envKey = process.env.ICICI_SECRET_KEY;
+
+  const dbMid = getSiteSetting("icici_merchant_id", "");
+  const dbAgg = getSiteSetting("icici_aggregator_id", "");
+  const dbKey = getSiteSetting("icici_secret_key", "");
+
+  const effectiveMid = envMid?.trim() || (dbMid && dbMid !== "100000000531583" ? dbMid : (isUat ? "100000000007164" : "100000000553470"));
+  const effectiveAgg = envAgg?.trim() || (dbAgg && dbAgg !== "100000000531582" ? dbAgg : (isUat ? "A100000000007164" : "100000000553469"));
+  const effectiveKey = envKey?.trim() || (dbKey && dbKey !== "9927ca2f-17bd-401d-8ae4-c34f5ea641bc" && dbKey !== "db06cca0-838b-4e01-8b20-6ac446ffb6bd" ? dbKey : (isUat ? "db06cca0-838b-4e01-8b20-6ac446ffb6bd" : "863edfb6-97c3-4944-b7d8-021fd7248037"));
 
   return {
     enableOnline,
@@ -107,9 +115,9 @@ export async function getAdminPaymentSettingsAction(): Promise<AdminPaymentSetti
     activeGateway,
     gatewayEnv,
     icici: {
-      merchantId: getSiteSetting("icici_merchant_id", defaultIciciMid),
-      aggregatorId: getSiteSetting("icici_aggregator_id", defaultIciciAgg),
-      secretKey: getSiteSetting("icici_secret_key", defaultIciciKey),
+      merchantId: effectiveMid,
+      aggregatorId: effectiveAgg,
+      secretKey: effectiveKey,
     },
     razorpay: {
       keyId: getSiteSetting("razorpay_key_id", process.env.RAZORPAY_KEY_ID || ""),

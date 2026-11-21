@@ -22,18 +22,45 @@ export function isIciciUat(): boolean {
 }
 
 export function getIciciMerchantId(): string {
-  const defaultMid = isIciciUat() ? UAT_MERCHANT_ID : (process.env.ICICI_MERCHANT_ID || PROD_MERCHANT_ID);
-  return getSiteSetting('icici_merchant_id', defaultMid);
+  // 1. Host environment variables (Render Dashboard) ALWAYS take precedence
+  if (process.env.ICICI_MERCHANT_ID && process.env.ICICI_MERCHANT_ID.trim()) {
+    return process.env.ICICI_MERCHANT_ID.trim();
+  }
+  // 2. Database setting (ignore old Sim Podium placeholder if present)
+  const dbVal = getSiteSetting('icici_merchant_id', '');
+  if (dbVal && dbVal.trim() && dbVal.trim() !== '100000000531583') {
+    return dbVal.trim();
+  }
+  // 3. Fallback constant
+  return isIciciUat() ? UAT_MERCHANT_ID : PROD_MERCHANT_ID;
 }
 
 export function getIciciAggregatorId(): string {
-  const defaultAgg = isIciciUat() ? UAT_AGGREGATOR_ID : (process.env.ICICI_AGGREGATOR_ID || PROD_AGGREGATOR_ID);
-  return getSiteSetting('icici_aggregator_id', defaultAgg);
+  // 1. Host environment variables (Render Dashboard) ALWAYS take precedence
+  if (process.env.ICICI_AGGREGATOR_ID && process.env.ICICI_AGGREGATOR_ID.trim()) {
+    return process.env.ICICI_AGGREGATOR_ID.trim();
+  }
+  // 2. Database setting (ignore old Sim Podium placeholder if present)
+  const dbVal = getSiteSetting('icici_aggregator_id', '');
+  if (dbVal && dbVal.trim() && dbVal.trim() !== '100000000531582') {
+    return dbVal.trim();
+  }
+  // 3. Fallback constant
+  return isIciciUat() ? UAT_AGGREGATOR_ID : PROD_AGGREGATOR_ID;
 }
 
 export function getIciciSecretKey(): string {
-  const defaultKey = isIciciUat() ? UAT_SECRET_KEY : (process.env.ICICI_SECRET_KEY || PROD_SECRET_KEY);
-  return getSiteSetting('icici_secret_key', defaultKey);
+  // 1. Host environment variables (Render Dashboard) ALWAYS take precedence
+  if (process.env.ICICI_SECRET_KEY && process.env.ICICI_SECRET_KEY.trim()) {
+    return process.env.ICICI_SECRET_KEY.trim();
+  }
+  // 2. Database setting (ignore old Sim Podium placeholder if present)
+  const dbVal = getSiteSetting('icici_secret_key', '');
+  if (dbVal && dbVal.trim() && dbVal.trim() !== '9927ca2f-17bd-401d-8ae4-c34f5ea641bc' && dbVal.trim() !== 'db06cca0-838b-4e01-8b20-6ac446ffb6bd') {
+    return dbVal.trim();
+  }
+  // 3. Fallback constant
+  return isIciciUat() ? UAT_SECRET_KEY : PROD_SECRET_KEY;
 }
 
 export function getIciciBaseUrl(): string {
@@ -60,13 +87,15 @@ export function getIciciSettlementDetailsUrl(): string {
  * Passing localhost or unencrypted http will cause ICICI to throw "DOMAIN VALIDATION FAIL".
  */
 export function getIciciReturnBase(reqOrigin?: string): string {
-  const dbSetting = getSiteSetting('icici_return_base', '');
-  if (dbSetting && dbSetting.trim()) return dbSetting.trim().replace(/\/$/, '');
-
+  // 1. Host environment variables (Render Dashboard) ALWAYS take precedence
   const envReturnBase = process.env.ICICI_RETURN_BASE || process.env.NEXT_PUBLIC_APP_URL;
   if (envReturnBase && envReturnBase.trim()) {
     return envReturnBase.trim().replace(/\/$/, '');
   }
+
+  // 2. Database setting
+  const dbSetting = getSiteSetting('icici_return_base', '');
+  if (dbSetting && dbSetting.trim()) return dbSetting.trim().replace(/\/$/, '');
 
   if (!isIciciUat()) {
     // If request origin is localhost or insecure HTTP, default to the production whitelisted domain

@@ -77,7 +77,12 @@ async function parseRequestBody(req: NextRequest): Promise<Record<string, any>> 
 export async function POST(req: NextRequest) {
   const redirectBase = getRedirectBaseUrl(req);
   const body = await parseRequestBody(req);
-  console.log('[ICICI PG Callback] Received POST payload:', body);
+
+  console.log('================== [ICICI BANK PAYMENT ADVICE / CALLBACK] ==================');
+  console.log('Timestamp (IST)   :', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+  console.log('Callback Origin   :', req.headers.get('origin') || req.headers.get('referer') || 'Unknown');
+  console.log('Content-Type      :', req.headers.get('content-type'));
+  console.log('Parsed Parameters :', JSON.stringify(body, null, 2));
 
   const receivedHash = body.secureHash || body.responseParams?.secureHash;
   let computedHash = generateIciciHash(body);
@@ -87,6 +92,13 @@ export async function POST(req: NextRequest) {
       computedHash = paramsHash;
     }
   }
+
+  console.log('Hash Verification :', {
+    receivedHash: receivedHash || 'NONE',
+    computedHash: computedHash,
+    isMatch: receivedHash === computedHash
+  });
+  console.log('============================================================================');
 
   if (receivedHash && computedHash && receivedHash !== computedHash) {
     console.error('[ICICI Callback] Hash Mismatch!', { receivedHash, computedHash });

@@ -16,6 +16,7 @@ import {
   getIciciAggregatorId,
   getIciciMerchantId,
   generateIciciHash,
+  getIciciPlainHashtext,
   getIciciInitiateSaleUrl,
   getIciciReturnBase
 } from '@/lib/icici';
@@ -167,8 +168,21 @@ export async function POST(req: NextRequest) {
 
     payload.secureHash = generateIciciHash(payload);
 
+    const initiateUrl = getIciciInitiateSaleUrl();
+    console.log('================== [ICICI BANK INITIATE SALE REQUEST] ==================');
+    console.log('Timestamp (IST)   :', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+    console.log('API Endpoint URL  :', initiateUrl);
+    console.log('HTTP Headers      :', {
+      'Origin': 'https://havocrcfunzone.in',
+      'Referer': 'https://havocrcfunzone.in/',
+      'Content-Type': 'application/json'
+    });
+    console.log('Plain Hashtext    :', getIciciPlainHashtext(payload));
+    console.log('Request Payload   :', JSON.stringify(payload, null, 2));
+    console.log('========================================================================');
+
     // 8. Call ICICI initiateSale API (v2)
-    const iciciRes = await fetch(getIciciInitiateSaleUrl(), {
+    const iciciRes = await fetch(initiateUrl, {
       method: 'POST',
       headers: {
         'Origin': 'https://havocrcfunzone.in',
@@ -179,6 +193,10 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await iciciRes.json();
+    console.log('================== [ICICI BANK INITIATE SALE RESPONSE] ==================');
+    console.log('HTTP Status       :', iciciRes.status);
+    console.log('Response Payload  :', JSON.stringify(data, null, 2));
+    console.log('=========================================================================');
 
     if (data.responseCode !== "R1000") {
       console.error('ICICI initiateSale error response:', data);

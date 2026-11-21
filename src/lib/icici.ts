@@ -79,11 +79,10 @@ export function getIciciReturnBase(reqOrigin?: string): string {
 }
 
 /**
- * Computes HMAC-SHA256 signature across all non-null, non-undefined, non-empty payload keys
- * in alphabetical order, omitting `secureHash`.
+ * Generates the plaintext string concatenated in alphabetical order of keys (excluding secureHash)
+ * that is used to compute the HMAC-SHA256 signature.
  */
-export function generateIciciHash(payload: Record<string, any>, customSecret?: string): string {
-  const secret = customSecret || getIciciSecretKey();
+export function getIciciPlainHashtext(payload: Record<string, any>): string {
   const sortedKeys = Object.keys(payload).sort();
   let plainText = "";
   for (const key of sortedKeys) {
@@ -91,6 +90,16 @@ export function generateIciciHash(payload: Record<string, any>, customSecret?: s
       plainText += String(payload[key]);
     }
   }
+  return plainText;
+}
+
+/**
+ * Computes HMAC-SHA256 signature across all non-null, non-undefined, non-empty payload keys
+ * in alphabetical order, omitting `secureHash`.
+ */
+export function generateIciciHash(payload: Record<string, any>, customSecret?: string): string {
+  const secret = customSecret || getIciciSecretKey();
+  const plainText = getIciciPlainHashtext(payload);
   const hmac = crypto.createHmac('sha256', secret);
   hmac.update(plainText);
   return hmac.digest('hex');
@@ -136,7 +145,15 @@ export async function processIciciRefund(params: {
     formParams.append(key, value);
   }
 
-  const res = await fetch(getIciciCommandUrl(), {
+  const commandUrl = getIciciCommandUrl();
+  console.log('================== [ICICI BANK COMMAND/REFUND REQUEST] ==================');
+  console.log('Timestamp (IST)   :', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+  console.log('API URL           :', commandUrl);
+  console.log('Plain Hashtext    :', getIciciPlainHashtext(payload));
+  console.log('Request Payload   :', JSON.stringify(payload, null, 2));
+  console.log('========================================================================');
+
+  const res = await fetch(commandUrl, {
     method: 'POST',
     headers: {
       'Origin': 'https://havocrcfunzone.in',
@@ -147,6 +164,11 @@ export async function processIciciRefund(params: {
   });
 
   const data = await res.json().catch(() => ({}));
+
+  console.log('================== [ICICI BANK COMMAND/REFUND RESPONSE] ==================');
+  console.log('HTTP Status       :', res.status);
+  console.log('Response Payload  :', JSON.stringify(data, null, 2));
+  console.log('=========================================================================');
 
   // ICICI returns R1000, 0000, or 000 for successful operations
   const isSuccess = data.responseCode === "R1000" || data.responseCode === "0000" || data.responseCode === "000";

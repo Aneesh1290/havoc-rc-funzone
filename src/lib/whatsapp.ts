@@ -366,7 +366,8 @@ export async function notifyAdminsBookingWhatsApp(
 ): Promise<{ success: boolean; sentCount: number; errors: string[] }> {
   try {
     const isAlertEnabled = getSiteSetting("admin_booking_alert_enabled", "1") !== "0";
-    if (!isAlertEnabled) {
+    const isInstantEnabled = getSiteSetting("admin_instant_alert_enabled", "1") !== "0";
+    if (!isAlertEnabled || !isInstantEnabled) {
       return { success: true, sentCount: 0, errors: [] };
     }
 
@@ -423,4 +424,158 @@ export async function notifyAdminsBookingWhatsApp(
     console.error("[Admin WhatsApp Alert Exception]", err);
     return { success: false, sentCount: 0, errors: [err.message] };
   }
+}
+
+export interface AdminUpcomingReminderParams {
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  totalAmount: number;
+  paymentStatus: string;
+  itemsSummary: string;
+  timeSlot: string;
+  bookingDate: string;
+  adminPhone: string;
+  brandName?: string;
+  templateName?: string;
+}
+
+/**
+ * Sends a 30-minute prior upcoming booking reminder to an admin phone number using Interakt.
+ * Uses the universal 7-variable template (default: havoc_admin_booking_reminder).
+ */
+export async function sendAdminUpcomingReminderWhatsApp(
+  params: AdminUpcomingReminderParams
+): Promise<{ success: boolean; message: string; error?: string }> {
+  try {
+    const interaktApiKey = process.env.INTERAKT_API_KEY || getSiteSetting("interakt_api_key", "");
+    if (!interaktApiKey) {
+      return { success: false, message: "INTERAKT_API_KEY is not configured" };
+    }
+
+    if (!params.adminPhone) {
+      return { success: false, message: "Missing admin phone number" };
+    }
+
+    const { countryCode, phoneNumber } = parsePhoneAndCountryCode(params.adminPhone);
+    if (!phoneNumber || phoneNumber.length < 7) {
+      return { success: false, message: `Invalid phone number: ${params.adminPhone}` };
+    }
+
+    let authHeader = interaktApiKey.trim();
+    if (!authHeader.toLowerCase().startsWith("basic ")) {
+      authHeader = `Basic ${authHeader}`;
+    }
+
+    const brandName = params.brandName || getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
+    const templateName = params.templateName || getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
+
+    // {{1}}: Brand Name
+    const var1Brand = brandName.slice(0, 50);
+    // {{2}}: Customer Name
+    const var2Name = (params.customerName || "Customer").slice(0, 50);
+    // {{3}}: Customer Phone
+    const var3Phone = (params.customerPhone || "Not Provided").slice(0, 25);
+    // {{4}}: Order ID
+    const var4OrderId = params.orderId || "HVC-BOOKING";
+    // {{5}}: Passes / Activity Summary
+    const var5Passes = (params.itemsSummary || "Activity Pass").slice(0, 120);
+    // {{6}}: Scheduled Slot
+    const var6Slot = `${params.timeSlot} • ${params.bookingDate}`.slice(0, 100);
+    // {{7}}: Payment Status & Amount
+    const var7Status = params.paymentStatus || `₹${Number(params.totalAmount).toLocaleString("en-IN")}`;
+
+    const payload = {
+      countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+      phoneNumber: phoneNumber,
+      type: "Template",
+      template: {
+        name: templateName,
+        languageCode: "en",
+        bodyValues: [
+          var1Brand,
+          var2Name,
+          var3Phone,
+          var4OrderId,
+          var5Passes,
+          var6Slot,
+          var7Status,
+        ],
+      },
+    };
+
+    const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": authHeader,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (response.ok) {
+      console.log(`[Admin 30m Reminder] Sent to ${countryCode} ${phoneNumber} for Order ${var4OrderId}`);
+      return { success: true, message: `Upcoming reminder sent to ${countryCode} ${phoneNumber}` };
+    } else {
+      const errText = await response.text();
+      console.error("[Admin 30m Reminder Error]", response.status, errText);
+      return { success: false, message: `Interakt responded with status ${response.status}`, error: errText };
+    }
+  } catch (err: any) {
+    console.error("[Admin 30m Reminder Exception]", err);
+    return { success: false, message: err.message, error: err.message };
+  }
+}
+
+/**
+ * Dispatches the 30-minute prior upcoming booking alert to all registered admin phone numbers.
+ */
+export async function dispatchUpcomingBookingAlertsToAdmins(order: {
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  totalAmount: number;
+  paymentStatus: string;
+  itemsSummary: string;
+  timeSlot: string;
+  bookingDate: string;
+  brandName?: string;
+  templateName?: string;
+}): Promise<{ success: boolean; sentCount: number; errors: string[] }> {
+  const rawPhones = getSiteSetting(
+    "admin_booking_alert_phones",
+    process.env.ADMIN_WHATSAPP_NUMBERS || ""
+  );
+
+  const adminPhones = rawPhones
+    .split(/[\n,;]+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length >= 7);
+
+  if (adminPhones.length === 0) {
+    return { success: true, sentCount: 0, errors: ["No admin phone numbers configured"] };
+  }
+
+  const errors: string[] = [];
+  let sentCount = 0;
+
+  await Promise.allSettled(
+    adminPhones.map(async (adminPhone) => {
+      const res = await sendAdminUpcomingReminderWhatsApp({
+        ...order,
+        adminPhone,
+      });
+      if (res.success) {
+        sentCount++;
+      } else if (res.error) {
+        errors.push(`${adminPhone}: ${res.error}`);
+      }
+    })
+  );
+
+  return {
+    success: errors.length === 0,
+    sentCount,
+    errors,
+  };
 }

@@ -27,6 +27,8 @@ import {
   Plus,
   Trash2,
   Smartphone,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 import { changePasswordAction } from "@/app/login/actions";
 import { 
@@ -45,6 +47,7 @@ import {
   getAdminBookingAlertSettingsAction,
   updateAdminBookingAlertSettingsAction,
   testAdminBookingAlertAction,
+  triggerAdminUpcomingAlertsManualAction,
   AdminBookingAlertSettings
 } from "@/app/actions/payment-settings";
 
@@ -120,6 +123,11 @@ export default function SettingsPage() {
   // Admin Booking WhatsApp Alert Settings State
   const [adminAlertSettings, setAdminAlertSettings] = useState<AdminBookingAlertSettings>({
     enabled: true,
+    instantAlertsEnabled: true,
+    upcomingAlertsEnabled: true,
+    upcomingLeadMinutes: 30,
+    brandName: "Havoc RC Fun Zone",
+    upcomingTemplateName: "havoc_admin_booking_reminder",
     phoneNumbers: [],
   });
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
@@ -127,8 +135,11 @@ export default function SettingsPage() {
   const [alertSuccessMsg, setAlertSuccessMsg] = useState<string | null>(null);
   const [alertErrorMsg, setAlertErrorMsg] = useState<string | null>(null);
   const [testAlertPhone, setTestAlertPhone] = useState("");
+  const [testAlertMode, setTestAlertMode] = useState<"upcoming" | "instant">("upcoming");
   const [isTestAlertSending, setIsTestAlertSending] = useState(false);
   const [testAlertFeedback, setTestAlertFeedback] = useState<{ success: boolean; message: string } | null>(null);
+  const [isManualChecking, setIsManualChecking] = useState(false);
+  const [manualCheckFeedback, setManualCheckFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
   useEffect(() => {
     async function loadAllSettings() {
@@ -206,16 +217,38 @@ export default function SettingsPage() {
     setIsTestAlertSending(true);
     setTestAlertFeedback(null);
     try {
-      const res = await testAdminBookingAlertAction(targetPhone);
+      const res = await testAdminBookingAlertAction(targetPhone, testAlertMode);
       if (res.success) {
-        setTestAlertFeedback({ success: true, message: `Test WhatsApp alert sent successfully to ${targetPhone}!` });
+        setTestAlertFeedback({ 
+          success: true, 
+          message: `Test ${testAlertMode === "upcoming" ? "30-min prior" : "instant"} WhatsApp alert sent successfully to ${targetPhone}!` 
+        });
       } else {
-        setTestAlertFeedback({ success: false, message: res.error || "Failed to send test alert. Check INTERAKT_API_KEY." });
+        setTestAlertFeedback({ 
+          success: false, 
+          message: res.error || `Failed to dispatch test template "${testAlertMode === "upcoming" ? adminAlertSettings.upcomingTemplateName : "havoc_booking_confirmation"}". Check INTERAKT_API_KEY.` 
+        });
       }
     } catch (err: any) {
       setTestAlertFeedback({ success: false, message: err?.message || "Test dispatch failed" });
     } finally {
       setIsTestAlertSending(false);
+    }
+  };
+
+  const handleTriggerManualUpcomingCheck = async () => {
+    setIsManualChecking(true);
+    setManualCheckFeedback(null);
+    try {
+      const res = await triggerAdminUpcomingAlertsManualAction();
+      setManualCheckFeedback({
+        success: res.success,
+        message: res.message || (res.error ? res.error : "Upcoming check finished."),
+      });
+    } catch (err: any) {
+      setManualCheckFeedback({ success: false, message: err?.message || "Check failed" });
+    } finally {
+      setIsManualChecking(false);
     }
   };
 
@@ -731,12 +764,12 @@ export default function SettingsPage() {
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Admin Booking Alerts (WhatsApp)</h3>
                 <p className="text-xs text-gray-500">
-                  Instantly notify managers and desk staff via WhatsApp whenever a new customer booking is placed (online or pay at desk).
+                  Notify managers and desk staff via WhatsApp when a customer books or 30 minutes before their scheduled arrival.
                 </p>
               </div>
             </div>
 
-            {/* Enable/Disable Toggle */}
+            {/* Master Enable/Disable Toggle */}
             <button
               type="button"
               onClick={() => setAdminAlertSettings(prev => ({ ...prev, enabled: !prev.enabled }))}
@@ -765,10 +798,96 @@ export default function SettingsPage() {
             </div>
           )}
 
-          <form onSubmit={handleSaveAdminAlertSettings} className="space-y-5">
+          <form onSubmit={handleSaveAdminAlertSettings} className="space-y-6">
+            {/* Notification Triggers */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-4 bg-gray-50/80 border border-gray-200 rounded-xl">
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={adminAlertSettings.upcomingAlertsEnabled}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, upcomingAlertsEnabled: e.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="block text-xs font-bold text-gray-900">30-Min Prior Upcoming Reminders</span>
+                  <span className="block text-[11px] text-gray-500">Alert admins before the customer&apos;s scheduled arrival time slot.</span>
+                </div>
+              </label>
+
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={adminAlertSettings.instantAlertsEnabled}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, instantAlertsEnabled: e.target.checked }))}
+                  className="mt-1 h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                />
+                <div>
+                  <span className="block text-xs font-bold text-gray-900">Instant Booking Alerts</span>
+                  <span className="block text-[11px] text-gray-500">Alert admins immediately when an order is created or paid online.</span>
+                </div>
+              </label>
+            </div>
+
+            {/* Timing, Brand & Template Settings */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Reminder Lead Time
+                </label>
+                <div className="relative">
+                  <select
+                    value={adminAlertSettings.upcomingLeadMinutes}
+                    onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, upcomingLeadMinutes: Number(e.target.value) }))}
+                    className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-semibold text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  >
+                    <option value={15}>15 Minutes Before Slot</option>
+                    <option value={30}>30 Minutes Before Slot (Recommended)</option>
+                    <option value={45}>45 Minutes Before Slot</option>
+                    <option value={60}>60 Minutes (1 Hour) Before Slot</option>
+                  </select>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  When the WhatsApp alert is triggered prior to the slot start.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Brand Name (Variable &#123;&#123;1&#125;&#125;)
+                </label>
+                <input
+                  type="text"
+                  value={adminAlertSettings.brandName}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, brandName: e.target.value }))}
+                  placeholder="Havoc RC Fun Zone"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Sent as brand name in the universal template (e.g. <code>Havoc RC Fun Zone</code> or <code>Havoc Sim Podium</code>).
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Interakt Template Name
+                </label>
+                <input
+                  type="text"
+                  value={adminAlertSettings.upcomingTemplateName}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, upcomingTemplateName: e.target.value }))}
+                  placeholder="havoc_admin_booking_reminder"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Approved template name in Interakt (e.g. <code>havoc_admin_booking_reminder</code>).
+                </p>
+              </div>
+            </div>
+
+            {/* Admin Phone Numbers Section */}
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1.5">
-                Admin Phone Numbers (To Receive Alerts)
+                Admin Phone Numbers (To Receive WhatsApp Alerts)
               </label>
 
               {/* Add number input bar */}
@@ -829,44 +948,102 @@ export default function SettingsPage() {
               )}
 
               <p className="text-[11px] text-gray-400 mt-2">
-                Tip: Enter the complete phone number with country code (e.g. <code>+91</code> for India). Whenever any customer completes a booking, Interakt will send the confirmation message directly to each registered admin number.
+                Tip: Enter the complete phone number with country code (e.g. <code>+91</code> for India). Multiple numbers will all receive alerts simultaneously.
               </p>
             </div>
 
-            {/* Test WhatsApp Alert dispatch section */}
-            <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl">
-              <div className="flex items-center gap-2 mb-2 text-xs font-bold text-purple-900">
-                <Smartphone className="w-4 h-4 text-purple-600" />
-                <span>Test Admin Notification</span>
-              </div>
-              <p className="text-[11px] text-purple-800/80 mb-3">
-                Send a sample WhatsApp booking alert right now to verify that your Interakt setup is functioning properly.
-              </p>
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  value={testAlertPhone}
-                  onChange={(e) => setTestAlertPhone(e.target.value)}
-                  placeholder={adminAlertSettings.phoneNumbers[0] || "+91 9876543210"}
-                  className="flex-1 border border-purple-200 rounded-xl px-3.5 py-1.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                />
-                <button
-                  type="button"
-                  onClick={handleSendTestAlert}
-                  disabled={isTestAlertSending}
-                  className="bg-white border border-purple-300 text-purple-800 hover:bg-purple-100/60 px-4 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-60 shadow-2xs shrink-0"
-                >
-                  {isTestAlertSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5 text-purple-600" />}
-                  <span>{isTestAlertSending ? "Sending..." : "Send Test Alert"}</span>
-                </button>
+            {/* Test Alert Dispatch & Live Cron Runner */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Test Alert Box */}
+              <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl">
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-2 text-xs font-bold text-purple-900">
+                    <Smartphone className="w-4 h-4 text-purple-600" />
+                    <span>Test WhatsApp Alert</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <label className="inline-flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="testMode"
+                        value="upcoming"
+                        checked={testAlertMode === "upcoming"}
+                        onChange={() => setTestAlertMode("upcoming")}
+                        className="text-purple-600 focus:ring-purple-500 h-3 w-3"
+                      />
+                      <span className="font-semibold text-purple-900">30-Min Prior (7 vars)</span>
+                    </label>
+                    <label className="inline-flex items-center gap-1 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="testMode"
+                        value="instant"
+                        checked={testAlertMode === "instant"}
+                        onChange={() => setTestAlertMode("instant")}
+                        className="text-purple-600 focus:ring-purple-500 h-3 w-3"
+                      />
+                      <span className="font-semibold text-purple-900">Instant</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={testAlertPhone}
+                    onChange={(e) => setTestAlertPhone(e.target.value)}
+                    placeholder={adminAlertSettings.phoneNumbers[0] || "+91 9876543210"}
+                    className="flex-1 border border-purple-200 rounded-xl px-3 py-1.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSendTestAlert}
+                    disabled={isTestAlertSending}
+                    className="bg-white border border-purple-300 text-purple-800 hover:bg-purple-100/60 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 disabled:opacity-60 shadow-2xs shrink-0"
+                  >
+                    {isTestAlertSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5 text-purple-600" />}
+                    <span>{isTestAlertSending ? "Sending..." : "Send Test"}</span>
+                  </button>
+                </div>
+
+                {testAlertFeedback && (
+                  <div className={`mt-2.5 p-2 rounded-lg text-[11px] font-medium flex items-center gap-1.5 ${testAlertFeedback.success ? "bg-emerald-100/80 text-emerald-800" : "bg-red-100/80 text-red-800"}`}>
+                    {testAlertFeedback.success ? <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
+                    <span>{testAlertFeedback.message}</span>
+                  </div>
+                )}
               </div>
 
-              {testAlertFeedback && (
-                <div className={`mt-2.5 p-2 rounded-lg text-xs font-medium flex items-center gap-1.5 ${testAlertFeedback.success ? "bg-emerald-100/80 text-emerald-800" : "bg-red-100/80 text-red-800"}`}>
-                  {testAlertFeedback.success ? <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
-                  <span>{testAlertFeedback.message}</span>
+              {/* Manual Check & Endpoint Box */}
+              <div className="p-4 bg-purple-50/60 border border-purple-100 rounded-xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 text-xs font-bold text-purple-900">
+                      <Clock className="w-4 h-4 text-purple-600" />
+                      <span>Upcoming Alerts Poller</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleTriggerManualUpcomingCheck}
+                      disabled={isManualChecking}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-800 hover:bg-purple-100/60 text-[11px] font-bold shadow-2xs transition-all disabled:opacity-60"
+                    >
+                      <RefreshCw className={`w-3 h-3 text-purple-600 ${isManualChecking ? "animate-spin" : ""}`} />
+                      <span>{isManualChecking ? "Checking..." : "Run Check Now"}</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-purple-800/80">
+                    Cron Endpoint: <code className="bg-white/80 px-1 py-0.5 rounded text-[10px] text-purple-900 border border-purple-200">GET /api/cron/admin-upcoming-alerts</code>
+                  </p>
                 </div>
-              )}
+
+                {manualCheckFeedback && (
+                  <div className={`mt-2 p-2 rounded-lg text-[11px] font-medium flex items-center gap-1.5 ${manualCheckFeedback.success ? "bg-emerald-100/80 text-emerald-800" : "bg-red-100/80 text-red-800"}`}>
+                    {manualCheckFeedback.success ? <Check className="w-3.5 h-3.5 shrink-0 text-emerald-600" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0 text-red-600" />}
+                    <span>{manualCheckFeedback.message}</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex items-center justify-end pt-1">

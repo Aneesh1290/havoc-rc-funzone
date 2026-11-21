@@ -281,6 +281,7 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_token ON desk_payment_links(token)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_created ON desk_payment_links(created_at)'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN advance_notified_at TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN admin_upcoming_notified_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_amount REAL'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_ref TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_reason TEXT'); } catch (e) {}
@@ -1546,6 +1547,30 @@ export function markBookingsAdvanceNotified(bookingIds: number[]) {
     SET advance_notified_at = datetime('now')
     WHERE id IN (${placeholders})
   `).run(...bookingIds);
+}
+
+export function markBookingsAdminUpcomingNotified(bookingIds: number[]) {
+  if (!bookingIds || bookingIds.length === 0) return;
+  const placeholders = bookingIds.map(() => '?').join(',');
+  return db.prepare(`
+    UPDATE bookings 
+    SET admin_upcoming_notified_at = datetime('now')
+    WHERE id IN (${placeholders})
+  `).run(...bookingIds);
+}
+
+export function getUnnotifiedTodayBookings(dateStr: string) {
+  return db.prepare(`
+    SELECT b.*, t.name as ticket_name, t.price as ticket_price, s.start_hour
+    FROM bookings b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
+    WHERE (b.booking_date = ? OR b.booking_date LIKE ? || '%')
+      AND (b.admin_upcoming_notified_at IS NULL OR b.admin_upcoming_notified_at = '')
+      AND (b.fulfillment_status IS NULL OR LOWER(b.fulfillment_status) NOT IN ('canceled', 'cancelled'))
+      AND (b.payment_status IS NULL OR LOWER(b.payment_status) != 'refunded')
+    ORDER BY b.order_number ASC, b.id ASC
+  `).all(dateStr, dateStr) as any[];
 }
 
 export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {

@@ -454,7 +454,7 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
         customerPhone: "2 Paid • 1 Due at Desk",
         totalAmount: 3200,
         paymentStatus: "Total: ₹3,200 (2 Paid, 1 Due)",
-        itemsSummary: "1. #101 Rahul S. (..3210): 2x Pro Pass [Paid]\n2. #102 Priya P. (..5678): 1x Rookie Pass [Due ₹800]\n3. #103 Zia School (..9999): 3x Excavator [Paid]",
+        itemsSummary: "1. #101 Rahul S. (..3210): 2x Pro Pass [Paid] • 2. #102 Priya P. (..5678): 1x Rookie Pass [Due ₹800] • 3. #103 Zia School (..9999): 3x Excavator [Paid]",
         timeSlot: "05:00 PM - 06:00 PM",
         bookingDate: "Today",
         adminPhone: testPhone.trim(),

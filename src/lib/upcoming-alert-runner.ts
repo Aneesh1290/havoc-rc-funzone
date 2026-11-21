@@ -219,8 +219,8 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
           guestLines.push(`${idx + 1}. #${ord.orderNumber} ${shortName} ${phoneTag}: ${passSummary} [${payBadge}]`);
         }
 
-        // Limit guestList length to stay safely under Meta WhatsApp 1024-char body variable limit
-        let guestListStr = guestLines.join("\n");
+        // Join with bullets instead of newlines because Meta prohibits newlines in template variable values
+        let guestListStr = guestLines.join(" • ");
         if (guestListStr.length > 900) {
           const trimmedLines: string[] = [];
           let currentLen = 0;
@@ -231,9 +231,9 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
               break;
             }
             trimmedLines.push(guestLines[i]);
-            currentLen += guestLines[i].length + 1;
+            currentLen += guestLines[i].length + 3;
           }
-          guestListStr = trimmedLines.join("\n");
+          guestListStr = trimmedLines.join(" • ");
         }
 
         const consolidatedPayload = {

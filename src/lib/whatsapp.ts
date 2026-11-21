@@ -77,6 +77,22 @@ export function parsePhoneAndCountryCode(rawPhone: string): { countryCode: strin
 }
 
 /**
+ * Sanitizes variable strings sent to WhatsApp / Interakt template endpoints.
+ * Meta / WhatsApp strictly prohibits:
+ * 1. Newlines (\r, \n)
+ * 2. Tabs (\t)
+ * 3. 2 or more consecutive spaces (\s{2,})
+ */
+export function sanitizeWhatsAppTemplateVar(val: any, maxLength = 120): string {
+  if (val === null || val === undefined) return "";
+  return String(val)
+    .replace(/[\r\n\t]+/g, " • ") // Replace any newlines/tabs with bullets
+    .replace(/\s{2,}/g, " ")      // Collapse multiple consecutive spaces
+    .trim()
+    .slice(0, maxLength);
+}
+
+/**
  * Sends an automated WhatsApp booking confirmation notification via Interakt API.
  * Uses approved template (default: "havoc_booking_confirmation").
  */
@@ -298,31 +314,31 @@ export async function sendPaymentLinkWhatsApp(
       // {{6}}: Amount Due (Template has "• Amount Due: ₹{{6}}")
       // {{7}}: Secure Payment Link
       const sevenVarBodyValues = [
-        customerName || "Racer",                                // {{1}}: Name
-        brandName || "Havoc RC Fun Zone",                       // {{2}}: Brand Name
-        cleanOrderId,                                           // {{3}}: Order ID
-        (orderSummary || "RC Racing / Gaming Session").slice(0, 120), // {{4}}: Experience
-        dateSlotStr || "Scheduled Slot",                        // {{5}}: Date & Time
-        formattedAmount,                                        // {{6}}: Amount Due
-        paymentUrl,                                             // {{7}}: Secure Link
+        sanitizeWhatsAppTemplateVar(customerName || "Racer", 50),
+        sanitizeWhatsAppTemplateVar(brandName || "Havoc RC Fun Zone", 50),
+        sanitizeWhatsAppTemplateVar(cleanOrderId, 40),
+        sanitizeWhatsAppTemplateVar(orderSummary || "RC Racing / Gaming Session", 120),
+        sanitizeWhatsAppTemplateVar(dateSlotStr || "Scheduled Slot", 60),
+        sanitizeWhatsAppTemplateVar(formattedAmount, 30),
+        sanitizeWhatsAppTemplateVar(paymentUrl, 255),
       ];
 
       // 6-variable generic reminder template:
       const sixVarBodyValues = [
-        customerName || "Racer",                                // {{1}}: Name
-        brandName || "Havoc RC Fun Zone",                       // {{2}}: Brand
-        dateSlotStr || "Scheduled Session",                     // {{3}}: Date & Slot
-        (orderSummary || "Activity Pass").slice(0, 120),        // {{4}}: Passes Summary
-        formattedAmount,                                        // {{5}}: Amount Due
-        paymentUrl,                                             // {{6}}: Payment Link
+        sanitizeWhatsAppTemplateVar(customerName || "Racer", 50),
+        sanitizeWhatsAppTemplateVar(brandName || "Havoc RC Fun Zone", 50),
+        sanitizeWhatsAppTemplateVar(dateSlotStr || "Scheduled Session", 60),
+        sanitizeWhatsAppTemplateVar(orderSummary || "Activity Pass", 120),
+        sanitizeWhatsAppTemplateVar(formattedAmount, 30),
+        sanitizeWhatsAppTemplateVar(paymentUrl, 255),
       ];
 
       // 4-variable legacy template (havoc_payment_link):
       const legacyBodyValues = [
-        customerName || "Racer",        // {{1}}: Name
-        brandName || "Havoc RC Fun Zone", // {{2}}: Brand Name
-        formattedAmount,                // {{3}}: Amount Due
-        paymentUrl,                     // {{4}}: Direct Payment Link
+        sanitizeWhatsAppTemplateVar(customerName || "Racer", 50),
+        sanitizeWhatsAppTemplateVar(brandName || "Havoc RC Fun Zone", 50),
+        sanitizeWhatsAppTemplateVar(formattedAmount, 30),
+        sanitizeWhatsAppTemplateVar(paymentUrl, 255),
       ];
 
       // Determine initial values to send based on template name
@@ -558,20 +574,20 @@ export async function sendAdminUpcomingReminderWhatsApp(
     const brandName = params.brandName || getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
     const templateName = params.templateName || getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
 
-    // {{1}}: Brand Name
-    const var1Brand = brandName.slice(0, 50);
+    // {{1}}: Brand Name (No newlines, tabs, or multiple spaces)
+    const var1Brand = sanitizeWhatsAppTemplateVar(brandName || "Havoc RC Fun Zone", 50);
     // {{2}}: Customer Name
-    const var2Name = (params.customerName || "Customer").slice(0, 50);
+    const var2Name = sanitizeWhatsAppTemplateVar(params.customerName || "Customer", 60);
     // {{3}}: Customer Phone
-    const var3Phone = (params.customerPhone || "Not Provided").slice(0, 25);
+    const var3Phone = sanitizeWhatsAppTemplateVar(params.customerPhone || "Not Provided", 35);
     // {{4}}: Order ID
-    const var4OrderId = params.orderId || "HVC-BOOKING";
+    const var4OrderId = sanitizeWhatsAppTemplateVar(params.orderId || "HVC-BOOKING", 50);
     // {{5}}: Passes / Activity Summary
-    const var5Passes = (params.itemsSummary || "Activity Pass").slice(0, 120);
+    const var5Passes = sanitizeWhatsAppTemplateVar(params.itemsSummary || "Activity Pass", 120);
     // {{6}}: Scheduled Slot
-    const var6Slot = `${params.timeSlot} • ${params.bookingDate}`.slice(0, 100);
+    const var6Slot = sanitizeWhatsAppTemplateVar(`${params.timeSlot} • ${params.bookingDate}`, 60);
     // {{7}}: Payment Status & Amount
-    const var7Status = params.paymentStatus || `₹${Number(params.totalAmount).toLocaleString("en-IN")}`;
+    const var7Status = sanitizeWhatsAppTemplateVar(params.paymentStatus || `₹${Number(params.totalAmount).toLocaleString("en-IN")}`, 60);
 
     const payload = {
       countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,

@@ -218,19 +218,27 @@ export interface PaymentLinkWhatsAppParams {
   paymentUrl: string;
   brandName?: string;
   orderSummary?: string;
+  bookingDate?: string;
+  timeSlot?: string;
+  orderId?: string;
   templateName?: string;
+  isReminder?: boolean;
 }
 
 /**
- * Dispatches a payment link to customer via WhatsApp.
+ * Dispatches a payment link / advance booking reminder to customer via WhatsApp.
  * Supports:
- * 1. Interakt API Template with 4 body values:
+ * 1. 6-Variable Customer Booking Reminder Template (default/recommended):
  *    {{1}}: Customer Name
- *    {{2}}: Brand Name (e.g. "Havoc RC Fun Zone")
- *    {{3}}: Amount Due (e.g. "2,950")
- *    {{4}}: Payment Link URL (e.g. "https://havocrcfunzone.com/pay/xyz")
- * 2. WhatsApp Cloud API
- * 3. Direct wa.me fallback URL generation
+ *    {{2}}: Brand Name (e.g. "Havoc RC Fun Zone" or "Sim Podium")
+ *    {{3}}: Date & Slot (e.g. "Nov 22 • 4PM-5PM")
+ *    {{4}}: Activity / Passes Summary (e.g. "1x Participant, 1x Visitor")
+ *    {{5}}: Amount Due (e.g. "1,534")
+ *    {{6}}: Secure Payment Link URL
+ * 2. Legacy 4-Variable Template (e.g. "havoc_payment_link"):
+ *    {{1}}: Customer Name, {{2}}: Brand Name, {{3}}: Amount Due, {{4}}: Payment URL
+ * 3. WhatsApp Cloud API fallback
+ * 4. Direct wa.me link generation with full rich reminder formatting
  */
 export async function sendPaymentLinkWhatsApp(
   params: PaymentLinkWhatsAppParams
@@ -242,12 +250,26 @@ export async function sendPaymentLinkWhatsApp(
     totalAmount, 
     paymentUrl, 
     brandName = "Havoc RC Fun Zone",
-    orderSummary 
+    orderSummary,
+    bookingDate,
+    timeSlot,
+    orderId,
+    isReminder
   } = params;
   const { countryCode, phoneNumber } = parsePhoneAndCountryCode(rawCountryCode ? `${rawCountryCode}${customerPhone}` : customerPhone);
   const cleanCountryCode = countryCode.startsWith("+") ? countryCode : `+${countryCode}`;
 
-  const messageText = `Hi ${customerName || "Racer"}! 👋\n\nYour payment link for ${brandName} is ready:\n💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n${orderSummary ? `📋 Details: ${orderSummary}\n` : ""}🔗 Pay Now: ${paymentUrl}\n\nPlease tap the link above to complete your payment online. See you on the track! 🏁`;
+  const dateSlotStr = (bookingDate && timeSlot) 
+    ? `${bookingDate} • ${timeSlot}` 
+    : (bookingDate || timeSlot || "");
+
+  let messageText: string;
+  if (isReminder || dateSlotStr) {
+    messageText = `Hi ${customerName || "Racer"}! 👋\n\nFriendly reminder for your upcoming session at ${brandName}!\n\n📅 Date & Slot: ${dateSlotStr || "Upcoming Session"}\n${orderSummary ? `🎟️ Activity: ${orderSummary}\n` : ""}💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n\nTo skip the check-in queue at the desk, tap the link below to pay online:\n🔗 ${paymentUrl}\n\nSee you on the track! 🏁`;
+  } else {
+    messageText = `Hi ${customerName || "Racer"}! 👋\n\nYour payment link for ${brandName} is ready:\n💳 Amount Due: ₹${Number(totalAmount).toLocaleString("en-IN")}\n${orderSummary ? `📋 Details: ${orderSummary}\n` : ""}🔗 Pay Now: ${paymentUrl}\n\nPlease tap the link above to complete your payment online. See you on the track! 🏁`;
+  }
+
   const digitsOnlyCountry = cleanCountryCode.replace(/\D/g, "");
   const waMeUrl = `https://wa.me/${digitsOnlyCountry}${phoneNumber}?text=${encodeURIComponent(messageText)}`;
 
@@ -263,8 +285,30 @@ export async function sendPaymentLinkWhatsApp(
       }
 
       const formattedAmount = Number(totalAmount).toLocaleString("en-IN");
+      const isFourVarLegacy = templateName.trim() === "havoc_payment_link";
 
-      const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+      // 6-variable reminder template values:
+      const reminderBodyValues = [
+        customerName || "Racer",                                // {{1}}: Name
+        brandName || "Havoc RC Fun Zone",                       // {{2}}: Brand
+        dateSlotStr || "Scheduled Session",                     // {{3}}: Date & Slot
+        (orderSummary || "Activity Pass").slice(0, 120),        // {{4}}: Passes Summary
+        formattedAmount,                                        // {{5}}: Amount Due
+        paymentUrl,                                             // {{6}}: Payment Link
+      ];
+
+      // 4-variable legacy template values:
+      const legacyBodyValues = [
+        customerName || "Racer",        // {{1}}: Name
+        brandName || "Havoc RC Fun Zone", // {{2}}: Brand Name
+        formattedAmount,                // {{3}}: Amount Due
+        paymentUrl,                     // {{4}}: Direct Payment Link
+      ];
+
+      // Determine initial values to send
+      const initialValues = isFourVarLegacy ? legacyBodyValues : reminderBodyValues;
+
+      let response = await fetch("https://api.interakt.ai/v1/public/message/", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -277,20 +321,39 @@ export async function sendPaymentLinkWhatsApp(
           template: {
             name: templateName,
             languageCode: "en",
-            bodyValues: [
-              customerName || "Racer",        // {{1}}: Name
-              brandName || "Havoc RC Fun Zone", // {{2}}: Brand Name
-              formattedAmount,                // {{3}}: Amount Due
-              paymentUrl,                     // {{4}}: Direct Payment Link
-            ],
+            bodyValues: initialValues,
           },
         }),
       });
 
+      // If initial 6-value attempt failed with 4xx and we weren't already using legacy, retry with legacy 4-value structure
+      if (!response.ok && !isFourVarLegacy) {
+        const firstErr = await response.text();
+        console.warn(`[Interakt Reminder First Try Failed] Status ${response.status}. Retrying with 4-variable body values. Err: ${firstErr}`);
+
+        response = await fetch("https://api.interakt.ai/v1/public/message/", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": authHeader,
+          },
+          body: JSON.stringify({
+            countryCode: cleanCountryCode,
+            phoneNumber: phoneNumber,
+            type: "Template",
+            template: {
+              name: templateName,
+              languageCode: "en",
+              bodyValues: legacyBodyValues,
+            },
+          }),
+        });
+      }
+
       if (response.ok) {
         return {
           success: true,
-          message: `Payment link sent via WhatsApp to ${cleanCountryCode} ${phoneNumber}`,
+          message: `Booking reminder & payment link sent via WhatsApp to ${cleanCountryCode} ${phoneNumber}`,
           waMeUrl,
         };
       } else {

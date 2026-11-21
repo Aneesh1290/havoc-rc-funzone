@@ -153,7 +153,9 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json().catch(() => ({}));
-    const { order_numbers, booking_ids, auto } = body;
+    const rawOrderNums = body.order_numbers || (body.order_number ? [body.order_number] : undefined);
+    const order_numbers = Array.isArray(rawOrderNums) ? rawOrderNums : undefined;
+    const { booking_ids, auto } = body;
 
     let targetBookingIds: number[] = [];
 
@@ -288,11 +290,16 @@ export async function POST(req: NextRequest) {
       const waResult = await sendPaymentLinkWhatsApp({
         customerName: custName,
         customerPhone: custPhone,
+        countryCode: first.country_code || "+91",
         totalAmount: orderTotal,
         paymentUrl: paymentPageUrl,
         brandName: brandName,
         orderSummary: orderSummary,
+        bookingDate: first.booking_date,
+        timeSlot: first.time_slot,
+        orderId: `#PAYDUE_FZ_${orderNum}`,
         templateName: templateName,
+        isReminder: true,
       });
 
       // Mark advance notified in DB

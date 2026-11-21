@@ -43,6 +43,7 @@ import {
   DeskPaymentLinkSettings,
   getAdvanceNotificationSettingsAction,
   updateAdvanceNotificationSettingsAction,
+  testAdvanceReminderWhatsAppAction,
   AdvanceNotificationSettings,
   getAdminBookingAlertSettingsAction,
   updateAdminBookingAlertSettingsAction,
@@ -119,6 +120,9 @@ export default function SettingsPage() {
   const [isAdvanceSaving, setIsAdvanceSaving] = useState(false);
   const [advanceSuccessMsg, setAdvanceSuccessMsg] = useState<string | null>(null);
   const [advanceErrorMsg, setAdvanceErrorMsg] = useState<string | null>(null);
+  const [testAdvancePhone, setTestAdvancePhone] = useState("");
+  const [isTestingAdvance, setIsTestingAdvance] = useState(false);
+  const [testAdvanceResult, setTestAdvanceResult] = useState<{ type: 'success' | 'error'; message: string; waMeUrl?: string } | null>(null);
 
   // Admin Booking WhatsApp Alert Settings State
   const [adminAlertSettings, setAdminAlertSettings] = useState<AdminBookingAlertSettings>({
@@ -276,6 +280,27 @@ export default function SettingsPage() {
       setAdvanceErrorMsg(err?.message || "An unexpected error occurred.");
     } finally {
       setIsAdvanceSaving(false);
+    }
+  };
+
+  const handleTestAdvanceReminder = async () => {
+    if (!testAdvancePhone.trim()) {
+      setTestAdvanceResult({ type: 'error', message: 'Please enter a valid WhatsApp phone number with country code (e.g. +91 9876543210).' });
+      return;
+    }
+    setIsTestingAdvance(true);
+    setTestAdvanceResult(null);
+    try {
+      const res = await testAdvanceReminderWhatsAppAction(testAdvancePhone.trim());
+      if (res.success) {
+        setTestAdvanceResult({ type: 'success', message: res.message || 'Test reminder dispatched successfully!', waMeUrl: res.waMeUrl });
+      } else {
+        setTestAdvanceResult({ type: 'error', message: res.error || res.message || 'Failed to dispatch test reminder.' });
+      }
+    } catch (err: any) {
+      setTestAdvanceResult({ type: 'error', message: err?.message || 'Error sending test reminder.' });
+    } finally {
+      setIsTestingAdvance(false);
     }
   };
 
@@ -736,13 +761,80 @@ export default function SettingsPage() {
                   type="text"
                   value={advanceNotifySettings.templateName}
                   onChange={(e) => setAdvanceNotifySettings(prev => ({ ...prev, templateName: e.target.value }))}
-                  placeholder="havoc_payment_link"
+                  placeholder="havoc_customer_reminder"
                   className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Template slug in Interakt (e.g. <code>havoc_payment_link</code>).
+                  Template slug in Interakt (e.g. <code>havoc_customer_reminder</code> or <code>havoc_payment_link</code>).
                 </p>
               </div>
+            </div>
+
+            {/* Template Variables Helper Guide */}
+            <div className="p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/80 text-xs text-amber-900 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-amber-950">
+                <span>💡 Reminder Notification Template Structure (Interakt / WhatsApp)</span>
+              </div>
+              <p className="text-[11px] text-amber-800 leading-relaxed">
+                To send as a friendly booking reminder (instead of a plain invoice link), create or select a <strong>Utility</strong> template in Interakt (e.g. <code>havoc_customer_reminder</code>) with these variables:
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] font-mono bg-white/80 p-2.5 rounded-lg border border-amber-200 text-amber-900">
+                <div><code>&#123;&#123;1&#125;&#125;</code>: Guest Name</div>
+                <div><code>&#123;&#123;2&#125;&#125;</code>: Brand Name</div>
+                <div><code>&#123;&#123;3&#125;&#125;</code>: Date &amp; Slot</div>
+                <div><code>&#123;&#123;4&#125;&#125;</code>: Passes / Activity</div>
+                <div><code>&#123;&#123;5&#125;&#125;</code>: Amount Due (₹)</div>
+                <div><code>&#123;&#123;6&#125;&#125;</code>: Payment URL</div>
+              </div>
+              <p className="text-[10px] text-amber-700 italic">
+                * Note: If using the legacy <code>havoc_payment_link</code>, the system automatically uses 4 variables (Name, Brand, Amount, URL).
+              </p>
+            </div>
+
+            {/* Test Customer Advance Reminder Dispatch */}
+            <div className="pt-2 border-t border-gray-100">
+              <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                Test Reminder Notification (Send to Phone)
+              </label>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                <input
+                  type="text"
+                  value={testAdvancePhone}
+                  onChange={(e) => setTestAdvancePhone(e.target.value)}
+                  placeholder="+91 9876543210"
+                  className="flex-1 border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-medium text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[#ff5a1f]"
+                />
+                <button
+                  type="button"
+                  onClick={handleTestAdvanceReminder}
+                  disabled={isTestingAdvance || !testAdvancePhone.trim()}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-sm disabled:opacity-50 shrink-0"
+                >
+                  {isTestingAdvance ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  <span>{isTestingAdvance ? "Sending..." : "Send Test Reminder"}</span>
+                </button>
+              </div>
+
+              {testAdvanceResult && (
+                <div className={`mt-2 p-3 rounded-xl text-xs flex items-center justify-between gap-2 ${
+                  testAdvanceResult.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-800 border border-red-200'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    {testAdvanceResult.type === 'success' ? <Check className="w-4 h-4 text-emerald-600" /> : <AlertCircle className="w-4 h-4 text-red-600" />}
+                    <span>{testAdvanceResult.message}</span>
+                  </div>
+                  {testAdvanceResult.waMeUrl && (
+                    <a
+                      href={testAdvanceResult.waMeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="underline font-bold text-emerald-900 shrink-0 ml-2"
+                    >
+                      Open in WhatsApp Web
+                    </a>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end pt-1">

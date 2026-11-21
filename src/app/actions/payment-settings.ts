@@ -273,6 +273,39 @@ export async function updateAdvanceNotificationSettingsAction(settings: AdvanceN
   }
 }
 
+export async function testAdvanceReminderWhatsAppAction(testPhone: string): Promise<{ success: boolean; message: string; waMeUrl?: string; error?: string }> {
+  try {
+    const session = await checkSessionAction();
+    if (!session) {
+      return { success: false, message: "Unauthorized: Admin session required.", error: "Unauthorized" };
+    }
+
+    if (!testPhone || testPhone.trim().length < 7) {
+      return { success: false, message: "Please enter a valid phone number with country code (e.g. +91 9876543210).", error: "Invalid phone number" };
+    }
+
+    const brandName = getSiteSetting("advance_notify_brand_name", "Havoc RC Fun Zone");
+    const templateName = getSiteSetting("advance_notify_template", "havoc_payment_link");
+
+    const { sendPaymentLinkWhatsApp } = await import("@/lib/whatsapp");
+    return await sendPaymentLinkWhatsApp({
+      customerName: "Krupa (Test Guest)",
+      customerPhone: testPhone.trim(),
+      totalAmount: 1534,
+      paymentUrl: "https://havocrcfunzone.in/pay/test_advance_reminder",
+      brandName: brandName,
+      orderSummary: "1x PARTICIPANT (4PM-5PM), 1x VISITOR (4PM-5PM)",
+      bookingDate: "22-Nov-2026",
+      timeSlot: "4PM-5PM",
+      orderId: "#PAYDUE_FZ_54",
+      templateName: templateName,
+      isReminder: true,
+    });
+  } catch (err: any) {
+    return { success: false, message: err.message || "Failed to send test advance reminder", error: err.message };
+  }
+}
+
 export interface GoogleReviewSettings {
   enabled: boolean;
   reviewUrl: string;

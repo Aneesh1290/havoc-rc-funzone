@@ -229,8 +229,8 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
         }
 
         // Generate secure fast-track slot roster link for arena floor staff
-        const returnBase = process.env.ICICI_RETURN_BASE 
-          || process.env.NEXT_PUBLIC_APP_URL 
+        const returnBase = process.env.ICICI_RETURN_BASE
+          || process.env.NEXT_PUBLIC_APP_URL
           || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
         const targetDate = slotOrders[0]?.bookingDate || todayIstStr;
         const rosterToken = generateSlotRosterToken(targetDate, timeSlot);

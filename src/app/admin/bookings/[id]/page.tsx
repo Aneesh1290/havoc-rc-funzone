@@ -622,11 +622,38 @@ export default function OrderDetailPage() {
     }
   };
 
+  // Helper: Normalize date string to YYYY-MM-DD for native HTML5 date picker
+  const toStandardDateInput = (val: string | null | undefined): string => {
+    if (!val) return new Date().toISOString().split("T")[0];
+    const trimmed = val.trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})$/);
+    if (dmyMatch) {
+      const [, day, mon, yr] = dmyMatch;
+      const dateObj = new Date(`${mon} ${day}, ${yr}`);
+      if (!isNaN(dateObj.getTime())) {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+        const d = String(dateObj.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+      }
+    }
+    const parsed = new Date(trimmed);
+    if (!isNaN(parsed.getTime())) {
+      const y = parsed.getFullYear();
+      const m = String(parsed.getMonth() + 1).padStart(2, '0');
+      const d = String(parsed.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+    return new Date().toISOString().split("T")[0];
+  };
+
   // Reschedule Handlers
   const handleOpenRescheduleModal = async (item?: any) => {
     setRescheduleTargetItem(item || null);
     setRescheduleScope(item ? "item" : "order");
-    setRescheduleDate(item?.booking_date || booking?.booking_date || "");
+    const rawDate = item?.booking_date || booking?.booking_date || "";
+    setRescheduleDate(toStandardDateInput(rawDate));
     setRescheduleTimeSlot(item?.time_slot || booking?.time_slot || "");
     setRescheduleError(null);
     setIsRescheduleModalOpen(true);
@@ -2677,27 +2704,59 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              {/* Date Input */}
+              {/* Date Input with Interactive Calendar Picker */}
               <div>
-                <label className="text-xs font-bold text-gray-700 block mb-1">Booking Date</label>
-                <input
-                  type="text"
-                  value={rescheduleDate}
-                  onChange={(e) => setRescheduleDate(e.target.value)}
-                  placeholder="e.g. Nov 10 or 2026-11-10"
-                  className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                />
-                <div className="flex items-center gap-1.5 pt-1.5">
-                  <span className="text-[10px] text-gray-400">Quick set:</span>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Booking Date</span>
+                  </label>
+                  {rescheduleDate && (
+                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-md border border-indigo-200/60">
+                      {(() => {
+                        try {
+                          const dateObj = new Date(rescheduleDate + (rescheduleDate.includes('T') ? '' : 'T00:00:00'));
+                          if (!isNaN(dateObj.getTime())) {
+                            return dateObj.toLocaleDateString('en-IN', {
+                              weekday: 'short',
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric'
+                            });
+                          }
+                        } catch {}
+                        return rescheduleDate;
+                      })()}
+                    </span>
+                  )}
+                </div>
+
+                <div className="relative">
+                  <input
+                    type="date"
+                    value={rescheduleDate}
+                    onChange={(e) => setRescheduleDate(e.target.value)}
+                    onClick={(e) => {
+                      try {
+                        (e.currentTarget as any).showPicker?.();
+                      } catch {}
+                    }}
+                    className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs font-mono"
+                  />
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-2 flex-wrap">
+                  <span className="text-[10px] text-gray-400 font-medium">Quick set:</span>
                   <button
                     type="button"
                     onClick={() => {
                       const d = new Date();
-                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const y = d.getFullYear();
+                      const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${m} ${day}`);
+                      setRescheduleDate(`${y}-${m}-${day}`);
                     }}
-                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                    className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
                     Today
                   </button>
@@ -2706,11 +2765,12 @@ export default function OrderDetailPage() {
                     onClick={() => {
                       const d = new Date();
                       d.setDate(d.getDate() + 1);
-                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const y = d.getFullYear();
+                      const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${m} ${day}`);
+                      setRescheduleDate(`${y}-${m}-${day}`);
                     }}
-                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                    className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
                     Tomorrow
                   </button>
@@ -2719,13 +2779,28 @@ export default function OrderDetailPage() {
                     onClick={() => {
                       const d = new Date();
                       d.setDate(d.getDate() + 2);
-                      const m = d.toLocaleString('en-US', { month: 'short' });
+                      const y = d.getFullYear();
+                      const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${m} ${day}`);
+                      setRescheduleDate(`${y}-${m}-${day}`);
                     }}
-                    className="text-[10px] font-bold text-indigo-600 hover:underline px-1.5 py-0.5 rounded bg-indigo-50"
+                    className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
                     +2 Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 7);
+                      const y = d.getFullYear();
+                      const m = String(d.getMonth() + 1).padStart(2, '0');
+                      const day = String(d.getDate()).padStart(2, '0');
+                      setRescheduleDate(`${y}-${m}-${day}`);
+                    }}
+                    className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
+                  >
+                    +1 Week
                   </button>
                 </div>
               </div>

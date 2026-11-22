@@ -2,10 +2,10 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { deleteSimulatorSlotLocks } from './simulator-db';
-import { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast } from './slot-time-utils';
+import { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast, isSlotThirtyMinutesPast } from './slot-time-utils';
 import { formatOrderNumber } from './order-utils';
 
-export { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast };
+export { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast, isSlotThirtyMinutesPast };
 
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
@@ -1245,7 +1245,77 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
   return result;
 }
 
+/**
+ * Evaluates candidate unfulfilled bookings and marks them as "No Show"
+ * if at least 30 minutes have elapsed since the slot start time (or past dates).
+ */
+export function checkAndMarkNoShowBookings(): { markedCount: number; updatedOrderIds: number[] } {
+  try {
+    const candidates = db.prepare(`
+      SELECT 
+        b.id, b.order_number, b.booking_date, b.time_slot, b.fulfillment_status, b.wristband_number,
+        s.start_hour
+      FROM bookings b
+      LEFT JOIN time_slots s ON b.time_slot = s.label
+      WHERE (b.fulfillment_status IS NULL OR LOWER(b.fulfillment_status) = 'unfulfilled' OR b.fulfillment_status = '')
+        AND (b.wristband_number IS NULL OR TRIM(b.wristband_number) = '')
+        AND LOWER(COALESCE(b.payment_status, '')) NOT IN ('canceled', 'cancelled', 'refunded')
+        AND LOWER(COALESCE(b.fulfillment_status, '')) NOT IN ('canceled', 'cancelled', 'fulfilled', 'attended', 'no show')
+    `).all() as Array<{
+      id: number;
+      order_number: number | null;
+      booking_date: string;
+      time_slot: string;
+      fulfillment_status: string;
+      wristband_number: string | null;
+      start_hour: number | null;
+    }>;
+
+    if (!candidates || candidates.length === 0) {
+      return { markedCount: 0, updatedOrderIds: [] };
+    }
+
+    const idsToMark: number[] = [];
+    const updatedOrderIdsSet = new Set<number>();
+
+    for (const b of candidates) {
+      if (isSlotThirtyMinutesPast(b.booking_date, b.time_slot, b.start_hour)) {
+        idsToMark.push(b.id);
+        updatedOrderIdsSet.add(b.order_number || b.id);
+      }
+    }
+
+    if (idsToMark.length === 0) {
+      return { markedCount: 0, updatedOrderIds: [] };
+    }
+
+    const placeholders = idsToMark.map(() => '?').join(',');
+    const tagNote = '[Auto No-Show: 30m grace period elapsed without check-in]';
+    db.prepare(`
+      UPDATE bookings 
+      SET fulfillment_status = 'No Show',
+          tags = CASE 
+            WHEN tags IS NULL OR tags = '' THEN '${tagNote}'
+            WHEN tags LIKE '%Auto No-Show%' THEN tags
+            ELSE tags || ' ' || '${tagNote}'
+          END
+      WHERE id IN (${placeholders})
+    `).run(...idsToMark);
+
+    return { markedCount: idsToMark.length, updatedOrderIds: Array.from(updatedOrderIdsSet) };
+  } catch (err) {
+    console.error("[checkAndMarkNoShowBookings Error]:", err);
+    return { markedCount: 0, updatedOrderIds: [] };
+  }
+}
+
 export function getAllBookings() {
+  try {
+    checkAndMarkNoShowBookings();
+  } catch (e) {
+    console.error("[getAllBookings Auto No-Show Check]", e);
+  }
+
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -1264,6 +1334,12 @@ export function getAllBookings() {
 }
 
 export function getBookingById(id: number) {
+  try {
+    checkAndMarkNoShowBookings();
+  } catch (e) {
+    console.error("[getBookingById Auto No-Show Check]", e);
+  }
+
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
@@ -1283,6 +1359,12 @@ export function getBookingById(id: number) {
 }
 
 export function getBookingsByOrderNumber(orderNum: number) {
+  try {
+    checkAndMarkNoShowBookings();
+  } catch (e) {
+    console.error("[getBookingsByOrderNumber Auto No-Show Check]", e);
+  }
+
   return db.prepare(`
     SELECT 
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 

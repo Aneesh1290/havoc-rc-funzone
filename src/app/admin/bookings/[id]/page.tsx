@@ -833,13 +833,18 @@ export default function OrderDetailPage() {
     const f = (item.fulfillment_status || "").toLowerCase();
     return f === "fulfilled" || f === "attended";
   });
+  const allNoShow = nonCanceledItems.length > 0 && nonCanceledItems.every((item) => {
+    const f = (item.fulfillment_status || "").toLowerCase();
+    return f === "no show";
+  });
 
   const isPaid = allPaid;
   const isPartiallyPaid = !allPaid && (anyPaid || anyPartiallyPaid);
   const isRefunded = allItems.every((item) => (item.payment_status || "").toLowerCase() === "refunded");
   const isCanceled = allCanceled;
   const isFulfilled = !allCanceled && allActiveFulfilled;
-  const isPartiallyFulfilled = !allCanceled && !allActiveFulfilled && anyFulfilled;
+  const isNoShow = !allCanceled && !allActiveFulfilled && allNoShow;
+  const isPartiallyFulfilled = !allCanceled && !allActiveFulfilled && !allNoShow && anyFulfilled;
 
   const totalQuantity = orderItems.reduce((acc, item) => acc + (item.quantity || 1), 0);
 
@@ -1088,6 +1093,10 @@ export default function OrderDetailPage() {
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
                 FULFILLED
               </span>
+            ) : isNoShow ? (
+              <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-100 text-amber-900 border border-amber-300">
+                NO SHOW
+              </span>
             ) : isPartiallyFulfilled ? (
               <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-sky-50 text-sky-700 border border-sky-200">
                 PARTIALLY FULFILLED
@@ -1122,6 +1131,18 @@ export default function OrderDetailPage() {
 
         {/* Action Buttons - rendered based on permissions */}
         <div className="flex items-center gap-3">
+          {/* Late Check-in Quick Action Button for No Show arrivals */}
+          {canManageStatus && isNoShow && (
+            <button
+              onClick={() => handleToggleFulfillment("Fulfilled")}
+              className="px-4 py-2.5 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all cursor-pointer"
+              title="Customer arrived late - admit and mark as Fulfilled"
+            >
+              <Check className="w-4 h-4 stroke-[2.5]" />
+              <span>Late Check-in (Admit)</span>
+            </button>
+          )}
+
           {/* More Actions dropdown matching screenshot - only if user has status/fulfillment permission */}
           {canManageStatus && (
             <div className="relative">
@@ -1154,6 +1175,13 @@ export default function OrderDetailPage() {
                   >
                     <span className="text-white font-black text-sm">✓</span>
                     <span>Mark as fulfilled</span>
+                  </button>
+                  <button
+                    onClick={() => handleToggleFulfillment("No Show")}
+                    className="w-full text-left px-4 py-2.5 text-amber-300 hover:bg-white/10 font-bold flex items-center gap-2.5 transition-colors"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Mark as No Show</span>
                   </button>
                   <button
                     onClick={() => handleToggleFulfillment("Unfulfilled")}
@@ -1498,6 +1526,7 @@ export default function OrderDetailPage() {
                 const itemIsRefunded = (item.payment_status || "").toLowerCase() === "refunded";
                 const itemIsCanceled = (item.fulfillment_status || "").toLowerCase() === "canceled" || (item.fulfillment_status || "").toLowerCase() === "cancelled";
                 const itemIsFulfilled = (item.fulfillment_status || "").toLowerCase() === "fulfilled" || (item.fulfillment_status || "").toLowerCase() === "attended";
+                const itemIsNoShow = (item.fulfillment_status || "").toLowerCase() === "no show";
                 const isAddonActivity = Boolean(
                   item.is_addon === 1 ||
                   (item.ticket_name && (
@@ -1587,6 +1616,10 @@ export default function OrderDetailPage() {
                         ) : itemIsFulfilled ? (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-blue-50 text-blue-700 border border-blue-200">
                             FULFILLED
+                          </span>
+                        ) : itemIsNoShow ? (
+                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                            NO SHOW
                           </span>
                         ) : (
                           <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-orange-50 text-orange-700 border border-orange-200">

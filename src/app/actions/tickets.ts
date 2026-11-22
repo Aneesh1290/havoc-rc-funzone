@@ -35,6 +35,7 @@ import {
   CouponRow,
   getBookingById,
   getBookingsByOrderNumber,
+  checkAndMarkNoShowBookings,
   updateBookingStatus,
   updateOrderGroupStatus,
   updateOrderGroupPaymentRef,
@@ -429,6 +430,10 @@ export async function fetchAllBookingsAction() {
   return getAllBookings();
 }
 
+export async function checkAndMarkNoShowBookingsAction() {
+  return checkAndMarkNoShowBookings();
+}
+
 export async function fetchBookingByIdAction(id: number) {
   return getBookingById(id);
 }
@@ -589,6 +594,15 @@ export async function updateBookingWristbandNumberAction(
       updateBookingCategoryWristbandNumber(id, cleanBand);
     } else {
       updateBookingWristbandNumber(id, cleanBand);
+    }
+
+    // Auto-advance fulfillment if wristband assigned to an unfulfilled or no-show booking (Late Check-in)
+    if (cleanBand && (!prevBooking?.fulfillment_status || prevBooking.fulfillment_status === 'Unfulfilled' || prevBooking.fulfillment_status === 'No Show')) {
+      try {
+        updateBookingStatus(id, undefined, 'Fulfilled');
+      } catch (fErr) {
+        console.warn("[updateBookingWristbandNumberAction] Auto-fulfill error:", fErr);
+      }
     }
 
     revalidatePath('/admin/bookings');

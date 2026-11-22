@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote, RotateCcw } from "lucide-react";
-import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction } from "@/app/actions/tickets";
+import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction, checkAndMarkNoShowBookingsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { generateBookingsExcelReport } from "@/lib/exportBookingsReport";
@@ -235,11 +235,17 @@ export default function BookingsPage() {
         const f = (i.fulfillment_status || "").toLowerCase();
         return f === "fulfilled" || f === "attended";
       });
+      const allNoShow = nonCanceledItems.length > 0 && nonCanceledItems.every(i => {
+        const f = (i.fulfillment_status || "").toLowerCase();
+        return f === "no show";
+      });
 
       if (allCanceled) {
         order.fulfillment_status = "Canceled";
       } else if (allActiveFulfilled) {
         order.fulfillment_status = "Fulfilled";
+      } else if (allNoShow) {
+        order.fulfillment_status = "No Show";
       } else if (anyFulfilled) {
         order.fulfillment_status = "Partially fulfilled";
       } else {
@@ -532,7 +538,7 @@ export default function BookingsPage() {
   ];
 
   const FULFILLMENT_OPTIONS = [
-    "Unfulfilled", "Fulfilled", "Partially fulfilled", "Canceled"
+    "Unfulfilled", "Fulfilled", "No Show", "Partially fulfilled", "Canceled"
   ];
 
   const PAYMENT_OPTIONS = [
@@ -1088,6 +1094,7 @@ export default function BookingsPage() {
                   const isPaid = (order.payment_status || "").toLowerCase() === "paid";
                   const isFulfilled = (order.fulfillment_status || "").toLowerCase() === "fulfilled";
                   const isPartiallyFulfilled = (order.fulfillment_status || "").toLowerCase() === "partially fulfilled";
+                  const isNoShow = (order.fulfillment_status || "").toLowerCase() === "no show";
                   const totalFormatted = order.total_amount > 0 ? `₹${order.total_amount.toFixed(2)}` : "₹0.00";
 
                   return (
@@ -1250,6 +1257,10 @@ export default function BookingsPage() {
                         ) : isFulfilled ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
                             Fulfilled
+                          </span>
+                        ) : isNoShow ? (
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            No Show
                           </span>
                         ) : isPartiallyFulfilled ? (
                           <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200">

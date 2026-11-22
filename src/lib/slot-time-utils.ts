@@ -40,7 +40,8 @@ export function normalizeDateToYmd(dateStr: string | null | undefined): string |
   // 1. YYYY-MM-DD
   const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
-    const y = parseInt(isoMatch[1], 10);
+    let y = parseInt(isoMatch[1], 10);
+    if (y < 2020) y = new Date().getFullYear();
     const m = String(parseInt(isoMatch[2], 10)).padStart(2, '0');
     const d = String(parseInt(isoMatch[3], 10)).padStart(2, '0');
     return `${y}-${m}-${d}`;
@@ -167,6 +168,41 @@ export function isBookingStartingSoon(
   const isStartingSoon = diffMinutes <= leadMinutes && diffMinutes >= -10;
 
   return { isStartingSoon, diffMinutes, slotStartMinutes };
+}
+
+/**
+ * Checks whether a booking slot is at least 30 minutes in the past.
+ * Used for automated "No Show" tracking.
+ * - If booking date is strictly before today (IST): returns true (past day unfulfilled).
+ * - If booking date is strictly after today (IST): returns false (future booking).
+ * - If booking date is today: returns true when current IST time >= slot start + 30 minutes.
+ */
+export function isSlotThirtyMinutesPast(
+  bookingDate: string | null | undefined,
+  timeSlot: string | null | undefined,
+  startHourFromDb?: number | null
+): boolean {
+  if (!bookingDate) return false;
+  const { todayIstStr, nowMinutes } = getCurrentIstDetails();
+  const normalizedBookingDate = normalizeDateToYmd(bookingDate);
+  if (!normalizedBookingDate) return false;
+
+  // Case 1: Past date (e.g. yesterday or older)
+  if (normalizedBookingDate < todayIstStr) {
+    return true;
+  }
+
+  // Case 2: Future date (e.g. tomorrow or later)
+  if (normalizedBookingDate > todayIstStr) {
+    return false;
+  }
+
+  // Case 3: Today
+  const slotStartMinutes = parseSlotStartMinutes(timeSlot, startHourFromDb);
+  if (slotStartMinutes === null) return false;
+
+  // 30 minutes grace period past the slot start time
+  return nowMinutes >= slotStartMinutes + 30;
 }
 
 /**

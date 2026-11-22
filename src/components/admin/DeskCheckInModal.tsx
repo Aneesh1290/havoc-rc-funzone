@@ -1823,6 +1823,7 @@ export default function DeskCheckInModal({
                             const isFulfilled =
                               (session.fulfillment_status || "").toUpperCase() === "ATTENDED" ||
                               (session.fulfillment_status || "").toLowerCase() === "fulfilled";
+                            const isNoShow = (session.fulfillment_status || "").toLowerCase() === "no show";
                             const isSelected = activeSessionIds.includes(session.id) && !isCanceled;
                             const isAddonActivity = Boolean(
                               session.is_addon === 1 || 
@@ -2108,10 +2109,12 @@ export default function DeskCheckInModal({
                                         ? "bg-red-50 text-red-700 border border-red-200"
                                         : isFulfilled
                                         ? "bg-blue-50 text-blue-700 border border-blue-200"
+                                        : isNoShow
+                                        ? "bg-amber-100 text-amber-900 border border-amber-300"
                                         : "bg-gray-100 text-gray-600 border border-gray-200"
                                     }`}
                                   >
-                                    {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : "UNFULFILLED"}
+                                    {isCanceled ? "CANCELED" : isFulfilled ? "ATTENDED" : isNoShow ? "NO SHOW" : "UNFULFILLED"}
                                   </span>
 
                                   {/* Individual Walkout / Participant Reduction button */}

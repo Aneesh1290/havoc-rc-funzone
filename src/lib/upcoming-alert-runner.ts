@@ -1,4 +1,4 @@
-import { getSiteSetting, getUnnotifiedTodayBookings, markBookingsAdminUpcomingNotified } from "@/lib/db";
+import { getSiteSetting, getUnnotifiedTodayBookings, markBookingsAdminUpcomingNotified, checkAndMarkNoShowBookings } from "@/lib/db";
 import { getCurrentIstDetails, isBookingStartingSoon } from "@/lib/slot-time-utils";
 import { dispatchUpcomingBookingAlertsToAdmins } from "@/lib/whatsapp";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -39,6 +39,13 @@ export interface UpcomingOrderInfo {
  * instead of multiple separate chimes.
  */
 export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResult> {
+  // Always evaluate overdue bookings to automatically transition them to "No Show"
+  try {
+    checkAndMarkNoShowBookings();
+  } catch (noShowErr) {
+    console.error("[runUpcomingBookingAlertsCheck] checkAndMarkNoShowBookings error:", noShowErr);
+  }
+
   const isAlertsEnabled = getSiteSetting("admin_booking_alert_enabled", "1") !== "0";
   const isUpcomingEnabled = getSiteSetting("admin_upcoming_alert_enabled", "1") !== "0";
   const consolidateSlotAlerts = getSiteSetting("admin_consolidate_slot_alerts", "1") !== "0";

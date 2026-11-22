@@ -448,14 +448,24 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
 
     if (mode === "slot_summary") {
       const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
+      const { generateSlotRosterToken } = await import("@/lib/roster-token");
+
+      const returnBase = process.env.ICICI_RETURN_BASE 
+        || process.env.NEXT_PUBLIC_APP_URL 
+        || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
+      const testSlot = "05:00 PM - 06:00 PM";
+      const testDate = "Today";
+      const testToken = generateSlotRosterToken(testDate, testSlot);
+      const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(testSlot)}&date=${encodeURIComponent(testDate)}&t=${testToken}`;
+
       const testResult = await sendAdminUpcomingReminderWhatsApp({
-        orderId: "3 Orders (05:00 PM - 06:00 PM)",
-        customerName: "Slot Summary (3 Bookings • 6 Racers)",
+        orderId: `Slot Roster (${testSlot})`,
+        customerName: "3 Orders (6 Racers)",
         customerPhone: "2 Paid • 1 Due at Desk",
         totalAmount: 3200,
         paymentStatus: "Total: ₹3,200 (2 Paid, 1 Due)",
-        itemsSummary: "1. #101 Rahul S. (..3210): 2x Pro Pass [Paid] • 2. #102 Priya P. (..5678): 1x Rookie Pass [Due ₹800] • 3. #103 Zia School (..9999): 3x Excavator [Paid]",
-        timeSlot: "05:00 PM - 06:00 PM",
+        itemsSummary: `View 3 Orders & Racers 👉 ${rosterUrl}`,
+        timeSlot: testSlot,
         bookingDate: "Today",
         adminPhone: testPhone.trim(),
         brandName,

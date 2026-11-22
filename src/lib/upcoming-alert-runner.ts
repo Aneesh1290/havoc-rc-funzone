@@ -2,6 +2,7 @@ import { getSiteSetting, getUnnotifiedTodayBookings, markBookingsAdminUpcomingNo
 import { getCurrentIstDetails, isBookingStartingSoon } from "@/lib/slot-time-utils";
 import { dispatchUpcomingBookingAlertsToAdmins } from "@/lib/whatsapp";
 import { formatOrderNumber } from "@/lib/order-utils";
+import { generateSlotRosterToken } from "@/lib/roster-token";
 
 export interface UpcomingAlertResult {
   success: boolean;
@@ -219,32 +220,23 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
           guestLines.push(`${idx + 1}. #${ord.orderNumber} ${shortName} ${phoneTag}: ${passSummary} [${payBadge}]`);
         }
 
-        // Join with bullets instead of newlines because Meta prohibits newlines in template variable values
-        let guestListStr = guestLines.join(" • ");
-        if (guestListStr.length > 900) {
-          const trimmedLines: string[] = [];
-          let currentLen = 0;
-          for (let i = 0; i < guestLines.length; i++) {
-            if (currentLen + guestLines[i].length + 40 > 850) {
-              const remaining = guestLines.length - i;
-              trimmedLines.push(`+ ${remaining} more booking${remaining > 1 ? "s" : ""}...`);
-              break;
-            }
-            trimmedLines.push(guestLines[i]);
-            currentLen += guestLines[i].length + 3;
-          }
-          guestListStr = trimmedLines.join(" • ");
-        }
+        // Generate secure fast-track slot roster link for arena floor staff
+        const returnBase = process.env.ICICI_RETURN_BASE 
+          || process.env.NEXT_PUBLIC_APP_URL 
+          || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
+        const targetDate = slotOrders[0]?.bookingDate || todayIstStr;
+        const rosterToken = generateSlotRosterToken(targetDate, timeSlot);
+        const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(timeSlot)}&date=${encodeURIComponent(targetDate)}&t=${rosterToken}`;
 
         const consolidatedPayload = {
-          orderId: `${totalOrders} Orders (${timeSlot})`,
-          customerName: `Slot Summary (${totalOrders} Bookings • ${totalRacers} Racers)`,
+          orderId: `Slot Roster (${timeSlot})`,
+          customerName: `${totalOrders} Orders (${totalRacers} Racers)`,
           customerPhone: `${paidCount} Paid • ${deskDueCount} Due at Desk`,
           totalAmount: totalRevenue,
           paymentStatus: `Total: ₹${totalRevenue.toLocaleString("en-IN")} (${paidCount} Paid, ${deskDueCount} Due)`,
-          itemsSummary: guestListStr,
+          itemsSummary: `View ${totalOrders} Orders & Racers 👉 ${rosterUrl}`,
           timeSlot: timeSlot,
-          bookingDate: slotOrders[0].bookingDate,
+          bookingDate: targetDate,
           brandName,
           templateName,
         };

@@ -1607,6 +1607,34 @@ export function getUnnotifiedTodayBookings(dateStr: string) {
   `).all(dateStr, dateStr) as any[];
 }
 
+export function getBookingsForSlotRoster(bookingDate: string, timeSlot: string) {
+  let targetDate = (bookingDate || '').trim();
+  if (!targetDate || targetDate.toLowerCase() === 'today') {
+    const { getCurrentIstDetails } = require('./slot-time-utils');
+    targetDate = getCurrentIstDetails().todayIstStr;
+  }
+
+  const dateVariants = normalizeBookingDateVariants(targetDate);
+  const placeholders = dateVariants.map(() => '?').join(',');
+
+  return db.prepare(`
+    SELECT 
+      b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
+      b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
+      s.color as slot_color, s.color_name as slot_color_name, s.start_hour
+    FROM bookings b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    LEFT JOIN time_slots s ON b.time_slot = s.label
+    WHERE (b.booking_date IN (${placeholders}) OR b.booking_date = ? OR b.booking_date LIKE ? || '%')
+      AND (b.time_slot = ? OR b.time_slot LIKE ? || '%')
+      AND (b.fulfillment_status IS NULL OR LOWER(b.fulfillment_status) NOT IN ('canceled', 'cancelled'))
+      AND (b.payment_status IS NULL OR LOWER(b.payment_status) != 'refunded')
+    ORDER BY b.order_number ASC, b.id ASC
+  `).all(...dateVariants, targetDate, targetDate, timeSlot, timeSlot) as any[];
+}
+
 export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {
   try {
     const expiredRows = db.prepare(`

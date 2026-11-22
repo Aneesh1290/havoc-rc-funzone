@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { deleteSimulatorSlotLocks } from './simulator-db';
 import { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast } from './slot-time-utils';
+import { formatOrderNumber } from './order-utils';
 
 export { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast };
 
@@ -246,10 +247,23 @@ export function initDB() {
       completed_at DATETIME,
       order_number INTEGER
     );
+
+    CREATE TABLE IF NOT EXISTS quickbill_sync_state (
+      id INTEGER PRIMARY KEY,
+      last_synced_id INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT DEFAULT CURRENT_TIMESTAMP,
+      total_synced_count INTEGER NOT NULL DEFAULT 0
+    );
   `);
   
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_cash_walkin_token ON cash_walkin_sessions(token)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_cash_walkin_created ON cash_walkin_sessions(created_at)'); } catch (e) {}
+  try {
+    db.prepare(`
+      INSERT OR IGNORE INTO quickbill_sync_state (id, last_synced_id, total_synced_count)
+      VALUES (1, 0, 0)
+    `).run();
+  } catch (e) {}
   
   // Seed default site settings
   try {
@@ -2791,6 +2805,491 @@ export function deleteSubcategoryBandDB(id: number) {
   initDB();
   return db.prepare('DELETE FROM subcategory_bands WHERE id = ?').run(id);
 }
+
+// -------------------------------------------------------------
+// Quickbill POS / Billing Integration Types & DB Operations
+// -------------------------------------------------------------
+
+export interface QuickbillSyncState {
+  id: number;
+  last_synced_id: number;
+  last_synced_at: string;
+  total_synced_count: number;
+}
+
+export interface QuickbillLineItem {
+  id: number;
+  ticket_id: number;
+  name: string;
+  booking_date: string;
+  time_slot: string;
+  quantity: number;
+  unit_price: number;
+  total_price: number;
+  taxable_amount: number;
+  gst_amount: number;
+  is_addon: boolean;
+  simulator_name: string | null;
+  simulator_slot: string | null;
+  wristband_number: string | null;
+}
+
+export interface QuickbillOrder {
+  order_id: number;
+  order_number: string;
+  order_prefix: string;
+  created_at: string;
+  booking_date: string;
+  time_slot: string;
+  customer: {
+    name: string;
+    phone: string;
+    email: string;
+  };
+  payment: {
+    method: "ONLINE" | "PAY_AT_DESK";
+    status: string;
+    reference: string | null;
+    gateway_txn_id: string | null;
+  };
+  fulfillment_status: string;
+  financials: {
+    grand_total: number;
+    taxable_amount: number;
+    total_gst: number;
+    gst_rate: "18%";
+    cgst_rate: "9%";
+    cgst_amount: number;
+    sgst_rate: "9%";
+    sgst_amount: number;
+    igst_rate: "0%";
+    igst_amount: number;
+  };
+  items: QuickbillLineItem[];
+  items_summary: string;
+  total_quantity: number;
+}
+
+export interface QuickbillSalesFilter {
+  limit?: number;
+  sinceId?: number;
+  sinceTime?: string;
+  status?: string;
+  includeCancelled?: boolean;
+}
+
+export function getQuickbillSyncState(): QuickbillSyncState {
+  initDB();
+  const row = db.prepare('SELECT * FROM quickbill_sync_state WHERE id = 1').get() as any;
+  if (!row) {
+    try {
+      db.prepare('INSERT OR IGNORE INTO quickbill_sync_state (id, last_synced_id, total_synced_count) VALUES (1, 0, 0)').run();
+    } catch (_) {}
+    return { id: 1, last_synced_id: 0, last_synced_at: new Date().toISOString(), total_synced_count: 0 };
+  }
+  return {
+    id: row.id,
+    last_synced_id: Number(row.last_synced_id || 0),
+    last_synced_at: row.last_synced_at || new Date().toISOString(),
+    total_synced_count: Number(row.total_synced_count || 0)
+  };
+}
+
+export function updateQuickbillSyncState(lastSyncedId: number, newlySyncedCount: number): QuickbillSyncState {
+  initDB();
+  db.prepare(`
+    UPDATE quickbill_sync_state
+    SET last_synced_id = ?,
+        last_synced_at = CURRENT_TIMESTAMP,
+        total_synced_count = total_synced_count + ?
+    WHERE id = 1
+  `).run(lastSyncedId, Math.max(0, newlySyncedCount));
+  return getQuickbillSyncState();
+}
+
+export function resetQuickbillSyncCursor(): QuickbillSyncState {
+  initDB();
+  db.prepare(`
+    UPDATE quickbill_sync_state
+    SET last_synced_id = 0,
+        last_synced_at = CURRENT_TIMESTAMP
+    WHERE id = 1
+  `).run();
+  return getQuickbillSyncState();
+}
+
+/**
+ * Standardize single order object with 18% inclusive GST breakdown
+ */
+export function formatQuickbillOrderObject(orderId: number, rows: any[]): QuickbillOrder {
+  const first = rows[0] || {};
+  const orderPrefix = String(first.order_prefix || 'PAYDUE').toUpperCase();
+  const paymentStatus = String(first.payment_status || 'Unpaid');
+
+  // Standardize payment method to either "PAY_AT_DESK" or "ONLINE"
+  const isOnline = 
+    orderPrefix === 'PAID' || 
+    ['paid_gateway', 'paid_online', 'online'].includes(paymentStatus.toLowerCase()) || 
+    Boolean(first.icici_txn_id);
+  const paymentMethod: "PAY_AT_DESK" | "ONLINE" = isOnline ? "ONLINE" : "PAY_AT_DESK";
+
+  // Calculate order totals & 18% inclusive GST
+  const grandTotal = rows.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
+  const taxableAmount = Number((grandTotal / 1.18).toFixed(2));
+  const totalGst = Number((grandTotal - taxableAmount).toFixed(2));
+  const cgstAmount = Number((totalGst / 2).toFixed(2));
+  const sgstAmount = Number((totalGst - cgstAmount).toFixed(2));
+
+  // Build itemized list
+  const items: QuickbillLineItem[] = rows.map(r => {
+    const itemTotal = Number(r.total_amount) || 0;
+    const itemTaxable = Number((itemTotal / 1.18).toFixed(2));
+    const itemGst = Number((itemTotal - itemTaxable).toFixed(2));
+    const qty = Number(r.quantity) || 1;
+    const unitPrice = Number(r.ticket_price) || (qty > 0 ? Number((itemTotal / qty).toFixed(2)) : itemTotal);
+
+    return {
+      id: Number(r.id),
+      ticket_id: Number(r.ticket_id),
+      name: String(r.ticket_name || 'Activity Pass'),
+      booking_date: String(r.booking_date || ''),
+      time_slot: String(r.time_slot || ''),
+      quantity: qty,
+      unit_price: unitPrice,
+      total_price: itemTotal,
+      taxable_amount: itemTaxable,
+      gst_amount: itemGst,
+      is_addon: Boolean(r.is_addon),
+      simulator_name: r.simulator_name || null,
+      simulator_slot: r.simulator_slot || null,
+      wristband_number: r.wristband_number || r.category_wristband_number || null
+    };
+  });
+
+  const totalQuantity = items.reduce((sum, i) => sum + i.quantity, 0);
+  const itemsSummary = items.map(i => `${i.quantity}x ${i.name}`).join(', ');
+
+  return {
+    order_id: orderId,
+    order_number: formatOrderNumber(orderId, orderPrefix, paymentStatus),
+    order_prefix: orderPrefix,
+    created_at: first.created_at || new Date().toISOString(),
+    booking_date: first.booking_date || '',
+    time_slot: first.time_slot || '',
+    customer: {
+      name: first.customer_name || 'Walk-In Customer',
+      phone: first.customer_phone || '',
+      email: first.customer_email || ''
+    },
+    payment: {
+      method: paymentMethod,
+      status: paymentStatus.toUpperCase(),
+      reference: first.payment_ref || null,
+      gateway_txn_id: first.icici_txn_id || null
+    },
+    fulfillment_status: String(first.fulfillment_status || 'Unfulfilled').toUpperCase(),
+    financials: {
+      grand_total: grandTotal,
+      taxable_amount: taxableAmount,
+      total_gst: totalGst,
+      gst_rate: "18%",
+      cgst_rate: "9%",
+      cgst_amount: cgstAmount,
+      sgst_rate: "9%",
+      sgst_amount: sgstAmount,
+      igst_rate: "0%",
+      igst_amount: 0
+    },
+    items,
+    items_summary: itemsSummary,
+    total_quantity: totalQuantity
+  };
+}
+
+/**
+ * Generate formatted ASCII text for ESC/POS thermal receipt printers
+ */
+export function generateThermalReceiptText(order: QuickbillOrder): string {
+  const line = "========================================";
+  const dash = "----------------------------------------";
+  const center = (text: string) => {
+    const pad = Math.max(0, Math.floor((40 - text.length) / 2));
+    return " ".repeat(pad) + text;
+  };
+  const padRight = (str: string, len: number) => (str + " ".repeat(len)).slice(0, len);
+  const padLeft = (str: string, len: number) => (" ".repeat(len) + str).slice(-len);
+
+  let formattedDate = order.created_at;
+  try {
+    const d = new Date(order.created_at);
+    if (!isNaN(d.getTime())) {
+      formattedDate = d.toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+    }
+  } catch (_) {}
+
+  const lines = [
+    line,
+    center("HAVOC RC FUN ZONE"),
+    center("RC Rock Crawling & Drift Arena"),
+    center("Bengaluru, Karnataka, India"),
+    center("GSTIN: 29ABCDE1234F1Z5"),
+    center("Phone: +91 8618796251"),
+    line,
+    `Receipt #: ${order.order_number}`,
+    `Date     : ${formattedDate}`,
+    `Customer : ${order.customer.name}`,
+    `Phone    : ${order.customer.phone || 'N/A'}`,
+    `Slot     : ${order.booking_date} (${order.time_slot})`,
+    `Payment  : ${order.payment.method === 'ONLINE' ? 'ONLINE (Gateway)' : 'PAY AT DESK (Cash)'} [${order.payment.status}]`,
+    dash,
+    padRight("Item", 20) + padLeft("Qty", 5) + padLeft("Rate", 7) + padLeft("Total", 8),
+    dash
+  ];
+
+  for (const item of order.items) {
+    const nameTrunc = item.name.length > 20 ? item.name.slice(0, 19) + "." : item.name;
+    lines.push(
+      padRight(nameTrunc, 20) + 
+      padLeft(String(item.quantity), 5) + 
+      padLeft(String(item.unit_price), 7) + 
+      padLeft(String(item.total_price), 8)
+    );
+  }
+
+  lines.push(dash);
+  lines.push(padRight("Taxable Subtotal:", 26) + padLeft(`Rs. ${order.financials.taxable_amount.toFixed(2)}`, 14));
+  lines.push(padRight("CGST (9%):", 26) + padLeft(`Rs. ${order.financials.cgst_amount.toFixed(2)}`, 14));
+  lines.push(padRight("SGST (9%):", 26) + padLeft(`Rs. ${order.financials.sgst_amount.toFixed(2)}`, 14));
+  lines.push(padRight("Total GST (18%):", 26) + padLeft(`Rs. ${order.financials.total_gst.toFixed(2)}`, 14));
+  lines.push(dash);
+  lines.push(padRight("GRAND TOTAL:", 24) + padLeft(`Rs. ${order.financials.grand_total.toFixed(2)}`, 16));
+  lines.push(line);
+  lines.push(center("Thank You for Racing with Havoc!"));
+  lines.push(center("www.havocrcfunzone.in"));
+  lines.push(line);
+
+  return lines.join("\n");
+}
+
+/**
+ * Fetch incremental batch of sales orders for Quickbill POS pull model
+ */
+export function fetchQuickbillSalesOrders(filter: QuickbillSalesFilter = {}) {
+  initDB();
+  const limit = Math.max(1, Math.min(200, Number(filter.limit) || 50));
+  const sinceId = Number(filter.sinceId) || 0;
+  const sinceTime = filter.sinceTime?.trim() || null;
+  const statusFilter = filter.status?.trim() || 'Confirmed';
+  const includeCancelled = Boolean(filter.includeCancelled);
+
+  // Query limit + 1 distinct order IDs to determine hasMore accurately
+  const queryLimit = limit + 1;
+
+  const whereClauses: string[] = ['COALESCE(b.order_number, b.id) > ?'];
+  const params: any[] = [sinceId];
+
+  if (sinceTime) {
+    whereClauses.push('b.created_at >= ?');
+    params.push(sinceTime);
+  }
+
+  if (!includeCancelled) {
+    whereClauses.push("LOWER(COALESCE(b.fulfillment_status, '')) NOT IN ('canceled', 'cancelled')");
+    whereClauses.push("LOWER(COALESCE(b.payment_status, '')) NOT IN ('canceled', 'cancelled', 'refunded')");
+  }
+
+  if (statusFilter && statusFilter.toLowerCase() !== 'all') {
+    if (statusFilter.toLowerCase() === 'confirmed') {
+      // Confirmed: already filtered by non-cancelled check
+    } else {
+      whereClauses.push("(LOWER(b.payment_status) = ? OR LOWER(b.fulfillment_status) = ?)");
+      params.push(statusFilter.toLowerCase(), statusFilter.toLowerCase());
+    }
+  }
+
+  params.push(queryLimit);
+
+  const distinctOrderRows = db.prepare(`
+    SELECT DISTINCT COALESCE(b.order_number, b.id) AS order_id
+    FROM bookings b
+    WHERE ${whereClauses.join(' AND ')}
+    ORDER BY order_id ASC
+    LIMIT ?
+  `).all(...params) as { order_id: number }[];
+
+  const hasMore = distinctOrderRows.length > limit;
+  const targetOrderRows = distinctOrderRows.slice(0, limit);
+  const targetOrderIds = targetOrderRows.map(r => r.order_id);
+
+  if (targetOrderIds.length === 0) {
+    return {
+      orders: [],
+      hasMore: false,
+      lastOrderId: null
+    };
+  }
+
+  // Fetch all line items for target orders
+  const placeholders = targetOrderIds.map(() => '?').join(',');
+  const itemsRows = db.prepare(`
+    SELECT 
+      b.id,
+      COALESCE(b.order_number, b.id) as order_id,
+      b.order_number,
+      b.booking_date,
+      b.time_slot,
+      b.quantity,
+      b.customer_name,
+      b.customer_email,
+      b.customer_phone,
+      b.total_amount,
+      b.payment_status,
+      b.fulfillment_status,
+      b.tags,
+      b.simulator_name,
+      b.simulator_slot,
+      b.applied_coupon,
+      b.created_at,
+      b.payment_ref,
+      b.icici_txn_id,
+      b.wristband_number,
+      b.category_wristband_number,
+      COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      b.ticket_id,
+      COALESCE(t.name, 'Activity Pass') as ticket_name,
+      COALESCE(t.price, 0) as ticket_price,
+      COALESCE(t.is_addon, 0) as is_addon
+    FROM bookings b
+    LEFT JOIN tickets t ON b.ticket_id = t.id
+    WHERE COALESCE(b.order_number, b.id) IN (${placeholders})
+    ORDER BY order_id ASC, b.id ASC
+  `).all(...targetOrderIds) as any[];
+
+  // Group items by order_id
+  const orderMap = new Map<number, any[]>();
+  for (const row of itemsRows) {
+    const oId = Number(row.order_id);
+    if (!orderMap.has(oId)) orderMap.set(oId, []);
+    orderMap.get(oId)!.push(row);
+  }
+
+  const formattedOrders: QuickbillOrder[] = targetOrderIds.map(oId => {
+    const rows = orderMap.get(oId) || [];
+    return formatQuickbillOrderObject(oId, rows);
+  });
+
+  const lastOrderId = formattedOrders.length > 0 
+    ? formattedOrders[formattedOrders.length - 1].order_id 
+    : null;
+
+  return {
+    orders: formattedOrders,
+    hasMore,
+    lastOrderId
+  };
+}
+
+/**
+ * Fetch detailed single receipt object ready for Quickbill thermal printing & invoicing
+ */
+export function fetchQuickbillReceipt(orderIdQuery: number | string) {
+  initDB();
+  const num = Number(orderIdQuery);
+  let rows: any[] = [];
+  if (!isNaN(num) && num > 0) {
+    rows = db.prepare(`
+      SELECT 
+        b.id,
+        COALESCE(b.order_number, b.id) as order_id,
+        b.order_number,
+        b.booking_date,
+        b.time_slot,
+        b.quantity,
+        b.customer_name,
+        b.customer_email,
+        b.customer_phone,
+        b.total_amount,
+        b.payment_status,
+        b.fulfillment_status,
+        b.tags,
+        b.simulator_name,
+        b.simulator_slot,
+        b.applied_coupon,
+        b.created_at,
+        b.payment_ref,
+        b.icici_txn_id,
+        b.wristband_number,
+        b.category_wristband_number,
+        COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+        b.ticket_id,
+        COALESCE(t.name, 'Activity Pass') as ticket_name,
+        COALESCE(t.price, 0) as ticket_price,
+        COALESCE(t.is_addon, 0) as is_addon
+      FROM bookings b
+      LEFT JOIN tickets t ON b.ticket_id = t.id
+      WHERE b.order_number = ? OR (b.order_number IS NULL AND b.id = ?) OR b.id = ?
+      ORDER BY b.id ASC
+    `).all(num, num, num) as any[];
+  }
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const orderId = Number(rows[0].order_id);
+  const order = formatQuickbillOrderObject(orderId, rows);
+  const thermalText = generateThermalReceiptText(order);
+
+  return {
+    outlet: {
+      name: "Havoc RC Fun Zone",
+      tagline: "India's Premier RC Rock Crawling & Drift Arena",
+      address: "Havoc RC Fun Zone, Bengaluru, Karnataka, India",
+      phone: "+91 8618796251",
+      email: "support@havocrcfunzone.in",
+      website: "https://havocrcfunzone.in",
+      gstin: "29ABCDE1234F1Z5"
+    },
+    order_id: order.order_id,
+    order_number: order.order_number,
+    tracking_reference: order.payment.gateway_txn_id || order.payment.reference || `REF-${order.order_id}`,
+    order_date: order.booking_date,
+    order_time: order.time_slot,
+    created_at: order.created_at,
+    customer: order.customer,
+    items: order.items.map(i => ({
+      item_name: i.name,
+      slot_details: `${i.booking_date} • ${i.time_slot}`,
+      quantity: i.quantity,
+      unit_rate: i.unit_price,
+      taxable_value: i.taxable_amount,
+      line_total: i.total_price
+    })),
+    tax_breakdown: {
+      taxable_amount: order.financials.taxable_amount,
+      cgst_rate: order.financials.cgst_rate,
+      cgst_amount: order.financials.cgst_amount,
+      sgst_rate: order.financials.sgst_rate,
+      sgst_amount: order.financials.sgst_amount,
+      total_tax: order.financials.total_gst,
+      grand_total: order.financials.grand_total
+    },
+    payment: {
+      mode: order.payment.method,
+      status: order.payment.status,
+      transaction_id: order.payment.gateway_txn_id || order.payment.reference
+    },
+    print_receipt_text: thermalText
+  };
+}
+
 
 
 

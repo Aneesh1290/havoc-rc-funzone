@@ -26,6 +26,7 @@ export interface BookingConfirmationEmailParams {
   simulatorSlot?: string;
   paymentStatus?: string;
   items?: EmailOrderItem[];
+  isRescheduled?: boolean;
 }
 
 /**
@@ -168,7 +169,9 @@ export async function sendBookingConfirmationEmail(
           <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px; font-weight: 800; text-transform: uppercase;">
             HAVOC <span style="color: #FF5500;">RC FUN ZONE</span>
           </h1>
-          <p style="margin: 8px 0 0 0; font-size: 14px; color: #94A3B8;">Official Booking Confirmation</p>
+          <p style="margin: 8px 0 0 0; font-size: 14px; color: #94A3B8;">
+            ${params.isRescheduled ? "Updated Booking Confirmation (Rescheduled)" : "Official Booking Confirmation"}
+          </p>
         </div>
 
         <!-- Body -->
@@ -177,9 +180,20 @@ export async function sendBookingConfirmationEmail(
             <div style="display: inline-block; padding: 6px 14px; background: #F1F5F9; border-radius: 9999px; font-size: 12px; font-weight: 700; color: #475569; margin-bottom: 12px;">
               ORDER ID: <span style="color: #FF5500;">${params.orderId}</span>
             </div>
-            <h2 style="margin: 0; font-size: 20px; color: #0F172A; font-weight: 700;">You're All Set, ${params.customerName}! 🎉</h2>
+            ${params.isRescheduled ? `
+              <div style="margin-bottom: 12px;">
+                <span style="display: inline-block; padding: 4px 12px; background: #FAF5FF; border: 1px solid #E9D5FF; border-radius: 8px; font-size: 12px; font-weight: 800; color: #7E22CE; text-transform: uppercase;">
+                  📅 Schedule Updated / Rescheduled
+                </span>
+              </div>
+            ` : ''}
+            <h2 style="margin: 0; font-size: 20px; color: #0F172A; font-weight: 700;">
+              ${params.isRescheduled ? `Your Booking Has Been Rescheduled, ${params.customerName}! 📅` : `You're All Set, ${params.customerName}! 🎉`}
+            </h2>
             <p style="margin: 6px 0 0 0; font-size: 14px; color: #64748B;">
-              We have received your booking. Below are your visit and arena pass details:
+              ${params.isRescheduled
+                ? "Your visit date and time slot have been successfully updated. Below are your updated details:"
+                : "We have received your booking. Below are your visit and arena pass details:"}
             </p>
           </div>
 
@@ -236,7 +250,9 @@ export async function sendBookingConfirmationEmail(
     const info = await transporter.sendMail({
       from: fromAddress,
       to: params.customerEmail,
-      subject: `Booking Confirmed: ${params.orderId} - Havoc RC Fun Zone`,
+      subject: params.isRescheduled
+        ? `Booking Rescheduled: ${params.orderId} - Havoc RC Fun Zone`
+        : `Booking Confirmed: ${params.orderId} - Havoc RC Fun Zone`,
       html: htmlContent,
     });
 
@@ -263,7 +279,9 @@ export async function sendBookingConfirmationEmail(
         </div>
       `).join('');
 
-      const adminSubject = `New Booking Alert: ${params.orderId} - ${params.customerName} (${itemsCount} ${itemsCount > 1 ? 'items' : 'item'})`;
+      const adminSubject = params.isRescheduled
+        ? `[RESCHEDULED] Booking Update: ${params.orderId} - ${params.customerName} (${itemsCount} ${itemsCount > 1 ? 'items' : 'item'})`
+        : `New Booking Alert: ${params.orderId} - ${params.customerName} (${itemsCount} ${itemsCount > 1 ? 'items' : 'item'})`;
       
       const adminPlain = `A new order has been booked.\n\nOrder ID: ${params.orderId}\nCustomer Name: ${params.customerName}\nCustomer Email: ${params.customerEmail}\nTotal Amount: ₹${formattedTotal}\n\nExperiences (${itemsCount}):\n${experiencesText}\n\nPlease check the admin dashboard for details.`;
 

@@ -714,6 +714,12 @@ export default function OrderDetailPage() {
       }
 
       setIsRescheduleModalOpen(false);
+      if ((res as any).notificationSent) {
+        setAdvanceStatusMsg({
+          type: "success",
+          text: `Booking successfully rescheduled to ${rescheduleDate.trim()} (${rescheduleTimeSlot.trim()}). Rescheduling confirmation dispatched to customer!`
+        });
+      }
       await loadBooking();
     } catch (err: any) {
       setRescheduleError(err.message || "Failed to reschedule booking.");

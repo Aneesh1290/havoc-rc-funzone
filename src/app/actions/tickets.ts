@@ -998,17 +998,103 @@ export async function updateBookingScheduleAndContactAction(params: {
   customerName?: string;
   customerPhone?: string;
   customerEmail?: string;
-}) {
+}): Promise<{ success: boolean; changed?: boolean; notificationSent?: boolean; error?: string }> {
   const session = await checkSessionAction();
   if (!hasUserPermission(session, "bookings:status") && !hasUserPermission(session, "bookings:payment")) {
     return { success: false, error: "Access denied: You do not have permission to update booking schedule or details." };
   }
 
   try {
+    const isScheduleChange = Boolean(params.newDate || params.newTimeSlot);
     const result = updateBookingScheduleAndContact(params);
+    if (!result.success) {
+      return result;
+    }
+
+    // Automatically send Rescheduling Confirmation messages to the customer (WhatsApp & Email)
+    if (isScheduleChange && (result as any).changed !== false) {
+      try {
+        const rows = getBookingsByOrderNumber(params.orderNumber) as any[];
+        if (rows && rows.length > 0) {
+          const first = rows[0];
+          const targetPhone = params.customerPhone || first.customer_phone;
+          const targetEmail = params.customerEmail || first.customer_email;
+          const targetName = params.customerName || first.customer_name || "Racer";
+          const orderCode = formatOrderNumber(params.orderNumber, first.order_prefix);
+          const isPaid = rows.every(r => (r.payment_status || '').toLowerCase() === 'paid');
+          const totalAmount = rows.reduce((sum, r) => sum + (Number(r.total_amount) || 0), 0);
+
+          const itemsList = rows.map(r => ({
+            ticketName: r.ticket_name || 'RC Fun Zone Pass',
+            quantity: r.quantity || 1,
+            date: r.booking_date,
+            timeSlot: r.time_slot,
+            itemTotal: r.total_amount,
+            simulatorName: r.simulator_name,
+            simulatorSlot: r.simulator_slot
+          }));
+
+          // 1. Dispatch WhatsApp Reschedule Confirmation to Customer
+          if (targetPhone) {
+            sendBookingConfirmationWhatsApp({
+              orderId: orderCode,
+              customerName: targetName,
+              customerPhone: targetPhone,
+              totalAmount,
+              paymentStatus: isPaid ? 'Paid' : 'Unpaid',
+              items: itemsList,
+              isRescheduled: true
+            }).then(waRes => {
+              if (waRes.success) {
+                console.log(`[Reschedule WhatsApp] Sent updated confirmation to ${targetPhone} for Order ${orderCode}`);
+              } else {
+                console.warn(`[Reschedule WhatsApp] Dispatch note for ${targetPhone}:`, waRes.message);
+              }
+            }).catch(waErr => {
+              console.error("[Reschedule WhatsApp Error]", waErr);
+            });
+          }
+
+          // 2. Dispatch Email Reschedule Confirmation to Customer
+          if (targetEmail && targetEmail.includes('@')) {
+            sendBookingConfirmationEmail({
+              orderId: orderCode,
+              customerName: targetName,
+              customerEmail: targetEmail,
+              customerPhone: targetPhone,
+              totalAmount,
+              paymentStatus: isPaid ? 'Paid' : 'Unpaid',
+              items: itemsList,
+              isRescheduled: true
+            }).then(emRes => {
+              if (emRes.success) {
+                console.log(`[Reschedule Email] Sent updated confirmation to ${targetEmail} for Order ${orderCode}`);
+              }
+            }).catch(emErr => {
+              console.error("[Reschedule Email Error]", emErr);
+            });
+          }
+
+          // 3. Dispatch WhatsApp alert to Admins
+          notifyAdminsBookingWhatsApp({
+            orderId: orderCode,
+            customerName: `${targetName} [RESCHEDULED]`,
+            customerPhone: targetPhone || '',
+            totalAmount,
+            paymentStatus: isPaid ? 'Paid' : 'Unpaid',
+            items: itemsList
+          }).catch(admErr => {
+            console.error("[Reschedule Admin WhatsApp Alert Error]", admErr);
+          });
+        }
+      } catch (notifyErr) {
+        console.error("[Reschedule Notification Dispatch Error]", notifyErr);
+      }
+    }
+
     revalidatePath('/admin/bookings');
     revalidatePath(`/admin/bookings/${params.orderNumber}`);
-    return { ...result };
+    return { ...result, notificationSent: true };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update booking schedule." };
   }

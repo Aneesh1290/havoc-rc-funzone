@@ -24,6 +24,7 @@ export interface BookingWhatsAppParams {
   simulatorName?: string;
   simulatorSlot?: string;
   items?: WhatsAppOrderItem[];
+  isRescheduled?: boolean;
 }
 
 /**
@@ -149,6 +150,9 @@ export async function sendBookingConfirmationWhatsApp(
       var4DateSlot = `${uniqueDates.join(", ") || "Scheduled"} • ${uniqueSlots.join(", ") || "Open Slot"}`;
     } else {
       var4DateSlot = `${params.date || "Scheduled"} • ${params.timeSlot || "Open Slot"}`;
+    }
+    if (params.isRescheduled) {
+      var4DateSlot = `${var4DateSlot} (Rescheduled)`;
     }
     if (var4DateSlot.length > 100) {
       var4DateSlot = var4DateSlot.slice(0, 97) + "...";

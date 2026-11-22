@@ -1203,7 +1203,7 @@ export default function BookingsPage() {
                                   <span>{s.slot}</span>
                                   {s.date && (
                                     <span className="text-[9px] opacity-75 font-normal ml-0.5">
-                                      ({s.date})
+                                      ({s.date.startsWith('2001-') ? s.date.replace('2001-', '2026-') : s.date})
                                     </span>
                                   )}
                                 </span>

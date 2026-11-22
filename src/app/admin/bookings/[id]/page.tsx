@@ -626,14 +626,28 @@ export default function OrderDetailPage() {
   // Helper: Normalize date string to YYYY-MM-DD for native HTML5 date picker
   const toStandardDateInput = (val: string | null | undefined): string => {
     if (!val) return new Date().toISOString().split("T")[0];
-    const trimmed = val.trim();
-    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
-    const dmyMatch = trimmed.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{4})$/);
+    let trimmed = val.trim();
+    const currentYear = new Date().getFullYear();
+    // Auto-correct accidental 2001 to current year
+    if (trimmed.startsWith('2001-')) {
+      trimmed = trimmed.replace('2001-', `${currentYear}-`);
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+      const yr = parseInt(trimmed.slice(0, 4));
+      if (yr < 2024) {
+        trimmed = `${currentYear}${trimmed.slice(4)}`;
+      }
+      return trimmed;
+    }
+    const dmyMatch = trimmed.match(/^(\d{1,2})[-/]([A-Za-z]{3}|\d{1,2})[-/](\d{2,4})$/);
     if (dmyMatch) {
-      const [, day, mon, yr] = dmyMatch;
+      let [, day, mon, yr] = dmyMatch;
+      if (yr.length === 2) yr = `20${yr}`;
+      if (parseInt(yr) < 2024) yr = String(currentYear);
       const dateObj = new Date(`${mon} ${day}, ${yr}`);
       if (!isNaN(dateObj.getTime())) {
-        const y = dateObj.getFullYear();
+        let y = dateObj.getFullYear();
+        if (y < 2024) y = currentYear;
         const m = String(dateObj.getMonth() + 1).padStart(2, '0');
         const d = String(dateObj.getDate()).padStart(2, '0');
         return `${y}-${m}-${d}`;
@@ -641,7 +655,8 @@ export default function OrderDetailPage() {
     }
     const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) {
-      const y = parsed.getFullYear();
+      let y = parsed.getFullYear();
+      if (y < 2024) y = currentYear;
       const m = String(parsed.getMonth() + 1).padStart(2, '0');
       const d = String(parsed.getDate()).padStart(2, '0');
       return `${y}-${m}-${d}`;
@@ -658,7 +673,7 @@ export default function OrderDetailPage() {
     setRescheduleDate(stdDate);
     if (stdDate) {
       const d = new Date(stdDate + (stdDate.includes('T') ? '' : 'T00:00:00'));
-      if (!isNaN(d.getTime())) setCalMonthDate(d);
+      if (!isNaN(d.getTime()) && d.getFullYear() >= 2024) setCalMonthDate(d);
       else setCalMonthDate(new Date());
     } else {
       setCalMonthDate(new Date());
@@ -1653,7 +1668,9 @@ export default function OrderDetailPage() {
                       {/* Date Row */}
                       <div className="flex items-center gap-2 text-xs text-gray-500">
                         <span>Select Date:</span>
-                        <strong className="text-gray-900 font-semibold">{item.booking_date}</strong>
+                        <strong className="text-gray-900 font-semibold">
+                          {item.booking_date?.startsWith('2001-') ? item.booking_date.replace('2001-', '2026-') : item.booking_date}
+                        </strong>
                         {canManageStatus && !itemIsCanceled && (
                           <button
                             type="button"

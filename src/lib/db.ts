@@ -364,6 +364,18 @@ export function initDB() {
       }
     }
   } catch (e) {}
+  try {
+    // Auto-fix any accidental past-year entries (e.g. 2001 -> 2026 caused by two-digit 01 typing in legacy date input)
+    db.exec(`
+      UPDATE bookings 
+      SET booking_date = REPLACE(booking_date, '2001-', '2026-'),
+          tags = REPLACE(tags, '2001-', '2026-'),
+          reschedule_history = REPLACE(reschedule_history, '2001-', '2026-')
+      WHERE booking_date LIKE '2001-%' 
+         OR tags LIKE '%2001-%'
+         OR reschedule_history LIKE '%2001-%';
+    `);
+  } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -878,7 +890,13 @@ export function updateBookingScheduleAndContact(params: {
 
   // 2. Update date and/or time slot
   if (params.newDate || params.newTimeSlot) {
-    const cleanDate = params.newDate ? params.newDate.trim() : null;
+    let cleanDate = params.newDate ? params.newDate.trim() : null;
+    if (cleanDate && /^\d{4}-\d{2}-\d{2}$/.test(cleanDate)) {
+      const parts = cleanDate.split('-');
+      if (parseInt(parts[0]) < 2024) {
+        cleanDate = `${new Date().getFullYear()}-${parts[1]}-${parts[2]}`;
+      }
+    }
     const cleanSlot = params.newTimeSlot ? params.newTimeSlot.trim() : null;
 
     // Fetch existing records to track previous dates and count

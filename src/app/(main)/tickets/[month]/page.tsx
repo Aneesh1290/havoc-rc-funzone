@@ -20,7 +20,7 @@ import { fetchAddonsAction } from '@/app/actions/addons';
 import type { TicketRow, VipPerkRow, BlockedSlotRow, TimeSlotRow, AddonRow } from '@/lib/db';
 import type { SimPodiumSlot } from '@/lib/simulator-db';
 import { useCart } from '@/context/CartContext';
-import { Info, Check, X, Sparkles, ChevronRight, Ban, Plus } from 'lucide-react';
+import { Info, Check, X, Sparkles, ChevronRight, Ban, Plus, Banknote } from 'lucide-react';
 import TicketGuidelinesSection from '@/components/tickets/TicketGuidelinesSection';
 import { matchesBookingDate } from '@/lib/slot-time-utils';
 
@@ -48,6 +48,23 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
   const [exclusionNotice, setExclusionNotice] = useState("*Excavator Activity is not included in the package. It can be purchased separately as an add-on.");
 
   const [isGuideModalOpen, setIsGuideModalOpen] = useState(false);
+  const [isCashWalkIn, setIsCashWalkIn] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('desk_cash');
+      if (token) {
+        setIsCashWalkIn(true);
+        try {
+          sessionStorage.setItem('havoc_desk_cash_token', token);
+        } catch {}
+      } else {
+        const stored = sessionStorage.getItem('havoc_desk_cash_token');
+        if (stored) setIsCashWalkIn(true);
+      }
+    }
+  }, []);
 
 
   const TICKET_BENEFITS: Record<string, {
@@ -450,6 +467,26 @@ export default function BookingProductPage({ params }: { params: Promise<{ month
           <span className="text-gray-300">›</span>
           <span className="text-gray-900">{title}</span>
         </div>
+
+        {/* Counter Cash Walk-In Active Banner */}
+        {isCashWalkIn && (
+          <div className="mb-8 p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex items-center justify-between gap-3 shadow-xs animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs">
+                <Banknote className="w-5 h-5" />
+              </span>
+              <div>
+                <span className="font-bold text-sm text-amber-950">Counter Cash Walk-In Active</span>
+                <p className="text-xs text-amber-900 mt-0.5">
+                  Select your desired passes, date, and slot below. Your order will be set to Pay with Cash at the Counter upon checkout.
+                </p>
+              </div>
+            </div>
+            <span className="hidden sm:inline-block px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-amber-200/80 text-amber-900 border border-amber-300">
+              Cash Mode
+            </span>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-24">
           {/* Left: Product Image & Notes */}

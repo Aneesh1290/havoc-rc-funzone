@@ -26,7 +26,7 @@ import { getSubcategoryBandsAction } from "@/app/actions/color-inventory";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
 import { hasUserPermission } from "@/lib/permissions";
-import { ArrowLeft, ChevronDown, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail, RotateCcw, Gamepad2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Edit2, Check, User, CreditCard, Tag, X, Building2, Printer, Sparkles, GraduationCap, PartyPopper, Briefcase, Flag, Users, Send, ExternalLink, Loader2, Plus, Trash2, Calendar, Clock, ArrowUpCircle, Phone, Mail, RotateCcw, Gamepad2 } from "lucide-react";
 import Link from "next/link";
 import { SimPerkBadgeList, parseSimPerkDisplay } from "@/components/SimPerkBadgeList";
 
@@ -153,6 +153,7 @@ export default function OrderDetailPage() {
   const [rescheduleTargetItem, setRescheduleTargetItem] = useState<any | null>(null);
   const [rescheduleScope, setRescheduleScope] = useState<'order' | 'item'>('order');
   const [rescheduleDate, setRescheduleDate] = useState<string>("");
+  const [calMonthDate, setCalMonthDate] = useState<Date>(() => new Date());
   const [rescheduleTimeSlot, setRescheduleTimeSlot] = useState<string>("");
   const [availableTimeSlots, setAvailableTimeSlots] = useState<any[]>([]);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
@@ -653,7 +654,15 @@ export default function OrderDetailPage() {
     setRescheduleTargetItem(item || null);
     setRescheduleScope(item ? "item" : "order");
     const rawDate = item?.booking_date || booking?.booking_date || "";
-    setRescheduleDate(toStandardDateInput(rawDate));
+    const stdDate = toStandardDateInput(rawDate);
+    setRescheduleDate(stdDate);
+    if (stdDate) {
+      const d = new Date(stdDate + (stdDate.includes('T') ? '' : 'T00:00:00'));
+      if (!isNaN(d.getTime())) setCalMonthDate(d);
+      else setCalMonthDate(new Date());
+    } else {
+      setCalMonthDate(new Date());
+    }
     setRescheduleTimeSlot(item?.time_slot || booking?.time_slot || "");
     setRescheduleError(null);
     setIsRescheduleModalOpen(true);
@@ -2704,9 +2713,9 @@ export default function OrderDetailPage() {
                 </div>
               )}
 
-              {/* Date Input with Interactive Calendar Picker */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
+              {/* Date Input with Interactive Visual Calendar Picker */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-gray-700 flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-indigo-600" />
                     <span>Booking Date</span>
@@ -2731,21 +2740,96 @@ export default function OrderDetailPage() {
                   )}
                 </div>
 
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={rescheduleDate}
-                    onChange={(e) => setRescheduleDate(e.target.value)}
-                    onClick={(e) => {
-                      try {
-                        (e.currentTarget as any).showPicker?.();
-                      } catch {}
-                    }}
-                    className="w-full text-xs font-semibold text-gray-900 bg-gray-50 border border-gray-300 rounded-xl px-3.5 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 cursor-pointer shadow-2xs font-mono"
-                  />
+                {/* Embedded Visual Month Calendar Grid */}
+                <div className="bg-gray-50/90 border border-indigo-100 rounded-2xl p-3 shadow-2xs">
+                  {/* Calendar Navigation Header */}
+                  <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+                      }}
+                      className="p-1 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors"
+                      title="Previous Month"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <div className="text-xs font-black text-gray-900 uppercase tracking-wider">
+                      {calMonthDate.toLocaleString('en-US', { month: 'long', year: 'numeric' })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+                      }}
+                      className="p-1 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-200 transition-colors"
+                      title="Next Month"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+
+                  {/* Day of Week Headers */}
+                  <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                    {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map((d) => (
+                      <span key={d} className="text-[10px] font-bold text-gray-400 py-0.5">
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Days Grid */}
+                  <div className="grid grid-cols-7 gap-1 text-center">
+                    {(() => {
+                      const year = calMonthDate.getFullYear();
+                      const month = calMonthDate.getMonth();
+                      const daysInMonth = new Date(year, month + 1, 0).getDate();
+                      const firstDayDay = new Date(year, month, 1).getDay();
+                      const startOffset = (firstDayDay + 6) % 7;
+
+                      const now = new Date();
+                      const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+                      const cells = [];
+                      for (let i = 0; i < startOffset; i++) {
+                        cells.push(<div key={`empty-${i}`} className="h-7 w-full" />);
+                      }
+
+                      for (let day = 1; day <= daysInMonth; day++) {
+                        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                        const isSelected = dateStr === rescheduleDate;
+                        const isToday = dateStr === todayStr;
+
+                        cells.push(
+                          <button
+                            key={dateStr}
+                            type="button"
+                            onClick={() => {
+                              setRescheduleDate(dateStr);
+                            }}
+                            className={`h-7 w-full rounded-lg text-xs font-semibold flex items-center justify-center transition-all cursor-pointer relative ${
+                              isSelected
+                                ? "bg-indigo-600 text-white font-black shadow-xs ring-2 ring-indigo-300 scale-105 z-10"
+                                : isToday
+                                ? "border border-indigo-400 text-indigo-950 font-bold bg-indigo-50/70 hover:bg-indigo-100"
+                                : "text-gray-700 hover:bg-indigo-50 hover:text-indigo-900"
+                            }`}
+                          >
+                            <span>{day}</span>
+                            {isToday && !isSelected && (
+                              <span className="absolute bottom-0.5 w-1 h-1 rounded-full bg-indigo-600" />
+                            )}
+                          </button>
+                        );
+                      }
+
+                      return cells;
+                    })()}
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 pt-2 flex-wrap">
+                {/* Quick set shortcut buttons */}
+                <div className="flex items-center gap-1.5 pt-1 flex-wrap">
                   <span className="text-[10px] text-gray-400 font-medium">Quick set:</span>
                   <button
                     type="button"
@@ -2754,7 +2838,9 @@ export default function OrderDetailPage() {
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${y}-${m}-${day}`);
+                      const newD = `${y}-${m}-${day}`;
+                      setRescheduleDate(newD);
+                      setCalMonthDate(d);
                     }}
                     className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
@@ -2768,7 +2854,9 @@ export default function OrderDetailPage() {
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${y}-${m}-${day}`);
+                      const newD = `${y}-${m}-${day}`;
+                      setRescheduleDate(newD);
+                      setCalMonthDate(d);
                     }}
                     className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
@@ -2782,7 +2870,9 @@ export default function OrderDetailPage() {
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${y}-${m}-${day}`);
+                      const newD = `${y}-${m}-${day}`;
+                      setRescheduleDate(newD);
+                      setCalMonthDate(d);
                     }}
                     className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >
@@ -2796,7 +2886,9 @@ export default function OrderDetailPage() {
                       const y = d.getFullYear();
                       const m = String(d.getMonth() + 1).padStart(2, '0');
                       const day = String(d.getDate()).padStart(2, '0');
-                      setRescheduleDate(`${y}-${m}-${day}`);
+                      const newD = `${y}-${m}-${day}`;
+                      setRescheduleDate(newD);
+                      setCalMonthDate(d);
                     }}
                     className="text-[10px] font-bold text-indigo-700 hover:text-indigo-900 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 transition-colors border border-indigo-200/60"
                   >

@@ -161,7 +161,7 @@ export default function CashWalkInModal({
                 </span>
               </div>
               <p className="text-xs text-gray-500 mt-0.5">
-                Customer receives a dedicated checkout link locked exclusively to <strong>Pay at Desk</strong>.
+                Customer opens passes page, selects passes &amp; slots, and checkout is locked exclusively to <strong>Pay at Desk</strong>.
               </p>
             </div>
           </div>
@@ -396,7 +396,7 @@ export default function CashWalkInModal({
                 <span>Scan QR Code at Counter</span>
               </div>
               <p className="text-[11px] text-amber-800 max-w-xs mb-3">
-                Customer can point their phone camera right at this screen to open their cash checkout instantly:
+                Customer can point their phone camera right at this screen to open passes with cash checkout mode:
               </p>
               <div className="p-2.5 bg-white rounded-2xl shadow-sm border border-amber-200">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -446,7 +446,7 @@ export default function CashWalkInModal({
                 rel="noopener noreferrer"
                 className="text-[11px] font-semibold text-gray-500 hover:text-amber-700 underline inline-flex items-center gap-1"
               >
-                <span>Open checkout preview in new tab</span>
+                <span>Open passes booking page in new tab</span>
                 <ExternalLink className="w-3 h-3" />
               </a>
             </div>

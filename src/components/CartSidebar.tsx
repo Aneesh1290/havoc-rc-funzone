@@ -8,6 +8,15 @@ import { SimPerkBadgeList } from './SimPerkBadgeList';
 
 export function CartSidebar() {
   const { items, isCartOpen, setIsCartOpen, removeItem, cartTotal } = useCart();
+  const [cashToken, setCashToken] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('desk_cash') || sessionStorage.getItem('havoc_desk_cash_token');
+      if (token) setCashToken(token);
+    }
+  }, [isCartOpen]);
 
   if (!isCartOpen) return null;
 
@@ -84,7 +93,7 @@ export function CartSidebar() {
             </div>
             
             <Link 
-              href="/checkout"
+              href={cashToken ? `/checkout?desk_cash=${encodeURIComponent(cashToken)}` : "/checkout"}
               onClick={() => setIsCartOpen(false)}
               className="w-full bg-[#0d1b2a] hover:bg-[#ff5a1f] text-white py-4 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-lg hover:shadow-[#ff5a1f]/20 group"
             >

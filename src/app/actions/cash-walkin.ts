@@ -61,18 +61,21 @@ export async function createCashWalkinSessionAction(params: CreateCashWalkinPara
       || process.env.NEXT_PUBLIC_APP_URL 
       || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
 
-    // Route to checkout with cash token
-    const checkoutUrl = `${returnBase}/checkout?desk_cash=${encodeURIComponent(token)}`;
+    // Route to passes/tickets selection page for current month so customer can choose passes & add to cart
+    const now = new Date();
+    const currentMonth = now.toLocaleString('en-US', { month: 'long' }).toLowerCase();
+    const currentYear = now.getFullYear();
+    const bookingUrl = `${returnBase}/tickets/${currentMonth}-${currentYear}?desk_cash=${encodeURIComponent(token)}`;
 
     // Build 1-click wa.me URL
     const digitsOnlyCountry = countryCode.replace(/\D/g, "");
     const fullPhoneDigits = `${digitsOnlyCountry}${rawPhone}`;
     const brandName = getSiteSetting("desk_payment_brand_name", "Havoc RC Fun Zone");
-    const waText = `Hi ${cleanCustomerName || 'Guest'}! Welcome to ${brandName}. Tap this link to complete your booking. Your checkout is set for Pay with Cash at the Counter: ${checkoutUrl}`;
+    const waText = `Hi ${cleanCustomerName || 'Guest'}! Welcome to ${brandName}. Tap this link to select your passes. Your checkout will be set to Pay with Cash at the Counter: ${bookingUrl}`;
     const waMeUrl = `https://wa.me/${fullPhoneDigits}?text=${encodeURIComponent(waText)}`;
 
-    // QR Code Image URL
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(checkoutUrl)}`;
+    // QR Code Image URL pointing directly to the passes selection page
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(bookingUrl)}`;
 
     // Attempt automatic WhatsApp dispatch via Interakt / WhatsApp API
     let waSent = false;
@@ -84,7 +87,7 @@ export async function createCashWalkinSessionAction(params: CreateCashWalkinPara
         customerPhone: rawPhone,
         countryCode: countryCode,
         totalAmount: params.items ? params.items.reduce((s, i) => s + (i.price * i.quantity), 0) : 0,
-        paymentUrl: checkoutUrl,
+        paymentUrl: bookingUrl,
         brandName,
         bookingDate: params.items?.[0]?.date || "Today",
         timeSlot: params.items?.[0]?.timeSlot || "Walk-In Cash Booking",
@@ -104,7 +107,8 @@ export async function createCashWalkinSessionAction(params: CreateCashWalkinPara
     return {
       success: true,
       token,
-      checkoutUrl,
+      bookingUrl,
+      checkoutUrl: bookingUrl, // Alias for seamless compatibility
       waMeUrl,
       qrUrl,
       whatsappSent: waSent,

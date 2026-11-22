@@ -12,8 +12,23 @@ interface MonthData {
 
 export default function TicketsPage() {
   const [months, setMonths] = useState<MonthData[]>([]);
+  const [deskCashToken, setDeskCashToken] = useState<string | null>(null);
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const sp = new URLSearchParams(window.location.search);
+      const token = sp.get('desk_cash');
+      if (token) {
+        setDeskCashToken(token);
+        try {
+          sessionStorage.setItem('havoc_desk_cash_token', token);
+        } catch {}
+      } else {
+        const stored = sessionStorage.getItem('havoc_desk_cash_token');
+        if (stored) setDeskCashToken(stored);
+      }
+    }
+
     // 1. Get current date details
     const currentDate = new Date();
     const currentDay = currentDate.getDate();
@@ -63,6 +78,25 @@ export default function TicketsPage() {
           CHOOSE YOUR MONTH
         </h1>
 
+        {deskCashToken && (
+          <div className="mb-10 max-w-2xl w-full p-4 rounded-2xl bg-amber-50/90 border border-amber-300/80 text-amber-950 flex items-center justify-between gap-3 shadow-md backdrop-blur-md animate-in fade-in">
+            <div className="flex items-center gap-3">
+              <span className="p-2.5 rounded-xl bg-amber-500 text-white shrink-0 shadow-xs">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="12" x="2" y="6" rx="2"/><circle cx="12" cy="12" r="2"/><path d="M6 12h.01M18 12h.01"/></svg>
+              </span>
+              <div>
+                <span className="font-bold text-sm text-amber-950">Counter Cash Walk-In Active</span>
+                <p className="text-xs text-amber-900 mt-0.5">
+                  Select your month and passes below. Your booking is set to Pay at Desk (Cash) upon checkout.
+                </p>
+              </div>
+            </div>
+            <span className="hidden sm:inline-block px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-amber-200/80 text-amber-900 border border-amber-300">
+              Cash Mode
+            </span>
+          </div>
+        )}
+
         <div id="dynamicMonthSelector" className="flex flex-wrap gap-8 justify-center items-center w-full max-w-5xl">
           {months.map((m) => (
             <div key={`${m.month}-${m.year}`} className="relative group w-[340px] h-[400px]" data-month={m.month.toLowerCase()} data-year={m.year} data-idx={m.idx}>
@@ -89,7 +123,7 @@ export default function TicketsPage() {
                   </p>
                   
                   <Link 
-                    href={`/tickets/${m.month.toLowerCase()}-${m.year}`}
+                    href={deskCashToken ? `/tickets/${m.month.toLowerCase()}-${m.year}?desk_cash=${encodeURIComponent(deskCashToken)}` : `/tickets/${m.month.toLowerCase()}-${m.year}`}
                     className="group/btn w-full py-4 bg-[#ff5a1f] text-white font-bold rounded-full transition-all duration-300 flex items-center justify-center gap-3 text-sm tracking-widest overflow-hidden relative shadow-lg hover:shadow-[#ff5a1f]/40 hover:bg-[#e04812]"
                   >
                     <span className="relative z-10 group-hover/btn:scale-105 transition-transform duration-300">EXPLORE</span>

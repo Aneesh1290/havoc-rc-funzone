@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote, RotateCcw } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote, RotateCcw, Link as LinkIcon } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction, checkAndMarkNoShowBookingsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -11,6 +11,7 @@ import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
 import OrganisationBookingModal from "@/components/admin/OrganisationBookingModal";
 import AdvanceNotificationsModal from "@/components/admin/AdvanceNotificationsModal";
 import CashWalkInModal from "@/components/admin/CashWalkInModal";
+import CustomPaymentLinkModal from "@/components/admin/CustomPaymentLinkModal";
 import type { TimeSlotRow, TicketRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -61,6 +62,7 @@ export default function BookingsPage() {
   const [isCashWalkInOpen, setIsCashWalkInOpen] = useState(false);
   const [isOrgBookingOpen, setIsOrgBookingOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
+  const [isCustomPaymentLinkOpen, setIsCustomPaymentLinkOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
   const router = useRouter();
 
@@ -628,6 +630,17 @@ export default function BookingsPage() {
             <span>Advance Notifications</span>
           </button>
 
+          {/* Custom Payment Link Button - purple/pink gradient pill */}
+          <button
+            type="button"
+            onClick={() => setIsCustomPaymentLinkOpen(true)}
+            className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white shadow-sm shadow-purple-600/20 whitespace-nowrap active:scale-[0.98]"
+            title="Create custom payment link for arbitrary amount (e.g. ₹60,000)"
+          >
+            <LinkIcon className="w-4 h-4" />
+            <span>Custom Payment Link</span>
+          </button>
+
           {/* 3. Export Report Excel Button - blue pill */}
           {canExport && (
             <button
@@ -744,6 +757,13 @@ export default function BookingsPage() {
       <AdvanceNotificationsModal
         isOpen={isAdvanceModalOpen}
         onClose={() => setIsAdvanceModalOpen(false)}
+        onSuccess={() => loadBookings()}
+      />
+
+      {/* Custom Payment Link Modal */}
+      <CustomPaymentLinkModal
+        isOpen={isCustomPaymentLinkOpen}
+        onClose={() => setIsCustomPaymentLinkOpen(false)}
         onSuccess={() => loadBookings()}
       />
 

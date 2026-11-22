@@ -13,9 +13,6 @@ import {
   Loader2,
   X,
   AlertCircle,
-  Ticket,
-  ChevronDown,
-  ChevronUp,
   RefreshCw,
   Sparkles,
 } from "lucide-react";
@@ -32,19 +29,10 @@ interface CashWalkInModalProps {
 export default function CashWalkInModal({
   isOpen,
   onClose,
-  availableTickets = [],
-  availableSlots = [],
 }: CashWalkInModalProps) {
   const [selectedCountry, setSelectedCountry] = useState<CountryCode>(COUNTRY_CODES[0]);
   const [phone, setPhone] = useState("");
   const [customerName, setCustomerName] = useState("");
-
-  // Optional pre-selected pass
-  const [showPreSelect, setShowPreSelect] = useState(false);
-  const [selectedTicketId, setSelectedTicketId] = useState<number | null>(null);
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
-  const [selectedSlot, setSelectedSlot] = useState("");
-  const [quantity, setQuantity] = useState(1);
 
   // Submission state
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -80,28 +68,10 @@ export default function CashWalkInModal({
     setIsSubmitting(true);
 
     try {
-      let items: any[] | undefined = undefined;
-      if (showPreSelect && selectedTicketId && selectedSlot) {
-        const ticket = availableTickets.find((t) => t.id === selectedTicketId);
-        if (ticket) {
-          items = [
-            {
-              ticketId: ticket.id,
-              ticketName: ticket.name,
-              date: selectedDate,
-              timeSlot: selectedSlot,
-              quantity: Math.max(1, quantity),
-              price: ticket.price,
-            },
-          ];
-        }
-      }
-
       const res = await createCashWalkinSessionAction({
         phone: cleanPhone,
         countryCode: selectedCountry.dialCode,
         customerName: customerName.trim(),
-        items,
       });
 
       if (!res.success || !res.checkoutUrl) {
@@ -242,102 +212,6 @@ export default function CashWalkInModal({
                   className="w-full bg-gray-50/70 border border-gray-300 rounded-2xl pl-10 pr-4 py-2.5 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:bg-white transition-all"
                 />
               </div>
-            </div>
-
-            {/* Optional Pre-Select Pass Section */}
-            <div className="rounded-2xl border border-gray-200 bg-gray-50/60 p-3.5 space-y-3">
-              <button
-                type="button"
-                onClick={() => setShowPreSelect(!showPreSelect)}
-                className="w-full flex items-center justify-between text-left cursor-pointer"
-              >
-                <div className="flex items-center gap-2">
-                  <Ticket className="w-4 h-4 text-amber-600" />
-                  <span className="text-xs font-bold text-gray-800">
-                    Pre-select Passes & Slots
-                  </span>
-                  <span className="text-[10px] bg-amber-100 text-amber-800 font-bold px-1.5 py-0.5 rounded">
-                    Optional
-                  </span>
-                </div>
-                {showPreSelect ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
-              </button>
-
-              {showPreSelect && (
-                <div className="pt-2 border-t border-gray-200 space-y-3">
-                  <p className="text-[11px] text-gray-500">
-                    If chosen, the customer&apos;s cart will already be loaded with these passes upon opening their link.
-                  </p>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {/* Ticket Select */}
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
-                        Select Ticket / Pass
-                      </label>
-                      <select
-                        value={selectedTicketId || ""}
-                        onChange={(e) => setSelectedTicketId(Number(e.target.value) || null)}
-                        className="w-full bg-white border border-gray-300 rounded-xl px-2.5 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      >
-                        <option value="">-- Choose Pass --</option>
-                        {availableTickets.map((t) => (
-                          <option key={t.id} value={t.id}>
-                            {t.name} (₹{t.price})
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Time Slot Select */}
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
-                        Time Slot
-                      </label>
-                      <select
-                        value={selectedSlot}
-                        onChange={(e) => setSelectedSlot(e.target.value)}
-                        className="w-full bg-white border border-gray-300 rounded-xl px-2.5 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-                      >
-                        <option value="">-- Choose Slot --</option>
-                        {availableSlots.map((s) => (
-                          <option key={s.id || s.label} value={s.label}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Date */}
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
-                        Booking Date
-                      </label>
-                      <input
-                        type="date"
-                        value={selectedDate}
-                        onChange={(e) => setSelectedDate(e.target.value)}
-                        className="w-full bg-white border border-gray-300 rounded-xl px-2.5 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-
-                    {/* Quantity */}
-                    <div>
-                      <label className="text-[10px] font-bold uppercase text-gray-500 block mb-1">
-                        Racers / Quantity
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={quantity}
-                        onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                        className="w-full bg-white border border-gray-300 rounded-xl px-2.5 py-2 text-xs font-semibold text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Submit Button */}

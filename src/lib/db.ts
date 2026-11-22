@@ -321,6 +321,9 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_reason TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refunded_at TEXT'); } catch (e) {}
   try { db.exec("ALTER TABLE bookings ADD COLUMN order_prefix TEXT DEFAULT 'PAYDUE'"); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN reschedule_count INTEGER DEFAULT 0'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN rescheduled_at TEXT'); } catch (e) {}
+  try { db.exec('ALTER TABLE bookings ADD COLUMN reschedule_history TEXT'); } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -837,7 +840,44 @@ export function updateBookingScheduleAndContact(params: {
   if (params.newDate || params.newTimeSlot) {
     const cleanDate = params.newDate ? params.newDate.trim() : null;
     const cleanSlot = params.newTimeSlot ? params.newTimeSlot.trim() : null;
-    const tagNote = `[Rescheduled to ${cleanDate || 'same date'} ${cleanSlot || 'same slot'}]`;
+
+    // Fetch existing records to track previous dates and count
+    const existingRows = isItemScope
+      ? (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags FROM bookings WHERE id = ?').all(params.bookingItemId) as any[])
+      : (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').all(targetOrderNum, targetOrderNum) as any[]);
+
+    const first = existingRows[0] || {};
+    const fromDate = first.booking_date || '';
+    const fromSlot = first.time_slot || '';
+    const toDate = cleanDate || fromDate;
+    const toSlot = cleanSlot || fromSlot;
+
+    const currentCount = Number(first.reschedule_count || 0);
+    const newCount = currentCount + 1;
+    const nowIso = new Date().toISOString();
+
+    let history: any[] = [];
+    try {
+      if (first.reschedule_history) {
+        history = JSON.parse(first.reschedule_history);
+        if (!Array.isArray(history)) history = [];
+      }
+    } catch (_) {
+      history = [];
+    }
+
+    history.push({
+      reschedule_number: newCount,
+      rescheduled_at: nowIso,
+      from_date: fromDate,
+      from_slot: fromSlot,
+      to_date: toDate,
+      to_slot: toSlot,
+      scope: params.scope || (isItemScope ? 'item' : 'order')
+    });
+
+    const historyJson = JSON.stringify(history);
+    const tagNote = `[Rescheduled (${newCount}x): ${fromDate} ${fromSlot} -> ${toDate} ${toSlot}]`;
 
     if (isItemScope && params.bookingItemId) {
       db.prepare(`
@@ -845,24 +885,30 @@ export function updateBookingScheduleAndContact(params: {
         SET booking_date = COALESCE(?, booking_date),
             time_slot = COALESCE(?, time_slot),
             wristband_number = NULL, -- Reset slot wristband for new slot
+            reschedule_count = ?,
+            rescheduled_at = ?,
+            reschedule_history = ?,
             tags = CASE 
               WHEN tags IS NULL OR tags = '' THEN ?
               ELSE tags || ' ' || ?
             END
         WHERE id = ?
-      `).run(cleanDate, cleanSlot, tagNote, tagNote, params.bookingItemId);
+      `).run(cleanDate, cleanSlot, newCount, nowIso, historyJson, tagNote, tagNote, params.bookingItemId);
     } else {
       db.prepare(`
         UPDATE bookings 
         SET booking_date = COALESCE(?, booking_date),
             time_slot = COALESCE(?, time_slot),
             wristband_number = NULL, -- Reset slot wristband for new slot
+            reschedule_count = ?,
+            rescheduled_at = ?,
+            reschedule_history = ?,
             tags = CASE 
               WHEN tags IS NULL OR tags = '' THEN ?
               ELSE tags || ' ' || ?
             END
         WHERE order_number = ? OR (order_number IS NULL AND id = ?)
-      `).run(cleanDate, cleanSlot, tagNote, tagNote, targetOrderNum, targetOrderNum);
+      `).run(cleanDate, cleanSlot, newCount, nowIso, historyJson, tagNote, tagNote, targetOrderNum, targetOrderNum);
     }
   }
 
@@ -1085,6 +1131,7 @@ export function getAllBookings() {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      COALESCE(b.reschedule_count, 0) as reschedule_count, b.rescheduled_at, b.reschedule_history,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
       COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
@@ -1102,6 +1149,7 @@ export function getBookingById(id: number) {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      COALESCE(b.reschedule_count, 0) as reschedule_count, b.rescheduled_at, b.reschedule_history,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
@@ -1120,6 +1168,7 @@ export function getBookingsByOrderNumber(orderNum: number) {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      COALESCE(b.reschedule_count, 0) as reschedule_count, b.rescheduled_at, b.reschedule_history,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.advance_notified_at,
       b.organization_name, b.organization_type, b.organization_notes, b.deposit_amount, b.expected_guests, b.special_requests,
@@ -1143,6 +1192,7 @@ export function getBookingsByPhone(phoneQuery: string, countryCode?: string) {
       b.id, b.order_number, b.booking_date, b.time_slot, b.quantity, b.customer_name, b.customer_email, b.customer_phone, b.total_amount, 
       b.payment_status, b.fulfillment_status, b.tags, b.simulator_name, b.simulator_slot, b.applied_coupon, b.created_at, b.payment_ref, b.icici_txn_id, b.wristband_number, b.category_wristband_number,
       COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+      COALESCE(b.reschedule_count, 0) as reschedule_count, b.rescheduled_at, b.reschedule_history,
       b.refund_amount, b.refund_ref, b.refund_reason, b.refunded_at,
       b.ticket_id, COALESCE(t.name, 'CUSTOM_TICKET') as ticket_name, COALESCE(t.price, 0) as ticket_price, COALESCE(t.is_addon, 0) as is_addon,
       s.color as slot_color, s.color_name as slot_color_name

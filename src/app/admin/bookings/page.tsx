@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote, RotateCcw } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -37,6 +37,9 @@ export interface GroupedOrder {
   expected_guests?: number;
   special_requests?: string;
   advance_notified_at?: string;
+  reschedule_count?: number;
+  rescheduled_at?: string;
+  reschedule_history?: string;
   bookingIds: number[];
   primaryId: number;
   items: any[];
@@ -141,6 +144,9 @@ export default function BookingsPage() {
           primaryId: b.id,
           items: [b],
           advance_notified_at: b.advance_notified_at || undefined,
+          reschedule_count: Number(b.reschedule_count || 0),
+          rescheduled_at: b.rescheduled_at || undefined,
+          reschedule_history: b.reschedule_history || undefined,
           slots: b.time_slot ? [{ slot: b.time_slot, color: b.slot_color, color_name: b.slot_color_name, date: b.booking_date }] : []
         });
       } else {
@@ -153,6 +159,11 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
+        if (Number(b.reschedule_count || 0) > (existing.reschedule_count || 0)) {
+          existing.reschedule_count = Number(b.reschedule_count || 0);
+          existing.rescheduled_at = b.rescheduled_at || existing.rescheduled_at;
+          existing.reschedule_history = b.reschedule_history || existing.reschedule_history;
+        }
         if (b.advance_notified_at && !existing.advance_notified_at) {
           existing.advance_notified_at = b.advance_notified_at;
         }
@@ -337,7 +348,8 @@ export default function BookingsPage() {
     const orgName = (order.organization_name || "").toLowerCase();
     const orgType = (order.organization_type || "").toLowerCase();
     const tags = (order.tags || "").toLowerCase();
-    const matchesSearch = !q || orderNum.includes(q) || customer.includes(q) || email.includes(q) || phone.includes(q) || orgName.includes(q) || orgType.includes(q) || tags.includes(q);
+    const isRescheduledMatch = q.includes("resched") && (order.reschedule_count || 0) > 0;
+    const matchesSearch = !q || orderNum.includes(q) || customer.includes(q) || email.includes(q) || phone.includes(q) || orgName.includes(q) || orgType.includes(q) || tags.includes(q) || isRescheduledMatch;
 
     if (!matchesSearch) return false;
 
@@ -1121,6 +1133,17 @@ export default function BookingsPage() {
                             </span>
                           </div>
                         )}
+                        {order.reschedule_count && order.reschedule_count > 0 ? (
+                          <div className="mt-1">
+                            <span 
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-300 shadow-2xs"
+                              title={`Rescheduled ${order.reschedule_count} time${order.reschedule_count > 1 ? 's' : ''}${order.rescheduled_at ? ` • Last on ${formatDateTime(order.rescheduled_at)}` : ''}`}
+                            >
+                              <RotateCcw className="w-2.5 h-2.5 text-purple-700 stroke-[2.5]" />
+                              <span>Rescheduled {order.reschedule_count > 1 ? `(${order.reschedule_count}x)` : ''}</span>
+                            </span>
+                          </div>
+                        ) : null}
                       </td>
 
                       {/* Date Created */}

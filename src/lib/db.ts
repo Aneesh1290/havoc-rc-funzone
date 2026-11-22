@@ -1484,9 +1484,11 @@ export function updateOrderGroupTags(orderNum: number, tags: string) {
 }
 
 export function cancelOrderGroup(orderNum: number) {
+  // Cancellation only updates fulfillment_status to 'Canceled'.
+  // Payment status (Paid, Unpaid, etc.) remains unchanged.
   return db.prepare(`
     UPDATE bookings 
-    SET payment_status = 'Refunded', fulfillment_status = 'Canceled' 
+    SET fulfillment_status = 'Canceled' 
     WHERE order_number = ? OR (order_number IS NULL AND id = ?)
   `).run(orderNum, orderNum);
 }
@@ -1554,16 +1556,13 @@ export function updateBookingCategoryWristbandNumber(id: number, wristbandNumber
 }
 
 export function cancelBooking(id: number) {
-  // If order was Paid, mark Payment as Refunded; if Unpaid, keep as Refunded or Unpaid. Mark Fulfillment as Canceled.
-  const existing = db.prepare('SELECT payment_status FROM bookings WHERE id = ?').get(id) as { payment_status?: string } | undefined;
-  const isPaid = (existing?.payment_status || '').toLowerCase() === 'paid';
-  const newPaymentStatus = isPaid ? 'Refunded' : 'Refunded';
-  
+  // Cancellation only updates fulfillment_status to 'Canceled'.
+  // Payment status (Paid, Unpaid, etc.) remains unchanged.
   return db.prepare(`
     UPDATE bookings 
-    SET payment_status = ?, fulfillment_status = 'Canceled' 
+    SET fulfillment_status = 'Canceled' 
     WHERE id = ?
-  `).run(newPaymentStatus, id);
+  `).run(id);
 }
 
 export function cancelDeskBookings(ids: number[], reason = "Customer Walkout / Not Interested") {

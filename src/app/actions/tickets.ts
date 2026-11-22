@@ -451,6 +451,11 @@ export async function updateBookingStatusAction(id: number, paymentStatus?: stri
     return { success: false, error: "Access denied: You do not have permission to modify order fulfillment status." };
   }
 
+  // Guard: Refunded payment status can ONLY be set by processing an online payment gateway refund
+  if (paymentStatus && paymentStatus.toLowerCase() === 'refunded') {
+    return { success: false, error: "The 'Refunded' payment status cannot be set manually. It is strictly reserved for processed online payment gateway refunds." };
+  }
+
   // Update all tickets under this booking's order_number if present
   const booking = getBookingById(id) as any;
   const targetNum = (booking && booking.order_number) ? booking.order_number : id;

@@ -919,7 +919,7 @@ export default function OrderDetailPage() {
 
   const handleCancelOrder = async () => {
     setActionMenuOpen(false);
-    if (confirm(`Are you sure you want to cancel order ${orderCode}? The status will be set to Canceled and Refunded, and any locked simulator slots will be released.`)) {
+    if (confirm(`Are you sure you want to cancel order ${orderCode}? The fulfillment status will be set to Canceled. Payment status will remain unchanged, and any locked simulator slots will be released.`)) {
       await cancelBookingAction(booking.id);
       loadBooking();
     }

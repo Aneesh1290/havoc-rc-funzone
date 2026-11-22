@@ -232,7 +232,24 @@ export function initDB() {
       paid_at DATETIME,
       payment_ref TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS cash_walkin_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      token TEXT UNIQUE NOT NULL,
+      customer_name TEXT,
+      customer_phone TEXT NOT NULL,
+      country_code TEXT DEFAULT '+91',
+      items_json TEXT,
+      status TEXT DEFAULT 'pending', -- 'pending' | 'completed' | 'expired'
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      expires_at DATETIME NOT NULL,
+      completed_at DATETIME,
+      order_number INTEGER
+    );
   `);
+  
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_cash_walkin_token ON cash_walkin_sessions(token)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_cash_walkin_created ON cash_walkin_sessions(created_at)'); } catch (e) {}
   
   // Seed default site settings
   try {
@@ -1571,6 +1588,60 @@ export function markDeskPaymentLinkCompleted(token: string, paymentRef: string) 
     SET status = 'completed', paid_at = datetime('now'), payment_ref = ?
     WHERE token = ?
   `).run(paymentRef, token);
+}
+
+export interface CashWalkinSessionRow {
+  id: number;
+  token: string;
+  customer_name?: string | null;
+  customer_phone: string;
+  country_code: string;
+  items_json?: string | null;
+  status: 'pending' | 'completed' | 'expired';
+  created_at: string;
+  expires_at: string;
+  completed_at?: string | null;
+  order_number?: number | null;
+}
+
+export function createCashWalkinSession(data: {
+  token: string;
+  customer_name?: string | null;
+  customer_phone: string;
+  country_code?: string;
+  items_json?: string | null;
+  expires_in_hours?: number;
+}) {
+  const hours = data.expires_in_hours || 2;
+  const stmt = db.prepare(`
+    INSERT INTO cash_walkin_sessions (
+      token, customer_name, customer_phone, country_code, items_json, status, created_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, 'pending', datetime('now'), datetime('now', '+${hours} hours'))
+  `);
+  return stmt.run(
+    data.token,
+    data.customer_name || null,
+    data.customer_phone,
+    data.country_code || '+91',
+    data.items_json || null
+  );
+}
+
+export function getCashWalkinSessionByToken(token: string): CashWalkinSessionRow | undefined {
+  return db.prepare(`
+    SELECT * FROM cash_walkin_sessions 
+    WHERE token = ? 
+      AND status = 'pending' 
+      AND datetime('now') <= datetime(expires_at)
+  `).get(token) as CashWalkinSessionRow | undefined;
+}
+
+export function markCashWalkinSessionCompleted(token: string, orderNumber: number) {
+  return db.prepare(`
+    UPDATE cash_walkin_sessions 
+    SET status = 'completed', completed_at = datetime('now'), order_number = ?
+    WHERE token = ?
+  `).run(orderNumber, token);
 }
 
 export function markBookingsAdvanceNotified(bookingIds: number[]) {

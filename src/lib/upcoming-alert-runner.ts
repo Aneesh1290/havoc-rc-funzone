@@ -168,8 +168,8 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
           ? `Paid Online (₹${ord.orderTotal.toLocaleString("en-IN")})`
           : `Pay at Desk (₹${ord.orderTotal.toLocaleString("en-IN")} Due)`;
 
-        const returnBase = process.env.ICICI_RETURN_BASE 
-          || process.env.NEXT_PUBLIC_APP_URL 
+        const returnBase = process.env.ICICI_RETURN_BASE
+          || process.env.NEXT_PUBLIC_APP_URL
           || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
         const targetDate = ord.bookingDate || todayIstStr;
         const rosterToken = generateSlotRosterToken(targetDate, ord.startingSlot);
@@ -285,8 +285,8 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
         ? `Paid Online (₹${ord.orderTotal.toLocaleString("en-IN")})`
         : `Pay at Desk (₹${ord.orderTotal.toLocaleString("en-IN")} Due)`;
 
-      const returnBase = process.env.ICICI_RETURN_BASE 
-        || process.env.NEXT_PUBLIC_APP_URL 
+      const returnBase = process.env.ICICI_RETURN_BASE
+        || process.env.NEXT_PUBLIC_APP_URL
         || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
       const targetDate = ord.bookingDate || todayIstStr;
       const rosterToken = generateSlotRosterToken(targetDate, ord.startingSlot);

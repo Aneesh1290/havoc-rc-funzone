@@ -1,18 +1,19 @@
 "use client";
 
 import { useCart } from "@/context/CartContext";
-import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check, ShieldCheck } from "lucide-react";
+import { ArrowLeft, CreditCard, ChevronDown, CheckCircle2, AlertTriangle, Calendar, Clock, Ticket, Check, ShieldCheck, Banknote } from "lucide-react";
 import Link from "next/link";
 import { useState, useEffect } from "react";
-import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction } from "@/app/actions/tickets";
+import { addBookingAction, createBatchOrderAction, validateCouponAction, useCouponAction, updateBookingTagsAction } from "@/app/actions/tickets";
 import { getPublicPaymentConfigAction, PublicPaymentConfig } from "@/app/actions/payment-settings";
+import { verifyCashWalkinSessionAction, completeCashWalkinSessionAction } from "@/app/actions/cash-walkin";
 import { useRouter } from "next/navigation";
 import { COUNTRY_CODES, validatePhoneNumber, getExpectedPhoneDigits } from "@/lib/countries";
 import { formatOrderNumber } from "@/lib/order-utils";
 import { SimPerkBadgeList } from "@/components/SimPerkBadgeList";
 
 export default function CheckoutPage() {
-  const { items, cartTotal, clearCart } = useCart();
+  const { items, cartTotal, clearCart, addItem } = useCart();
   const router = useRouter();
   
   const [selectedCountry, setSelectedCountry] = useState(COUNTRY_CODES[0]); // Default: India (+91)
@@ -23,6 +24,9 @@ export default function CheckoutPage() {
     phone: "",
   });
   
+  const [isCashWalkIn, setIsCashWalkIn] = useState(false);
+  const [cashSessionToken, setCashSessionToken] = useState<string | null>(null);
+
   const [paymentMethod, setPaymentMethod] = useState<'online' | 'desk'>('online');
   const [paymentConfig, setPaymentConfig] = useState<PublicPaymentConfig>({
     enableOnline: true,
@@ -37,17 +41,71 @@ export default function CheckoutPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
+    let deskCashParam: string | null = null;
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const urlError = params.get('error');
       if (urlError) {
         setValidationError(decodeURIComponent(urlError));
       }
+      deskCashParam = params.get('desk_cash');
     }
 
     async function loadPaymentConfig() {
       try {
         const cfg = await getPublicPaymentConfigAction();
+
+        // If Cash Walk-In Token is present in URL, strictly enforce Pay at Desk ONLY
+        if (deskCashParam) {
+          try {
+            const cashRes = await verifyCashWalkinSessionAction(deskCashParam);
+            if (cashRes.valid && cashRes.session) {
+              setIsCashWalkIn(true);
+              setCashSessionToken(deskCashParam);
+              setPaymentMethod('desk');
+              setPaymentConfig({
+                ...cfg,
+                enableOnline: false, // Completely hide online payment
+                enableDesk: true,   // Force Pay at Desk
+                defaultMethod: 'desk',
+              });
+
+              if (cashRes.session.phone) {
+                setFormData((prev) => ({
+                  ...prev,
+                  phone: cashRes.session!.phone,
+                  fullName: cashRes.session!.customerName || prev.fullName,
+                }));
+              }
+
+              if (cashRes.session.countryCode) {
+                const matchCountry = COUNTRY_CODES.find(c => c.dialCode === cashRes.session!.countryCode);
+                if (matchCountry) setSelectedCountry(matchCountry);
+              }
+
+              // Pre-populate cart items if staff pre-selected passes
+              if (cashRes.session.items && cashRes.session.items.length > 0 && items.length === 0) {
+                for (const preItem of cashRes.session.items) {
+                  addItem({
+                    id: `${preItem.ticketId}_${preItem.date}_${preItem.timeSlot}_${Date.now()}`,
+                    type: preItem.ticketName,
+                    ticketId: preItem.ticketId,
+                    date: preItem.date,
+                    timeSlot: preItem.timeSlot,
+                    quantity: preItem.quantity,
+                    price: preItem.price,
+                    simulatorName: preItem.simulatorName,
+                    simulatorSlot: preItem.simulatorSlot,
+                  });
+                }
+              }
+              return;
+            }
+          } catch (err) {
+            console.warn("Failed to verify cash walk-in session:", err);
+          }
+        }
+
         setPaymentConfig(cfg);
         if (cfg.enableOnline && !cfg.enableDesk) {
           setPaymentMethod('online');
@@ -70,6 +128,7 @@ export default function CheckoutPage() {
     totalAmount: number;
     itemsCount: number;
     orderCodes: string[];
+    isCashWalkIn?: boolean;
     items: Array<{
       name: string;
       date: string;
@@ -220,6 +279,16 @@ export default function CheckoutPage() {
       if (batchRes && batchRes.orderCode) {
         generatedOrderCodes.push(batchRes.orderCode);
       }
+
+      // If Cash Walk-In Session, tag the order and mark session completed
+      if (isCashWalkIn && cashSessionToken && batchRes?.primaryId) {
+        try {
+          await updateBookingTagsAction(batchRes.primaryId, "[Cash Walk-In]");
+          await completeCashWalkinSessionAction(cashSessionToken, batchRes.orderNumber);
+        } catch (e) {
+          console.error("Failed to tag cash walk-in booking:", e);
+        }
+      }
       
       // If coupon used, record usage in DB and auto-issue band if VIP band offer
       if (appliedCoupon) {
@@ -239,6 +308,7 @@ export default function CheckoutPage() {
         totalAmount: grandTotal,
         itemsCount: totalQty,
         orderCodes: generatedOrderCodes,
+        isCashWalkIn: isCashWalkIn,
         items: items.map(item => ({
           name: item.type,
           date: item.date,
@@ -284,6 +354,13 @@ export default function CheckoutPage() {
           <div className="text-[11px] font-black uppercase tracking-widest text-gray-400">
             Booking Details
           </div>
+
+          {bookingSuccessModal.isCashWalkIn && (
+            <div className="p-3.5 bg-amber-50 border border-amber-200/90 rounded-2xl text-xs text-amber-900 font-bold flex items-center gap-2.5 shadow-2xs">
+              <Banknote className="w-5 h-5 text-amber-600 shrink-0" />
+              <span>Counter Cash Walk-In: Please show this order screen to the front desk attendant and pay ₹{bookingSuccessModal.totalAmount.toFixed(2)} in cash.</span>
+            </div>
+          )}
 
           {/* Reserved Items */}
           <div className="space-y-3">
@@ -509,6 +586,26 @@ export default function CheckoutPage() {
             <section>
               <h2 className="text-2xl font-black font-heading text-gray-900 mb-6">Payment Method</h2>
               
+              {/* Cash Walk-In Counter Banner */}
+              {isCashWalkIn && (
+                <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-950 flex items-start gap-3.5 shadow-2xs">
+                  <span className="p-2 rounded-xl bg-amber-500 text-white shrink-0 mt-0.5">
+                    <Banknote className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-sm text-amber-950">Counter Cash Booking Active</span>
+                      <span className="text-[10px] font-black uppercase tracking-wider bg-amber-200/80 text-amber-900 px-2 py-0.5 rounded-full">
+                        Desk Mode
+                      </span>
+                    </div>
+                    <p className="text-xs text-amber-900/90 mt-1 leading-relaxed">
+                      You were invited via the venue ticket counter. Please submit your booking below and pay with cash directly to the desk staff upon arrival. Online payment is bypassed for this session.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {!paymentConfig.enableOnline && !paymentConfig.enableDesk ? (
                 <div className="p-5 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-sm font-semibold flex items-center gap-3">
                   <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
@@ -516,8 +613,8 @@ export default function CheckoutPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {/* Option 1: Online Payment */}
-                  {paymentConfig.enableOnline && (
+                  {/* Option 1: Online Payment (Hidden if Cash Walk-In) */}
+                  {paymentConfig.enableOnline && !isCashWalkIn && (
                     <div 
                       onClick={() => setPaymentMethod('online')}
                       className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
@@ -553,26 +650,38 @@ export default function CheckoutPage() {
                       onClick={() => setPaymentMethod('desk')}
                       className={`border-2 rounded-2xl p-5 flex items-start gap-4 cursor-pointer relative overflow-hidden transition-all select-none ${
                         paymentMethod === 'desk'
-                          ? "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
+                          ? isCashWalkIn 
+                            ? "border-amber-500 bg-amber-50/40 shadow-sm shadow-amber-500/10" 
+                            : "border-[#ff5a1f] bg-[#ff5a1f]/5 shadow-sm shadow-[#ff5a1f]/10"
                           : "border-gray-200 bg-white hover:border-gray-300"
                       }`}
                     >
                       <div className={`w-5 h-5 rounded-full border-2 mt-0.5 shrink-0 flex items-center justify-center transition-all ${
-                        paymentMethod === 'desk' ? "border-[#ff5a1f] bg-[#ff5a1f]" : "border-gray-300 bg-white"
+                        paymentMethod === 'desk' ? (isCashWalkIn ? "border-amber-500 bg-amber-500" : "border-[#ff5a1f] bg-[#ff5a1f]") : "border-gray-300 bg-white"
                       }`}>
                         {paymentMethod === 'desk' && <div className="w-2 h-2 rounded-full bg-white" />}
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-bold text-gray-900 text-base sm:text-lg">Pay at Desk</h3>
-                          {paymentConfig.defaultMethod === 'desk' && (
-                            <span className="bg-orange-100 text-orange-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
-                              Default
+                          <h3 className="font-bold text-gray-900 text-base sm:text-lg">
+                            {isCashWalkIn ? "Pay with Cash at Desk" : "Pay at Desk"}
+                          </h3>
+                          {isCashWalkIn ? (
+                            <span className="bg-amber-100 text-amber-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                              Cash Walk-In
                             </span>
+                          ) : (
+                            paymentConfig.defaultMethod === 'desk' && (
+                              <span className="bg-orange-100 text-orange-800 text-[11px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full">
+                                Default
+                              </span>
+                            )
                           )}
                         </div>
                         <p className="text-gray-600 text-xs sm:text-sm mt-1">
-                          Reserve your slot now and pay with card or UPI upon arrival at the venue ticket counter.
+                          {isCashWalkIn 
+                            ? "Reserve your slot now and hand over cash to the counter attendant upon arrival." 
+                            : "Reserve your slot now and pay with card or UPI upon arrival at the venue ticket counter."}
                         </p>
                       </div>
                     </div>
@@ -637,15 +746,22 @@ export default function CheckoutPage() {
               <button 
                 type="submit"
                 disabled={isSubmitting || (!paymentConfig.enableOnline && !paymentConfig.enableDesk)}
-                className="w-full mt-6 bg-[#ff5a1f] hover:bg-[#e04812] text-white py-4 rounded-xl font-black tracking-wider flex items-center justify-center gap-2 transition-all shadow-xl shadow-[#ff5a1f]/20 group disabled:opacity-60 disabled:cursor-not-allowed uppercase"
+                className={`w-full mt-6 text-white py-4 rounded-xl font-black tracking-wider flex items-center justify-center gap-2 transition-all shadow-xl group disabled:opacity-60 disabled:cursor-not-allowed uppercase cursor-pointer ${
+                  isCashWalkIn 
+                    ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-orange-500/20" 
+                    : "bg-[#ff5a1f] hover:bg-[#e04812] shadow-[#ff5a1f]/20"
+                }`}
               >
                 {isSubmitting 
                   ? (paymentMethod === 'online' ? "CONNECTING TO GATEWAY..." : "PROCESSING RESERVATION...") 
                   : (!paymentConfig.enableOnline && !paymentConfig.enableDesk)
                     ? "CHECKOUT CURRENTLY UNAVAILABLE"
-                    : (paymentMethod === 'online' ? `PROCEED TO PAY ₹${grandTotal.toFixed(2)}` : "BOOK & PAY AT DESK")
+                    : isCashWalkIn
+                      ? `CONFIRM & PAY WITH CASH AT DESK (₹${grandTotal.toFixed(2)})`
+                      : (paymentMethod === 'online' ? `PROCEED TO PAY ₹${grandTotal.toFixed(2)}` : "BOOK & PAY AT DESK")
                 }
-                {!isSubmitting && paymentConfig.enableOnline && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
+                {!isSubmitting && paymentConfig.enableOnline && !isCashWalkIn && <ArrowLeft className="w-5 h-5 rotate-180 group-hover:translate-x-1 transition-transform" />}
+                {!isSubmitting && isCashWalkIn && <Banknote className="w-5 h-5" />}
               </button>
             </section>
           </div>

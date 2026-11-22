@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing } from "lucide-react";
+import { Filter, Search, ChevronDown, CheckSquare, Square, Download, Trash2, AlertTriangle, Loader2, FileSpreadsheet, ShieldCheck, TrendingUp, Building2, BellRing, Banknote } from "lucide-react";
 import { fetchAllBookingsAction, deleteBookingsAction, fetchTimeSlotsAction, fetchTicketsAction, fetchCouponsAction } from "@/app/actions/tickets";
 import { formatOrderNumber, formatDateTime } from "@/lib/order-utils";
 import { getSlotWristbandColor, getWristbandBadgeStyle } from "@/lib/slotColors";
@@ -10,6 +10,7 @@ import { hasUserPermission } from "@/lib/permissions";
 import DeskCheckInModal from "@/components/admin/DeskCheckInModal";
 import OrganisationBookingModal from "@/components/admin/OrganisationBookingModal";
 import AdvanceNotificationsModal from "@/components/admin/AdvanceNotificationsModal";
+import CashWalkInModal from "@/components/admin/CashWalkInModal";
 import type { TimeSlotRow, TicketRow } from "@/lib/db";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -54,6 +55,7 @@ export default function BookingsPage() {
   const [coupons, setCoupons] = useState<any[]>([]);
   const [isExporting, setIsExporting] = useState(false);
   const [isDeskCheckInOpen, setIsDeskCheckInOpen] = useState(false);
+  const [isCashWalkInOpen, setIsCashWalkInOpen] = useState(false);
   const [isOrgBookingOpen, setIsOrgBookingOpen] = useState(false);
   const [isAdvanceModalOpen, setIsAdvanceModalOpen] = useState(false);
   const [sessionUser, setSessionUser] = useState<any>(null);
@@ -577,6 +579,19 @@ export default function BookingsPage() {
             </button>
           )}
 
+          {/* 1b. Cash Walk-In Booking Button - amber/orange pill */}
+          {canDeskCheckIn && (
+            <button
+              type="button"
+              onClick={() => setIsCashWalkInOpen(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-full text-xs sm:text-sm font-bold transition-all bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white shadow-sm shadow-orange-500/20 whitespace-nowrap active:scale-[0.98]"
+              title="Manual Walk-in Booking for Guests Paying Cash"
+            >
+              <Banknote className="w-4 h-4" />
+              <span>Cash Walk-In Booking</span>
+            </button>
+          )}
+
           {/* Advance Booking Notifications Button */}
           <button
             type="button"
@@ -690,6 +705,14 @@ export default function BookingsPage() {
         isOpen={isDeskCheckInOpen}
         onClose={() => setIsDeskCheckInOpen(false)}
         onSuccess={() => loadBookings()}
+      />
+
+      {/* Manual Cash Walk-In Booking Modal */}
+      <CashWalkInModal
+        isOpen={isCashWalkInOpen}
+        onClose={() => setIsCashWalkInOpen(false)}
+        availableTickets={tickets}
+        availableSlots={timeSlots}
       />
 
       {/* Advance Booking Notifications Modal */}

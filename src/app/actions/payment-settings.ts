@@ -208,8 +208,8 @@ export async function updateDeskPaymentLinkSettingsAction(settings: DeskPaymentL
     const session = await checkSessionAction();
     const canManageSettings = session && (
       hasUserPermission(session, "settings") ||
-      session.role === "super_admin" || 
-      session.role === "Administrator" || 
+      session.role === "super_admin" ||
+      session.role === "Administrator" ||
       session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
@@ -250,8 +250,8 @@ export async function updateAdvanceNotificationSettingsAction(settings: AdvanceN
     const session = await checkSessionAction();
     const canManageSettings = session && (
       hasUserPermission(session, "settings") ||
-      session.role === "super_admin" || 
-      session.role === "Administrator" || 
+      session.role === "super_admin" ||
+      session.role === "Administrator" ||
       session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
@@ -317,15 +317,15 @@ export async function getGoogleReviewSettingsAction(): Promise<GoogleReviewSetti
   return {
     enabled: getSiteSetting("google_review_enabled", "true") !== "false",
     reviewUrl: getSiteSetting(
-      "google_review_url", 
+      "google_review_url",
       process.env.GOOGLE_REVIEW_URL || "https://maps.app.goo.gl/havoc-rc-funzone"
     ),
     templateName: getSiteSetting(
-      "interakt_review_template", 
+      "interakt_review_template",
       process.env.INTERAKT_REVIEW_TEMPLATE || "havoc_google_review"
     ),
     interaktApiKey: getSiteSetting(
-      "interakt_api_key", 
+      "interakt_api_key",
       process.env.INTERAKT_API_KEY || ""
     ),
   };
@@ -336,8 +336,8 @@ export async function updateGoogleReviewSettingsAction(settings: GoogleReviewSet
     const session = await checkSessionAction();
     const canManageSettings = session && (
       hasUserPermission(session, "settings") ||
-      session.role === "super_admin" || 
-      session.role === "Administrator" || 
+      session.role === "super_admin" ||
+      session.role === "Administrator" ||
       session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
@@ -405,8 +405,8 @@ export async function updateAdminBookingAlertSettingsAction(settings: AdminBooki
     const session = await checkSessionAction();
     const canManageSettings = session && (
       hasUserPermission(session, "settings") ||
-      session.role === "super_admin" || 
-      session.role === "Administrator" || 
+      session.role === "super_admin" ||
+      session.role === "Administrator" ||
       session.role?.toLowerCase()?.includes("admin") ||
       session.username?.toLowerCase() === "admin"
     );
@@ -454,8 +454,8 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
       const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
       const { generateSlotRosterToken } = await import("@/lib/roster-token");
 
-      const returnBase = process.env.ICICI_RETURN_BASE 
-        || process.env.NEXT_PUBLIC_APP_URL 
+      const returnBase = process.env.ICICI_RETURN_BASE
+        || process.env.NEXT_PUBLIC_APP_URL
         || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
       const testSlot = "05:00 PM - 06:00 PM";
       const testDate = "Today";
@@ -483,8 +483,8 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
       const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
       const { generateSlotRosterToken } = await import("@/lib/roster-token");
 
-      const returnBase = process.env.ICICI_RETURN_BASE 
-        || process.env.NEXT_PUBLIC_APP_URL 
+      const returnBase = process.env.ICICI_RETURN_BASE
+        || process.env.NEXT_PUBLIC_APP_URL
         || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
       const testSlot = "04:30 PM - 05:00 PM";
       const testDate = "Today";

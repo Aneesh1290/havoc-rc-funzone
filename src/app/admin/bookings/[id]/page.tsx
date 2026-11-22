@@ -1064,15 +1064,21 @@ export default function OrderDetailPage() {
             )}
 
             {/* Reschedule badge */}
-            {booking.reschedule_count && booking.reschedule_count > 0 ? (
-              <span 
-                className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-2xs"
-                title={`Rescheduled ${booking.reschedule_count} time${booking.reschedule_count > 1 ? 's' : ''}${booking.rescheduled_at ? ` • Last on ${formatDateTime(booking.rescheduled_at)}` : ''}`}
-              >
-                <RotateCcw className="w-3 h-3 text-purple-700 stroke-[2.5]" />
-                <span>Rescheduled {booking.reschedule_count > 1 ? `(${booking.reschedule_count}x)` : ''}</span>
-              </span>
-            ) : null}
+            {(() => {
+              const legacyReschedCount = (booking.tags && booking.tags.toLowerCase().includes('resched'))
+                ? (booking.tags.match(/resched/gi) || []).length
+                : 0;
+              const effectiveRescheduleCount = Math.max(Number(booking.reschedule_count || 0), legacyReschedCount);
+              return effectiveRescheduleCount > 0 ? (
+                <span 
+                  className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-purple-100 text-purple-900 border border-purple-300 flex items-center gap-1 shadow-2xs"
+                  title={`Rescheduled ${effectiveRescheduleCount} time${effectiveRescheduleCount > 1 ? 's' : ''}${booking.rescheduled_at ? ` • Last on ${formatDateTime(booking.rescheduled_at)}` : ''}`}
+                >
+                  <RotateCcw className="w-3 h-3 text-purple-700 stroke-[2.5]" />
+                  <span>Rescheduled {effectiveRescheduleCount > 1 ? `(${effectiveRescheduleCount}x)` : ''}</span>
+                </span>
+              ) : null;
+            })()}
           </div>
           <p className="text-xs text-gray-500">
             Placed on {formatDateTime(booking.created_at)}
@@ -2138,104 +2144,133 @@ export default function OrderDetailPage() {
           </div>
 
           {/* Reschedule History Card */}
-          {booking.reschedule_count && booking.reschedule_count > 0 ? (
-            <div className="bg-white rounded-2xl border border-purple-200 p-6 shadow-sm space-y-3">
-              <div className="flex items-center justify-between border-b border-purple-100 pb-3">
-                <div className="flex items-center gap-2">
-                  <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700">
-                    <RotateCcw className="w-4 h-4 font-black" />
-                  </span>
-                  <div>
-                    <h2 className="text-sm font-bold text-gray-900">Reschedule Audit</h2>
-                    <p className="text-[11px] text-gray-500">
-                      Rescheduled {booking.reschedule_count} time{booking.reschedule_count > 1 ? 's' : ''}
-                    </p>
-                  </div>
-                </div>
-                <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-black uppercase tracking-wider border border-purple-200">
-                  {booking.reschedule_count}x Changed
-                </span>
-              </div>
+          {(() => {
+            const legacyReschedCount = (booking.tags && booking.tags.toLowerCase().includes('resched'))
+              ? (booking.tags.match(/resched/gi) || []).length
+              : 0;
+            const effectiveRescheduleCount = Math.max(Number(booking.reschedule_count || 0), legacyReschedCount);
+            if (effectiveRescheduleCount <= 0) return null;
 
-              {/* Reschedule Timeline / History list */}
-              <div className="space-y-2 pt-1">
-                {(() => {
-                  let historyEntries: any[] = [];
-                  try {
-                    if (booking.reschedule_history) {
-                      const parsed = JSON.parse(booking.reschedule_history);
-                      if (Array.isArray(parsed)) historyEntries = parsed;
-                    }
-                  } catch {}
-
-                  if (historyEntries.length === 0) {
-                    return (
-                      <div className="text-xs text-gray-600 bg-purple-50/50 p-3 rounded-xl border border-purple-100">
-                        <p className="font-semibold text-purple-950">
-                          Rescheduled to {booking.booking_date} ({booking.time_slot})
-                        </p>
-                        {booking.rescheduled_at && (
-                          <p className="text-[11px] text-gray-500 mt-0.5">
-                            Updated on {formatDateTime(booking.rescheduled_at)}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  return historyEntries.map((entry, idx) => (
-                    <div
-                      key={idx}
-                      className="p-3 rounded-xl bg-purple-50/50 border border-purple-100 text-xs space-y-1.5"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 bg-purple-100/80 px-1.5 py-0.5 rounded">
-                          Change #{entry.reschedule_number || idx + 1}
-                        </span>
-                        {entry.rescheduled_at && (
-                          <span className="text-[10px] text-gray-500">
-                            {formatDateTime(entry.rescheduled_at)}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-gray-800">
-                        <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
-                          <span>From:</span>
-                          <span className="line-through text-gray-500 font-medium">
-                            {entry.from_date || 'Previous Date'} ({entry.from_slot || 'Previous Slot'})
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-1.5 text-purple-900 font-bold text-xs mt-0.5">
-                          <span>To:</span>
-                          <span>
-                            {entry.to_date || booking.booking_date} ({entry.to_slot || booking.time_slot})
-                          </span>
-                        </div>
-                      </div>
-                      {entry.scope && (
-                        <div className="text-[10px] text-gray-500">
-                          Scope: <strong className="text-gray-700 capitalize">{entry.scope === 'order' ? 'All items in order' : 'Single line item'}</strong>
-                        </div>
-                      )}
+            return (
+              <div className="bg-white rounded-2xl border border-purple-200 p-6 shadow-sm space-y-3">
+                <div className="flex items-center justify-between border-b border-purple-100 pb-3">
+                  <div className="flex items-center gap-2">
+                    <span className="p-1.5 rounded-lg bg-purple-100 text-purple-700">
+                      <RotateCcw className="w-4 h-4 font-black" />
+                    </span>
+                    <div>
+                      <h2 className="text-sm font-bold text-gray-900">Reschedule Audit</h2>
+                      <p className="text-[11px] text-gray-500">
+                        Rescheduled {effectiveRescheduleCount} time{effectiveRescheduleCount > 1 ? 's' : ''}
+                      </p>
                     </div>
-                  ));
-                })()}
-              </div>
-
-              {canManageStatus && !isCanceled && (
-                <div className="pt-2 border-t border-purple-100">
-                  <button
-                    type="button"
-                    onClick={() => handleOpenRescheduleModal()}
-                    className="w-full py-2 rounded-xl text-xs font-bold text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <Calendar className="w-3.5 h-3.5" />
-                    <span>Reschedule Again</span>
-                  </button>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[10px] font-black uppercase tracking-wider border border-purple-200">
+                    {effectiveRescheduleCount}x Changed
+                  </span>
                 </div>
-              )}
-            </div>
-          ) : null}
+
+                {/* Reschedule Timeline / History list */}
+                <div className="space-y-2 pt-1">
+                  {(() => {
+                    let historyEntries: any[] = [];
+                    try {
+                      if (booking.reschedule_history) {
+                        const parsed = JSON.parse(booking.reschedule_history);
+                        if (Array.isArray(parsed)) historyEntries = parsed;
+                      }
+                    } catch {}
+
+                    if (historyEntries.length === 0) {
+                      const tagNotes: string[] = booking.tags ? (booking.tags.match(/\[Rescheduled[^\]]*\]/gi) || []) : [];
+                      return (
+                        <div className="space-y-2">
+                          {tagNotes.length > 0 ? (
+                            tagNotes.map((tag: string, i: number) => (
+                              <div key={i} className="p-3 rounded-xl bg-purple-50/50 border border-purple-100 text-xs space-y-1">
+                                <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 bg-purple-100/80 px-1.5 py-0.5 rounded">
+                                  Change #{i + 1}
+                                </span>
+                                <p className="font-semibold text-purple-950 mt-1">
+                                  {tag.replace(/^\[|\]$/g, '')}
+                                </p>
+                                {booking.rescheduled_at && (
+                                  <p className="text-[10px] text-gray-500">
+                                    {formatDateTime(booking.rescheduled_at)}
+                                  </p>
+                                )}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-xs text-gray-600 bg-purple-50/50 p-3 rounded-xl border border-purple-100">
+                              <p className="font-semibold text-purple-950">
+                                Rescheduled to {booking.booking_date} ({booking.time_slot})
+                              </p>
+                              {booking.rescheduled_at && (
+                                <p className="text-[11px] text-gray-500 mt-0.5">
+                                  Updated on {formatDateTime(booking.rescheduled_at)}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    return historyEntries.map((entry, idx) => (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-xl bg-purple-50/50 border border-purple-100 text-xs space-y-1.5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-black uppercase tracking-wider text-purple-700 bg-purple-100/80 px-1.5 py-0.5 rounded">
+                            Change #{entry.reschedule_number || idx + 1}
+                          </span>
+                          {entry.rescheduled_at && (
+                            <span className="text-[10px] text-gray-500">
+                              {formatDateTime(entry.rescheduled_at)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-gray-800">
+                          <div className="flex items-center gap-1.5 text-gray-400 text-[11px]">
+                            <span>From:</span>
+                            <span className="line-through text-gray-500 font-medium">
+                              {entry.from_date || 'Previous Date'} ({entry.from_slot || 'Previous Slot'})
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-purple-900 font-bold text-xs mt-0.5">
+                            <span>To:</span>
+                            <span>
+                              {entry.to_date || booking.booking_date} ({entry.to_slot || booking.time_slot})
+                            </span>
+                          </div>
+                        </div>
+                        {entry.scope && (
+                          <div className="text-[10px] text-gray-500">
+                            Scope: <strong className="text-gray-700 capitalize">{entry.scope === 'order' ? 'All items in order' : 'Single line item'}</strong>
+                          </div>
+                        )}
+                      </div>
+                    ));
+                  })()}
+                </div>
+
+                {canManageStatus && !isCanceled && (
+                  <div className="pt-2 border-t border-purple-100">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenRescheduleModal()}
+                      className="w-full py-2 rounded-xl text-xs font-bold text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 transition-colors flex items-center justify-center gap-1.5"
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      <span>Reschedule Again</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Tags Card */}
           <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm space-y-3">

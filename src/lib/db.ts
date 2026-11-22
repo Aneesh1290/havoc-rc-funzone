@@ -324,6 +324,46 @@ export function initDB() {
   try { db.exec('ALTER TABLE bookings ADD COLUMN reschedule_count INTEGER DEFAULT 0'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN rescheduled_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN reschedule_history TEXT'); } catch (e) {}
+  try {
+    // Backfill reschedule_count and history for any bookings that were rescheduled prior to the column addition
+    const legacyRescheduled = db.prepare(`
+      SELECT id, tags, booking_date, time_slot, created_at
+      FROM bookings 
+      WHERE (reschedule_count IS NULL OR reschedule_count = 0)
+        AND tags IS NOT NULL 
+        AND LOWER(tags) LIKE '%resched%'
+    `).all() as any[];
+
+    for (const row of legacyRescheduled) {
+      const matchCount = (row.tags.match(/resched/gi) || []).length;
+      if (matchCount > 0) {
+        const tagRegex = /\[Rescheduled(?:\s*\(\d+x\))?:?\s*(?:to\s+)?([^\]]+)\]/i;
+        const tagMatch = row.tags.match(tagRegex);
+        const detailStr = tagMatch ? tagMatch[1].trim() : `${row.booking_date} ${row.time_slot}`;
+
+        const fallbackHistory = [
+          {
+            reschedule_number: matchCount,
+            rescheduled_at: row.created_at || new Date().toISOString(),
+            from_date: "Previous Date",
+            from_slot: "Previous Slot",
+            to_date: row.booking_date,
+            to_slot: row.time_slot,
+            note: detailStr,
+            scope: "order"
+          }
+        ];
+
+        db.prepare(`
+          UPDATE bookings 
+          SET reschedule_count = ?,
+              rescheduled_at = COALESCE(rescheduled_at, ?),
+              reschedule_history = COALESCE(reschedule_history, ?)
+          WHERE id = ?
+        `).run(matchCount, row.created_at || new Date().toISOString(), JSON.stringify(fallbackHistory), row.id);
+      }
+    }
+  } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -852,7 +892,8 @@ export function updateBookingScheduleAndContact(params: {
     const toDate = cleanDate || fromDate;
     const toSlot = cleanSlot || fromSlot;
 
-    const currentCount = Number(first.reschedule_count || 0);
+    const legacyCount = (first.tags && first.tags.toLowerCase().includes('resched')) ? (first.tags.match(/resched/gi) || []).length : 0;
+    const currentCount = Math.max(Number(first.reschedule_count || 0), legacyCount);
     const newCount = currentCount + 1;
     const nowIso = new Date().toISOString();
 
@@ -864,6 +905,18 @@ export function updateBookingScheduleAndContact(params: {
       }
     } catch (_) {
       history = [];
+    }
+
+    if (history.length === 0 && legacyCount > 0) {
+      history.push({
+        reschedule_number: legacyCount,
+        rescheduled_at: first.created_at || nowIso,
+        from_date: "Earlier Date",
+        from_slot: "Earlier Slot",
+        to_date: fromDate,
+        to_slot: fromSlot,
+        scope: "order"
+      });
     }
 
     history.push({

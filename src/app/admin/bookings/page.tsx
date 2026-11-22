@@ -144,7 +144,10 @@ export default function BookingsPage() {
           primaryId: b.id,
           items: [b],
           advance_notified_at: b.advance_notified_at || undefined,
-          reschedule_count: Number(b.reschedule_count || 0),
+          reschedule_count: Math.max(
+            Number(b.reschedule_count || 0),
+            (b.tags && b.tags.toLowerCase().includes('resched')) ? (b.tags.match(/resched/gi) || []).length : 0
+          ),
           rescheduled_at: b.rescheduled_at || undefined,
           reschedule_history: b.reschedule_history || undefined,
           slots: b.time_slot ? [{ slot: b.time_slot, color: b.slot_color, color_name: b.slot_color_name, date: b.booking_date }] : []
@@ -159,8 +162,12 @@ export default function BookingsPage() {
         existing.total_quantity += (b.quantity || 1);
         existing.bookingIds.push(b.id);
         existing.items.push(b);
-        if (Number(b.reschedule_count || 0) > (existing.reschedule_count || 0)) {
-          existing.reschedule_count = Number(b.reschedule_count || 0);
+        const itemReschedCount = Math.max(
+          Number(b.reschedule_count || 0),
+          (b.tags && b.tags.toLowerCase().includes('resched')) ? (b.tags.match(/resched/gi) || []).length : 0
+        );
+        if (itemReschedCount > (existing.reschedule_count || 0)) {
+          existing.reschedule_count = itemReschedCount;
           existing.rescheduled_at = b.rescheduled_at || existing.rescheduled_at;
           existing.reschedule_history = b.reschedule_history || existing.reschedule_history;
         }

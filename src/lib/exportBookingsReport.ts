@@ -1,5 +1,6 @@
 import ExcelJS from "exceljs";
 import { getSlotWristbandColor } from "./slotColors";
+import { normalizeDateToYmd } from "./slot-time-utils";
 
 export interface BookingExportItem {
   id: number;
@@ -1001,8 +1002,10 @@ export async function generateBookingsExcelReport(
 
   for (const b of bookings) {
     const orderNum = b.order_number || b.id;
+    // Canonicalize booking date so different string formats (e.g. "2026-11-22" vs "Nov 22") group identically
+    const canonicalDate = normalizeDateToYmd(b.booking_date) || b.booking_date || "";
     // Separate by slot so every reserved slot appears in its corresponding time slot in the Excel sheet
-    const groupKey = `${orderNum}_${b.booking_date || ""}_${b.time_slot || ""}`;
+    const groupKey = `${orderNum}_${canonicalDate}_${b.time_slot || ""}`;
     if (!ordersMap.has(groupKey)) {
       ordersMap.set(groupKey, {
         orderNo: orderNum,
@@ -1010,7 +1013,7 @@ export async function generateBookingsExcelReport(
         name: b.customer_name || "Guest",
         phone: b.customer_phone || "",
         email: b.customer_email || "",
-        date: b.booking_date || "",
+        date: canonicalDate,
         timeSlot: b.time_slot || "",
         slotColor: b.slot_color || "",
         slotColorName: b.slot_color_name || "",
@@ -1075,10 +1078,10 @@ export async function generateBookingsExcelReport(
 
   const allOrders = Array.from(ordersMap.values());
 
-  // Group orders by booking_date
+  // Group orders by canonical booking_date so all orders for the same day cluster into 1 tab
   const dateGroups = new Map<string, OrderData[]>();
   for (const order of allOrders) {
-    const dKey = order.date || "UNASSIGNED";
+    const dKey = normalizeDateToYmd(order.date) || order.date || "UNASSIGNED";
     if (!dateGroups.has(dKey)) {
       dateGroups.set(dKey, []);
     }

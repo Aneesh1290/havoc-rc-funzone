@@ -80,7 +80,8 @@ import {
   removeBookingItem,
   upgradeBookingItem,
   updateBookingItemSimulator,
-  updateBookingScheduleAndContact
+  updateBookingScheduleAndContact,
+  clearBookingReschedule
 } from "@/lib/db";
 import {
   getTakenSimulatorSlots,
@@ -991,6 +992,21 @@ export async function updateBookingScheduleAndContactAction(params: {
     return { ...result };
   } catch (err: any) {
     return { success: false, error: err.message || "Failed to update booking schedule." };
+  }
+}
+
+export async function clearBookingRescheduleAction(orderNumber: number, bookingItemId?: number) {
+  const session = await checkSessionAction();
+  if (!session || !hasUserPermission(session, "bookings:status")) {
+    return { success: false, error: "Access denied: Status update permission required." };
+  }
+  try {
+    const result = clearBookingReschedule(orderNumber, bookingItemId);
+    revalidatePath('/admin/bookings');
+    revalidatePath(`/admin/bookings/${orderNumber}`);
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || "Failed to reset reschedule status." };
   }
 }
 

@@ -16,6 +16,7 @@ import {
   removeOrderItemAction,
   upgradeBookingItemAction,
   updateBookingScheduleAndContactAction,
+  clearBookingRescheduleAction,
   fetchTicketsAction,
   fetchTimeSlotsAction,
   fetchSimulatorListAction,
@@ -158,6 +159,7 @@ export default function OrderDetailPage() {
   const [availableTimeSlots, setAvailableTimeSlots] = useState<any[]>([]);
   const [isSubmittingReschedule, setIsSubmittingReschedule] = useState(false);
   const [rescheduleError, setRescheduleError] = useState<string | null>(null);
+  const [isClearingReschedule, setIsClearingReschedule] = useState(false);
 
   // Contact Details Edit State
   const [isEditingContact, setIsEditingContact] = useState(false);
@@ -717,6 +719,24 @@ export default function OrderDetailPage() {
       setRescheduleError(err.message || "Failed to reschedule booking.");
     } finally {
       setIsSubmittingReschedule(false);
+    }
+  };
+
+  const handleClearReschedule = async () => {
+    if (!confirm("Are you sure you want to reset the reschedule status for this order? This will remove the rescheduled badge and clear its reschedule history.")) return;
+    setIsClearingReschedule(true);
+    try {
+      const targetOrderNum = booking.order_number || booking.id;
+      const res = await clearBookingRescheduleAction(targetOrderNum);
+      if (res.success) {
+        await loadBooking();
+      } else {
+        alert(res.error || "Failed to reset reschedule status");
+      }
+    } catch (err: any) {
+      alert(err.message || "Failed to reset reschedule status");
+    } finally {
+      setIsClearingReschedule(false);
     }
   };
 
@@ -2273,15 +2293,27 @@ export default function OrderDetailPage() {
                   })()}
                 </div>
 
-                {canManageStatus && !isCanceled && (
-                  <div className="pt-2 border-t border-purple-100">
+                {canManageStatus && (
+                  <div className="pt-2 border-t border-purple-100 flex items-center gap-2">
+                    {!isCanceled && (
+                      <button
+                        type="button"
+                        onClick={() => handleOpenRescheduleModal()}
+                        className="flex-1 py-2 rounded-xl text-xs font-bold text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <Calendar className="w-3.5 h-3.5" />
+                        <span>Reschedule</span>
+                      </button>
+                    )}
                     <button
                       type="button"
-                      onClick={() => handleOpenRescheduleModal()}
-                      className="w-full py-2 rounded-xl text-xs font-bold text-purple-700 hover:text-purple-900 hover:bg-purple-50 border border-purple-200 transition-colors flex items-center justify-center gap-1.5"
+                      onClick={handleClearReschedule}
+                      disabled={isClearingReschedule}
+                      title="Reset reschedule count to 0 and remove reschedule badge"
+                      className="py-2 px-3 rounded-xl text-xs font-semibold text-gray-500 hover:text-rose-600 hover:bg-rose-50 border border-gray-200 hover:border-rose-200 transition-colors flex items-center justify-center gap-1 shrink-0"
                     >
-                      <Calendar className="w-3.5 h-3.5" />
-                      <span>Reschedule Again</span>
+                      {isClearingReschedule ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                      <span>Clear</span>
                     </button>
                   </div>
                 )}

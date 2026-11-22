@@ -376,6 +376,21 @@ export function initDB() {
          OR reschedule_history LIKE '%2001-%';
     `);
   } catch (e) {}
+  try {
+    // Reset order 182 if it was accidentally marked as rescheduled during modal tests
+    const row182 = db.prepare('SELECT id, tags, booking_date FROM bookings WHERE order_number = 182 OR id = 182').all() as any[];
+    for (const r of row182) {
+      const cleanTags = (r.tags || '').replace(/\[Rescheduled[^\]]*\]/gi, '').trim();
+      db.prepare(`
+        UPDATE bookings 
+        SET reschedule_count = 0,
+            rescheduled_at = NULL,
+            reschedule_history = NULL,
+            tags = ?
+        WHERE id = ?
+      `).run(cleanTags, r.id);
+    }
+  } catch (e) {}
   try { db.exec("ALTER TABLE band_items ADD COLUMN location TEXT DEFAULT 'warehouse'"); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_band_items_location ON band_items(location)'); } catch (e) {}
   try {
@@ -905,10 +920,15 @@ export function updateBookingScheduleAndContact(params: {
       : (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').all(targetOrderNum, targetOrderNum) as any[]);
 
     const first = existingRows[0] || {};
-    const fromDate = first.booking_date || '';
-    const fromSlot = first.time_slot || '';
+    const fromDate = (first.booking_date || '').trim();
+    const fromSlot = (first.time_slot || '').trim();
     const toDate = cleanDate || fromDate;
     const toSlot = cleanSlot || fromSlot;
+
+    // Guard: If neither the date nor the slot actually changed, do NOT record a reschedule
+    if (toDate === fromDate && toSlot === fromSlot) {
+      return { success: true, changed: false };
+    }
 
     const legacyCount = (first.tags && first.tags.toLowerCase().includes('resched')) ? (first.tags.match(/resched/gi) || []).length : 0;
     const currentCount = Math.max(Number(first.reschedule_count || 0), legacyCount);
@@ -983,6 +1003,35 @@ export function updateBookingScheduleAndContact(params: {
     }
   }
 
+  return { success: true };
+}
+
+export function clearBookingReschedule(orderNumber: number, bookingItemId?: number) {
+  if (bookingItemId) {
+    const row = db.prepare('SELECT tags FROM bookings WHERE id = ?').get(bookingItemId) as any;
+    let cleanTags = (row?.tags || '').replace(/\[Rescheduled[^\]]*\]/gi, '').trim();
+    db.prepare(`
+      UPDATE bookings 
+      SET reschedule_count = 0,
+          rescheduled_at = NULL,
+          reschedule_history = NULL,
+          tags = ?
+      WHERE id = ?
+    `).run(cleanTags, bookingItemId);
+  } else {
+    const rows = db.prepare('SELECT id, tags FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').all(orderNumber, orderNumber) as any[];
+    for (const r of rows) {
+      const cleanTags = (r.tags || '').replace(/\[Rescheduled[^\]]*\]/gi, '').trim();
+      db.prepare(`
+        UPDATE bookings 
+        SET reschedule_count = 0,
+            rescheduled_at = NULL,
+            reschedule_history = NULL,
+            tags = ?
+        WHERE id = ?
+      `).run(cleanTags, r.id);
+    }
+  }
   return { success: true };
 }
 

@@ -368,6 +368,7 @@ export interface AdminBookingAlertSettings {
   upcomingLeadMinutes: number;
   brandName: string;
   upcomingTemplateName: string;
+  slotSummaryTemplateName: string;
   phoneNumbers: string[];
 }
 
@@ -379,6 +380,7 @@ export async function getAdminBookingAlertSettingsAction(): Promise<AdminBooking
   const upcomingLeadMinutes = parseInt(getSiteSetting("admin_upcoming_lead_minutes", "30"), 10) || 30;
   const brandName = getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
   const upcomingTemplateName = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
+  const slotSummaryTemplateName = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
   const rawPhones = getSiteSetting("admin_booking_alert_phones", process.env.ADMIN_WHATSAPP_NUMBERS || "");
   const phoneNumbers = rawPhones
     .split(/[\n,;]+/)
@@ -393,6 +395,7 @@ export async function getAdminBookingAlertSettingsAction(): Promise<AdminBooking
     upcomingLeadMinutes,
     brandName,
     upcomingTemplateName,
+    slotSummaryTemplateName,
     phoneNumbers,
   };
 }
@@ -421,7 +424,8 @@ export async function updateAdminBookingAlertSettingsAction(settings: AdminBooki
     setSiteSetting("admin_consolidate_slot_alerts", settings.consolidateSlotAlerts ? "1" : "0", "Group multiple bookings for same upcoming slot into 1 summary message");
     setSiteSetting("admin_upcoming_lead_minutes", String(settings.upcomingLeadMinutes || 30), "Lead time in minutes before slot to trigger reminder");
     setSiteSetting("admin_alert_brand_name", (settings.brandName || "Havoc RC Fun Zone").trim(), "Brand name sent in WhatsApp reminder (Variable {{1}})");
-    setSiteSetting("admin_upcoming_template", (settings.upcomingTemplateName || "havoc_admin_booking_reminder").trim(), "Interakt template for upcoming booking reminder");
+    setSiteSetting("admin_upcoming_template", (settings.upcomingTemplateName || "havoc_admin_booking_reminder").trim(), "Interakt template for single booking reminder");
+    setSiteSetting("admin_slot_summary_template", (settings.slotSummaryTemplateName || "havoc_admin_slot_summary").trim(), "Interakt template for consolidated slot alert");
     setSiteSetting("admin_booking_alert_phones", cleanPhones, "Comma-separated list of admin phone numbers to receive WhatsApp booking alerts");
 
     revalidatePath("/admin/settings");
@@ -458,18 +462,21 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
       const testToken = generateSlotRosterToken(testDate, testSlot);
       const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(testSlot)}&date=${encodeURIComponent(testDate)}&t=${testToken}`;
 
+      const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
       const testResult = await sendAdminUpcomingReminderWhatsApp({
         orderId: `Slot Roster (${testSlot})`,
         customerName: "3 Orders (6 Racers)",
         customerPhone: "2 Paid • 1 Due at Desk",
         totalAmount: 3200,
         paymentStatus: "Total: ₹3,200 (2 Paid, 1 Due)",
-        itemsSummary: `View 3 Orders & Racers 👉 ${rosterUrl}`,
+        itemsSummary: rosterUrl,
+        rosterUrl: rosterUrl,
         timeSlot: testSlot,
         bookingDate: "Today",
         adminPhone: testPhone.trim(),
         brandName,
-        templateName,
+        templateName: slotSummaryTemplate,
+        isSlotSummary: true,
       });
       return testResult;
     } else if (mode === "upcoming") {

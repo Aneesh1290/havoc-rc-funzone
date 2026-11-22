@@ -228,17 +228,21 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
         const rosterToken = generateSlotRosterToken(targetDate, timeSlot);
         const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(timeSlot)}&date=${encodeURIComponent(targetDate)}&t=${rosterToken}`;
 
+        const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
+
         const consolidatedPayload = {
           orderId: `Slot Roster (${timeSlot})`,
           customerName: `${totalOrders} Orders (${totalRacers} Racers)`,
           customerPhone: `${paidCount} Paid • ${deskDueCount} Due at Desk`,
           totalAmount: totalRevenue,
           paymentStatus: `Total: ₹${totalRevenue.toLocaleString("en-IN")} (${paidCount} Paid, ${deskDueCount} Due)`,
-          itemsSummary: `View ${totalOrders} Orders & Racers 👉 ${rosterUrl}`,
+          itemsSummary: rosterUrl,
+          rosterUrl: rosterUrl,
           timeSlot: timeSlot,
           bookingDate: targetDate,
           brandName,
-          templateName,
+          templateName: slotSummaryTemplate,
+          isSlotSummary: true,
         };
 
         const dispatchResult = await dispatchUpcomingBookingAlertsToAdmins(consolidatedPayload);

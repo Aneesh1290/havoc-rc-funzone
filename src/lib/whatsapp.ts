@@ -542,11 +542,20 @@ export interface AdminUpcomingReminderParams {
   adminPhone: string;
   brandName?: string;
   templateName?: string;
+  rosterUrl?: string;
+  isSlotSummary?: boolean;
 }
 
 /**
  * Sends a 30-minute prior upcoming booking reminder to an admin phone number using Interakt.
- * Uses the universal 7-variable template (default: havoc_admin_booking_reminder).
+ * Supports:
+ * 1. Clean 5-Variable Slot Summary Template (havoc_admin_slot_summary):
+ *    {{1}}: Brand Name (e.g. "Havoc RC Fun Zone")
+ *    {{2}}: Scheduled Slot (e.g. "05:00 PM - 06:00 PM • Today")
+ *    {{3}}: Total Bookings (e.g. "3 Orders (6 Racers)")
+ *    {{4}}: Payment Status (e.g. "Total: ₹3,200 (2 Paid, 1 Due)")
+ *    {{5}}: Direct Slot Roster Link (e.g. "https://havocrcfunzone.in/roster?slot=...")
+ * 2. Universal 7-Variable Single Booking Template (havoc_admin_booking_reminder)
  */
 export async function sendAdminUpcomingReminderWhatsApp(
   params: AdminUpcomingReminderParams
@@ -572,11 +581,15 @@ export async function sendAdminUpcomingReminderWhatsApp(
     }
 
     const brandName = params.brandName || getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
-    const templateName = params.templateName || getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
+    const templateName = params.templateName || (
+      params.isSlotSummary 
+        ? getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary")
+        : getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder")
+    );
 
     // {{1}}: Brand Name (No newlines, tabs, or multiple spaces)
     const var1Brand = sanitizeWhatsAppTemplateVar(brandName || "Havoc RC Fun Zone", 50);
-    // {{2}}: Customer Name
+    // {{2}}: Customer Name / Total Bookings Count
     const var2Name = sanitizeWhatsAppTemplateVar(params.customerName || "Customer", 60);
     // {{3}}: Customer Phone
     const var3Phone = sanitizeWhatsAppTemplateVar(params.customerPhone || "Not Provided", 35);
@@ -589,36 +602,80 @@ export async function sendAdminUpcomingReminderWhatsApp(
     // {{7}}: Payment Status & Amount
     const var7Status = sanitizeWhatsAppTemplateVar(params.paymentStatus || `₹${Number(params.totalAmount).toLocaleString("en-IN")}`, 60);
 
-    const payload = {
-      countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
-      phoneNumber: phoneNumber,
-      type: "Template",
-      template: {
-        name: templateName,
-        languageCode: "en",
-        bodyValues: [
-          var1Brand,
-          var2Name,
-          var3Phone,
-          var4OrderId,
-          var5Passes,
-          var6Slot,
-          var7Status,
-        ],
-      },
-    };
+    const isSlotSummaryTemplate = params.isSlotSummary || templateName === "havoc_admin_slot_summary" || templateName.includes("slot");
 
-    const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+    // 5-variable clean slot summary template (havoc_admin_slot_summary):
+    // {{1}}: Brand Name
+    // {{2}}: Scheduled Slot
+    // {{3}}: Total Bookings
+    // {{4}}: Payment Status
+    // {{5}}: View Slot Bookings Link
+    const fiveVarBodyValues = [
+      var1Brand,
+      var6Slot,
+      var2Name,
+      var7Status,
+      sanitizeWhatsAppTemplateVar(params.rosterUrl || params.itemsSummary, 255),
+    ];
+
+    // 7-variable universal booking reminder template (havoc_admin_booking_reminder):
+    const sevenVarBodyValues = [
+      var1Brand,
+      var2Name,
+      var3Phone,
+      var4OrderId,
+      var5Passes,
+      var6Slot,
+      var7Status,
+    ];
+
+    const initialValues = isSlotSummaryTemplate ? fiveVarBodyValues : sevenVarBodyValues;
+
+    let response = await fetch("https://api.interakt.ai/v1/public/message/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": authHeader,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify({
+        countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+        phoneNumber: phoneNumber,
+        type: "Template",
+        template: {
+          name: templateName,
+          languageCode: "en",
+          bodyValues: initialValues,
+        },
+      }),
     });
 
+    // If initial 5-variable attempt failed with 4xx, retry with 7-variable template fallback
+    if (!response.ok && isSlotSummaryTemplate) {
+      const firstErr = await response.text();
+      const fallbackTemplate = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
+      console.warn(`[Admin Alert 5-Var Try Failed with status ${response.status}]. Retrying with fallback template '${fallbackTemplate}': ${firstErr}`);
+
+      response = await fetch("https://api.interakt.ai/v1/public/message/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+          phoneNumber: phoneNumber,
+          type: "Template",
+          template: {
+            name: fallbackTemplate,
+            languageCode: "en",
+            bodyValues: sevenVarBodyValues,
+          },
+        }),
+      });
+    }
+
     if (response.ok) {
-      console.log(`[Admin 30m Reminder] Sent to ${countryCode} ${phoneNumber} for Order ${var4OrderId}`);
+      console.log(`[Admin 30m Reminder] Sent to ${countryCode} ${phoneNumber} for Order ${var4OrderId} via template ${templateName}`);
       return { success: true, message: `Upcoming reminder sent to ${countryCode} ${phoneNumber}` };
     } else {
       const errText = await response.text();

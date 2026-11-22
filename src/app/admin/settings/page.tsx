@@ -133,6 +133,7 @@ export default function SettingsPage() {
     upcomingLeadMinutes: 30,
     brandName: "Havoc RC Fun Zone",
     upcomingTemplateName: "havoc_admin_booking_reminder",
+    slotSummaryTemplateName: "havoc_admin_slot_summary",
     phoneNumbers: [],
   });
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
@@ -986,7 +987,7 @@ export default function SettingsPage() {
 
               <div>
                 <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
-                  Interakt Template Name
+                  Single Booking Template (7 Vars)
                 </label>
                 <input
                   type="text"
@@ -996,8 +997,41 @@ export default function SettingsPage() {
                   className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Approved template name in Interakt (e.g. <code>havoc_admin_booking_reminder</code>).
+                  Used for single guest reminders (<code>havoc_admin_booking_reminder</code>).
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-700 mb-1">
+                  Slot Summary Template (5 Vars)
+                </label>
+                <input
+                  type="text"
+                  value={adminAlertSettings.slotSummaryTemplateName}
+                  onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, slotSummaryTemplateName: e.target.value }))}
+                  placeholder="havoc_admin_slot_summary"
+                  className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Clean 5-var template for slot rosters (<code>havoc_admin_slot_summary</code>).
+                </p>
+              </div>
+            </div>
+
+            {/* Slot Summary Template Variables Helper Guide */}
+            <div className="p-3.5 rounded-xl bg-purple-50/70 border border-purple-200/80 text-xs text-purple-900 space-y-1.5">
+              <div className="font-bold flex items-center gap-1.5 text-purple-950">
+                <span>💡 Clean Slot Summary Template Layout: <code>havoc_admin_slot_summary</code></span>
+              </div>
+              <p className="text-[11px] text-purple-800 leading-relaxed">
+                Matches the 5-variable slot summary message. Tap link opens real-time mobile roster for floor staff:
+              </p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px] font-mono bg-white/80 p-2.5 rounded-lg border border-purple-200 text-purple-900">
+                <div><code>&#123;&#123;1&#125;&#125;</code>: Brand Name</div>
+                <div><code>&#123;&#123;2&#125;&#125;</code>: Scheduled Slot</div>
+                <div><code>&#123;&#123;3&#125;&#125;</code>: Total Bookings</div>
+                <div><code>&#123;&#123;4&#125;&#125;</code>: Payment Status</div>
+                <div><code>&#123;&#123;5&#125;&#125;</code>: View Bookings Link</div>
               </div>
             </div>
 

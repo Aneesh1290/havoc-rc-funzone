@@ -133,7 +133,7 @@ export default function SettingsPage() {
     upcomingLeadMinutes: 30,
     brandName: "Havoc RC Fun Zone",
     upcomingTemplateName: "havoc_admin_booking_reminder",
-    slotSummaryTemplateName: "havoc_admin_slot_summary",
+    slotSummaryTemplateName: "havoc_admin_booking_reminder",
     phoneNumbers: [],
   });
   const [newPhoneNumber, setNewPhoneNumber] = useState("");
@@ -1009,11 +1009,11 @@ export default function SettingsPage() {
                   type="text"
                   value={adminAlertSettings.slotSummaryTemplateName}
                   onChange={(e) => setAdminAlertSettings(prev => ({ ...prev, slotSummaryTemplateName: e.target.value }))}
-                  placeholder="havoc_admin_slot_summary"
+                  placeholder="havoc_admin_booking_reminder"
                   className="w-full border border-gray-300 rounded-xl px-3.5 py-2 text-xs font-mono text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <p className="text-[11px] text-gray-400 mt-1">
-                  Clean 5-var template for slot rosters (<code>havoc_admin_slot_summary</code>).
+                  Clean 5-var template for upcoming alerts (<code>havoc_admin_booking_reminder</code>).
                 </p>
               </div>
             </div>
@@ -1021,7 +1021,7 @@ export default function SettingsPage() {
             {/* Slot Summary Template Variables Helper Guide */}
             <div className="p-3.5 rounded-xl bg-purple-50/70 border border-purple-200/80 text-xs text-purple-900 space-y-1.5">
               <div className="font-bold flex items-center gap-1.5 text-purple-950">
-                <span>💡 Clean Slot Summary Template Layout: <code>havoc_admin_slot_summary</code></span>
+                <span>💡 Clean 5-Variable Template Layout: <code>havoc_admin_booking_reminder</code></span>
               </div>
               <p className="text-[11px] text-purple-800 leading-relaxed">
                 Matches the 5-variable slot summary message. Tap link opens real-time mobile roster for floor staff:

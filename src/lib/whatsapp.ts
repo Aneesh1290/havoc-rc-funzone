@@ -608,7 +608,7 @@ export async function sendAdminUpcomingReminderWhatsApp(
       var5Link,
     ];
 
-    const response = await fetch("https://api.interakt.ai/v1/public/message/", {
+    let response = await fetch("https://api.interakt.ai/v1/public/message/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -626,8 +626,31 @@ export async function sendAdminUpcomingReminderWhatsApp(
       }),
     });
 
+    // If custom template failed and wasn't the verified standard template, retry with havoc_admin_booking_reminder
+    if (!response.ok && templateName !== "havoc_admin_booking_reminder") {
+      const firstErr = await response.text();
+      console.warn(`[Admin Reminder] Template '${templateName}' failed (${response.status}: ${firstErr}). Retrying with 'havoc_admin_booking_reminder'`);
+      response = await fetch("https://api.interakt.ai/v1/public/message/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": authHeader,
+        },
+        body: JSON.stringify({
+          countryCode: countryCode.startsWith("+") ? countryCode : `+${countryCode}`,
+          phoneNumber: phoneNumber,
+          type: "Template",
+          template: {
+            name: "havoc_admin_booking_reminder",
+            languageCode: "en",
+            bodyValues: fiveVarBodyValues,
+          },
+        }),
+      });
+    }
+
     if (response.ok) {
-      console.log(`[Admin 30m Reminder] Sent to ${countryCode} ${phoneNumber} for Order ${var4OrderId} via template ${templateName}`);
+      console.log(`[Admin 30m Reminder] Sent to ${countryCode} ${phoneNumber} for Order ${params.orderId} via template ${templateName}`);
       return { success: true, message: `Upcoming reminder sent to ${countryCode} ${phoneNumber}` };
     } else {
       const errText = await response.text();
@@ -650,10 +673,12 @@ export async function dispatchUpcomingBookingAlertsToAdmins(order: {
   totalAmount: number;
   paymentStatus: string;
   itemsSummary: string;
+  rosterUrl?: string;
   timeSlot: string;
   bookingDate: string;
   brandName?: string;
   templateName?: string;
+  isSlotSummary?: boolean;
 }): Promise<{ success: boolean; sentCount: number; errors: string[] }> {
   const rawPhones = getSiteSetting(
     "admin_booking_alert_phones",

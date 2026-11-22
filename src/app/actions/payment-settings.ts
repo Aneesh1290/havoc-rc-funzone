@@ -380,7 +380,7 @@ export async function getAdminBookingAlertSettingsAction(): Promise<AdminBooking
   const upcomingLeadMinutes = parseInt(getSiteSetting("admin_upcoming_lead_minutes", "30"), 10) || 30;
   const brandName = getSiteSetting("admin_alert_brand_name", "Havoc RC Fun Zone");
   const upcomingTemplateName = getSiteSetting("admin_upcoming_template", "havoc_admin_booking_reminder");
-  const slotSummaryTemplateName = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
+  const slotSummaryTemplateName = getSiteSetting("admin_slot_summary_template", "havoc_admin_booking_reminder");
   const rawPhones = getSiteSetting("admin_booking_alert_phones", process.env.ADMIN_WHATSAPP_NUMBERS || "");
   const phoneNumbers = rawPhones
     .split(/[\n,;]+/)
@@ -462,7 +462,7 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
       const testToken = generateSlotRosterToken(testDate, testSlot);
       const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(testSlot)}&date=${encodeURIComponent(testDate)}&t=${testToken}`;
 
-      const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
+      const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_booking_reminder");
       const testResult = await sendAdminUpcomingReminderWhatsApp({
         orderId: `Slot Roster (${testSlot})`,
         customerName: "3 Orders (6 Racers)",
@@ -481,14 +481,25 @@ export async function testAdminBookingAlertAction(testPhone: string, mode: "upco
       return testResult;
     } else if (mode === "upcoming") {
       const { sendAdminUpcomingReminderWhatsApp } = await import("@/lib/whatsapp");
+      const { generateSlotRosterToken } = await import("@/lib/roster-token");
+
+      const returnBase = process.env.ICICI_RETURN_BASE 
+        || process.env.NEXT_PUBLIC_APP_URL 
+        || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
+      const testSlot = "04:30 PM - 05:00 PM";
+      const testDate = "Today";
+      const testToken = generateSlotRosterToken(testDate, testSlot);
+      const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(testSlot)}&date=${encodeURIComponent(testDate)}&t=${testToken}`;
+
       const testResult = await sendAdminUpcomingReminderWhatsApp({
         orderId: "#TEST_FZ_" + Date.now().toString().slice(-4),
-        customerName: "Aneesh Dhavade (Test Guest)",
+        customerName: "1 Booking (2 Racers) • Aneesh D.",
         customerPhone: "+91 9876543210",
         totalAmount: 590,
-        paymentStatus: "Paid Online (₹590.00)",
+        paymentStatus: "Paid Online (₹590)",
         itemsSummary: "2x Standard RC Fun Zone Pass",
-        timeSlot: "04:30 PM - 05:00 PM",
+        rosterUrl: rosterUrl,
+        timeSlot: testSlot,
         bookingDate: "Today",
         adminPhone: testPhone.trim(),
         brandName,

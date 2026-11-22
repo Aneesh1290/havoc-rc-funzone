@@ -168,13 +168,21 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
           ? `Paid Online (₹${ord.orderTotal.toLocaleString("en-IN")})`
           : `Pay at Desk (₹${ord.orderTotal.toLocaleString("en-IN")} Due)`;
 
+        const returnBase = process.env.ICICI_RETURN_BASE 
+          || process.env.NEXT_PUBLIC_APP_URL 
+          || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
+        const targetDate = ord.bookingDate || todayIstStr;
+        const rosterToken = generateSlotRosterToken(targetDate, ord.startingSlot);
+        const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(ord.startingSlot)}&date=${encodeURIComponent(targetDate)}&t=${rosterToken}`;
+
         const dispatchResult = await dispatchUpcomingBookingAlertsToAdmins({
           orderId: ord.formattedOrderId,
-          customerName: ord.customerName,
+          customerName: `1 Booking • ${ord.customerName}`,
           customerPhone: ord.customerPhone,
           totalAmount: ord.orderTotal,
           paymentStatus: paymentStatusLabel,
           itemsSummary: passesSummary,
+          rosterUrl: rosterUrl,
           timeSlot: ord.startingSlot,
           bookingDate: ord.bookingDate,
           brandName,
@@ -228,7 +236,7 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
         const rosterToken = generateSlotRosterToken(targetDate, timeSlot);
         const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(timeSlot)}&date=${encodeURIComponent(targetDate)}&t=${rosterToken}`;
 
-        const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_slot_summary");
+        const slotSummaryTemplate = getSiteSetting("admin_slot_summary_template", "havoc_admin_booking_reminder");
 
         const consolidatedPayload = {
           orderId: `Slot Roster (${timeSlot})`,
@@ -277,13 +285,21 @@ export async function runUpcomingBookingAlertsCheck(): Promise<UpcomingAlertResu
         ? `Paid Online (₹${ord.orderTotal.toLocaleString("en-IN")})`
         : `Pay at Desk (₹${ord.orderTotal.toLocaleString("en-IN")} Due)`;
 
+      const returnBase = process.env.ICICI_RETURN_BASE 
+        || process.env.NEXT_PUBLIC_APP_URL 
+        || (process.env.NODE_ENV === 'production' ? 'https://havocrcfunzone.in' : 'https://havocrcfunzone.in');
+      const targetDate = ord.bookingDate || todayIstStr;
+      const rosterToken = generateSlotRosterToken(targetDate, ord.startingSlot);
+      const rosterUrl = `${returnBase}/roster?slot=${encodeURIComponent(ord.startingSlot)}&date=${encodeURIComponent(targetDate)}&t=${rosterToken}`;
+
       const dispatchResult = await dispatchUpcomingBookingAlertsToAdmins({
         orderId: ord.formattedOrderId,
-        customerName: ord.customerName,
+        customerName: `1 Booking • ${ord.customerName}`,
         customerPhone: ord.customerPhone,
         totalAmount: ord.orderTotal,
         paymentStatus: paymentStatusLabel,
         itemsSummary: passesSummary,
+        rosterUrl: rosterUrl,
         timeSlot: ord.startingSlot,
         bookingDate: ord.bookingDate,
         brandName,

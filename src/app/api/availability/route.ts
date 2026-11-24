@@ -10,8 +10,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Date query parameter is required (e.g. ?date=Oct+26)' }, { status: 400 });
     }
 
-    // Clean up expired holds older than 2 minutes
-    await cleanupExpiredHolds(2);
+    // Clean up expired holds older than 15 minutes
+    await cleanupExpiredHolds(15);
 
     const tickets = getTickets().filter(t => t.active === 1);
     const slots = getTimeSlots().filter(s => s.active === 1);

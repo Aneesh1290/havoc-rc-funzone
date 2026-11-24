@@ -270,8 +270,8 @@ export async function createBatchOrderAction(
   totalAmount: number,
   appliedCoupon?: string | null
 ) {
-  // 1. Clean up expired holds older than 2 minutes
-  await cleanupExpiredHolds(2);
+  // 1. Clean up expired holds older than 15 minutes
+  await cleanupExpiredHolds(15);
 
   // 2. Concurrency check: check capacity including active holds
   const allTickets = getTickets();

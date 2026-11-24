@@ -1,22 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { 
+  db,
   getOnlineCheckoutHold, 
   deleteOnlineCheckoutHold, 
   getNextOrderNumber, 
-  getTickets 
+  getTickets,
+  logPaymentGatewayAdvice
 } from '@/lib/db';
 import { confirmSimulatorSlotLocks, deleteSimulatorSlotLocks } from '@/lib/simulator-db';
 import { generateIciciHash, getIciciReturnBase } from '@/lib/icici';
 import { sendBookingConfirmationEmail } from '@/lib/email';
 import { sendBookingConfirmationWhatsApp, notifyAdminsBookingWhatsApp } from '@/lib/whatsapp';
 import { formatOrderNumber } from '@/lib/order-utils';
-import Database from 'better-sqlite3';
-import path from 'path';
-
-function getDbInstance() {
-  const dbPath = process.env.DB_PATH || (process.env.DATA_DIR ? path.join(process.env.DATA_DIR, 'havoc.db') : path.resolve(process.cwd(), 'havoc.db'));
-  return new Database(dbPath);
-}
 
 function getRedirectBaseUrl(req: NextRequest): string {
   // 1. Production whitelisted domain from getIciciReturnBase
@@ -100,35 +95,73 @@ export async function POST(req: NextRequest) {
   });
   console.log('============================================================================');
 
-  if (receivedHash && computedHash && receivedHash !== computedHash) {
-    console.error('[ICICI Callback] Hash Mismatch!', { receivedHash, computedHash });
-    return NextResponse.redirect(new URL('/checkout.html?error=Payment+Verification+Failed', redirectBase), 303);
-  }
-
   const baseOrderId = body.merchantTxnNo || body.responseParams?.merchantTxnNo || '';
   const txnID = body.txnID || body.paymentID || body.responseParams?.txnID || body.responseParams?.paymentID || null;
   const responseCode = body.responseCode || body.responseParams?.responseCode || '';
   const isSuccess = responseCode === "0000" || responseCode === "000" || body.status === "SUC" || body.properties?.isSuccess === true;
 
+  // Log incoming payment advice callback for 100% audit durability
+  logPaymentGatewayAdvice({
+    gateway: 'icici',
+    merchant_txn_no: baseOrderId,
+    gateway_txn_id: txnID,
+    response_code: responseCode,
+    status: isSuccess ? 'SUCCESS' : (receivedHash && computedHash && receivedHash !== computedHash ? 'HASH_MISMATCH' : 'FAILED'),
+    amount: Number(body.amount || body.responseParams?.amount || 0) || undefined,
+    customer_phone: body.customerMobileNo || body.responseParams?.customerMobileNo || undefined,
+    customer_email: body.customerEmailID || body.responseParams?.customerEmailID || undefined,
+    raw_payload: JSON.stringify(body)
+  });
+
+  if (receivedHash && computedHash && receivedHash !== computedHash) {
+    console.error('[ICICI Callback] Hash Mismatch!', { receivedHash, computedHash });
+    return NextResponse.redirect(new URL('/checkout.html?error=Payment+Verification+Failed', redirectBase), 303);
+  }
+
   // Handle successful payment
   if (isSuccess) {
     if (baseOrderId.startsWith('TXN_RC_')) {
-      const holdRow = getOnlineCheckoutHold(baseOrderId);
+      let holdRow = getOnlineCheckoutHold(baseOrderId);
 
       if (!holdRow) {
         console.warn('[ICICI Callback] Hold record not found for txn_id:', baseOrderId);
-        // Check if booking already exists (e.g. duplicate callback from gateway)
-        const db = getDbInstance();
+        // 1. Check if booking already exists (e.g. duplicate callback from gateway)
         try {
           const existing = db.prepare('SELECT order_number, order_prefix FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(txnID, txnID) as { order_number: number; order_prefix?: string } | undefined;
           if (existing && existing.order_number) {
             const finalOrderId = formatOrderNumber(existing.order_number, existing.order_prefix || 'PAID');
             return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(finalOrderId)}`, redirectBase), 303);
           }
-        } finally {
-          db.close();
-        }
-        return NextResponse.redirect(new URL('/checkout.html?error=Hold+expired+or+booking+missing', redirectBase), 303);
+        } catch (_) {}
+
+        // 2. Fallback Recovery: If hold was wiped out by timeout, reconstruct a safety booking so order is NEVER lost!
+        const recoveredAmount = Number(body.amount || body.responseParams?.amount || 0);
+        const recoveredPhone = body.customerMobileNo || body.responseParams?.customerMobileNo || '';
+        const recoveredEmail = body.customerEmailID || body.responseParams?.customerEmailID || '';
+
+        console.log('[ICICI Callback] Triggering safety order recovery for paid transaction:', { baseOrderId, txnID, recoveredAmount });
+
+        const defaultTicket = db.prepare('SELECT id, name FROM tickets WHERE active = 1 ORDER BY id ASC LIMIT 1').get() as { id: number; name: string } | undefined;
+        const fallbackItems = [{
+          ticketId: defaultTicket?.id || 1,
+          ticketName: defaultTicket?.name || 'RC Fun Zone Pass',
+          date: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()),
+          timeSlot: 'General Session',
+          quantity: 1,
+          itemTotal: recoveredAmount || 1000
+        }];
+
+        holdRow = {
+          id: 0,
+          txn_id: baseOrderId,
+          customer_name: 'Online Guest',
+          customer_email: recoveredEmail,
+          customer_phone: recoveredPhone,
+          amount: recoveredAmount || 0,
+          items_json: JSON.stringify(fallbackItems),
+          whatsapp_consent: 1,
+          created_at: new Date().toISOString()
+        };
       }
 
       try {
@@ -143,7 +176,6 @@ export async function POST(req: NextRequest) {
           .map((i: any) => i.bookingId || i.booking_id)
           .filter((id: any) => id && typeof id === 'number');
 
-        const db = getDbInstance();
         try {
           if (existingBookingIds.length > 0 && existingBookingIds.length === items.length) {
             // Update existing desk bookings to Paid and mark payment_ref
@@ -259,8 +291,9 @@ export async function POST(req: NextRequest) {
               console.error('[ICICI Callback] Error processing coupon update:', couponErr);
             }
           }
-        } finally {
-          db.close();
+        } catch (dbErr) {
+          console.error('[ICICI Callback] Database error during booking registration:', dbErr);
+          throw dbErr;
         }
 
         // Confirm simulator slot locks in shared PostgreSQL (convert tempTxnId -> finalOrderId)
@@ -363,16 +396,13 @@ export async function GET(req: NextRequest) {
   }
 
   if ((responseCode === '0000' || responseCode === '000') && merchantTxnNo) {
-    const db = getDbInstance();
     try {
       const existing = db.prepare('SELECT order_number, order_prefix FROM bookings WHERE payment_ref = ? OR icici_txn_id = ?').get(merchantTxnNo, merchantTxnNo) as { order_number: number; order_prefix?: string } | undefined;
       if (existing) {
         const formattedExisting = formatOrderNumber(existing.order_number, existing.order_prefix || 'PAID');
         return NextResponse.redirect(new URL(`/success.html?order_id=${encodeURIComponent(formattedExisting)}`, redirectBase), 303);
       }
-    } finally {
-      db.close();
-    }
+    } catch (_) {}
   }
 
   if (merchantTxnNo.startsWith('TXN_RC_')) {

@@ -9,7 +9,7 @@ export { normalizeBookingDateVariants, matchesBookingDate, isBookingDatePast, is
 
 // Initialize the database connection
 // Supports Render persistent disk mount paths (e.g. DB_PATH=/var/data/havoc.db or DATA_DIR=/var/data)
-function getDatabasePath(): string {
+export function getDatabasePath(): string {
   // During `next build`, Render persistent disks (/var/data) are not mounted yet.
   // Use a local build DB so Next.js build-time prerendering succeeds cleanly without ENOENT.
   if (process.env.NEXT_PHASE === 'phase-production-build') {
@@ -58,6 +58,15 @@ function getDatabasePath(): string {
 
 const dbPath = getDatabasePath();
 export const db = new Database(dbPath, { verbose: process.env.NODE_ENV === 'development' ? console.log : undefined });
+
+// Configure SQLite for high concurrency, durability and instant responsiveness
+try {
+  db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
+  db.pragma('synchronous = NORMAL');
+} catch (e) {
+  console.warn('[SQLite PRAGMA Warning]', e);
+}
 
 // Initialize database schema
 export function initDB() {
@@ -248,6 +257,21 @@ export function initDB() {
       order_number INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS payment_gateway_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      gateway TEXT NOT NULL DEFAULT 'icici',
+      merchant_txn_no TEXT,
+      gateway_txn_id TEXT,
+      response_code TEXT,
+      status TEXT, -- 'SUCCESS', 'FAILED', 'MISMATCH', 'HOLD_MISSING'
+      amount REAL,
+      customer_phone TEXT,
+      customer_email TEXT,
+      order_code TEXT,
+      raw_payload TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS quickbill_sync_state (
       id INTEGER PRIMARY KEY,
       last_synced_id INTEGER NOT NULL DEFAULT 0,
@@ -314,6 +338,8 @@ export function initDB() {
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_online_holds_txn ON online_checkout_holds(txn_id)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_token ON desk_payment_links(token)'); } catch (e) {}
   try { db.exec('CREATE INDEX IF NOT EXISTS idx_desk_pay_created ON desk_payment_links(created_at)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_pg_logs_merchant ON payment_gateway_logs(merchant_txn_no)'); } catch (e) {}
+  try { db.exec('CREATE INDEX IF NOT EXISTS idx_pg_logs_created ON payment_gateway_logs(created_at)'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN advance_notified_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN admin_upcoming_notified_at TEXT'); } catch (e) {}
   try { db.exec('ALTER TABLE bookings ADD COLUMN refund_amount REAL'); } catch (e) {}
@@ -1806,6 +1832,42 @@ export function deleteOnlineCheckoutHold(txn_id: string) {
   return db.prepare('DELETE FROM online_checkout_holds WHERE txn_id = ?').run(txn_id);
 }
 
+export function logPaymentGatewayAdvice(data: {
+  gateway?: string;
+  merchant_txn_no?: string;
+  gateway_txn_id?: string;
+  response_code?: string;
+  status: string;
+  amount?: number;
+  customer_phone?: string;
+  customer_email?: string;
+  order_code?: string;
+  raw_payload?: string;
+}) {
+  try {
+    return db.prepare(`
+      INSERT INTO payment_gateway_logs (
+        gateway, merchant_txn_no, gateway_txn_id, response_code, status,
+        amount, customer_phone, customer_email, order_code, raw_payload, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(
+      data.gateway || 'icici',
+      data.merchant_txn_no || null,
+      data.gateway_txn_id || null,
+      data.response_code || null,
+      data.status,
+      data.amount !== undefined ? data.amount : null,
+      data.customer_phone || null,
+      data.customer_email || null,
+      data.order_code || null,
+      data.raw_payload || null
+    );
+  } catch (err) {
+    console.error('[logPaymentGatewayAdvice Error]', err);
+    return null;
+  }
+}
+
 export interface DeskPaymentLinkRow {
   id: number;
   token: string;
@@ -1971,7 +2033,7 @@ export function getBookingsForSlotRoster(bookingDate: string, timeSlot: string) 
   `).all(...dateVariants, targetDate, targetDate, timeSlot, timeSlot) as any[];
 }
 
-export async function cleanupExpiredHolds(maxAgeMinutes: number = 2): Promise<number> {
+export async function cleanupExpiredHolds(maxAgeMinutes: number = 15): Promise<number> {
   try {
     const expiredRows = db.prepare(`
       SELECT txn_id FROM online_checkout_holds 

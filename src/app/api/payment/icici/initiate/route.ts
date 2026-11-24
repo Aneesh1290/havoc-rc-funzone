@@ -36,8 +36,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid order amount' }, { status: 400 });
     }
 
-    // 1. Clean up expired holds older than 2 minutes before running concurrency checks
-    await cleanupExpiredHolds(2);
+    // 1. Clean up expired holds older than 15 minutes before running concurrency checks
+    await cleanupExpiredHolds(15);
 
     // 2. Concurrency check: Ensure requested tickets don't exceed remaining capacity
     const tickets = getTickets();

@@ -9,8 +9,8 @@ export async function GET(
     const { date } = await params;
     const decodedDate = decodeURIComponent(date);
 
-    // Clean up expired holds older than 2 minutes
-    await cleanupExpiredHolds(2);
+    // Clean up expired holds older than 15 minutes
+    await cleanupExpiredHolds(15);
 
     const tickets = getTickets().filter(t => t.active === 1);
     const slots = getTimeSlots().filter(s => s.active === 1);

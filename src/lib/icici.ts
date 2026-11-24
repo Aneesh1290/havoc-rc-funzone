@@ -135,6 +135,91 @@ export function generateIciciHash(payload: Record<string, any>, customSecret?: s
 }
 
 /**
+ * Queries transaction status directly from ICICI Bank aggregator server via Server-to-Server /command API.
+ * This removes 100% dependency on the customer's browser redirection.
+ */
+export async function checkIciciPaymentStatus(merchantTxnNo: string, originalTxnNo?: string): Promise<{
+  success: boolean;
+  isPaid: boolean;
+  responseCode?: string;
+  description?: string;
+  txnID?: string;
+  amount?: number;
+  data?: any;
+}> {
+  try {
+    const aggregatorId = getIciciAggregatorId();
+    const payload: Record<string, string> = {
+      merchantId: getIciciMerchantId(),
+      transactionType: "STATUS",
+      merchantTxnNo: merchantTxnNo,
+    };
+
+    if (originalTxnNo) {
+      payload.originalTxnNo = originalTxnNo;
+    }
+    if (aggregatorId) {
+      payload.aggregatorID = aggregatorId;
+    }
+
+    payload.secureHash = generateIciciHash(payload);
+
+    const formParams = new URLSearchParams();
+    for (const [key, value] of Object.entries(payload)) {
+      formParams.append(key, value);
+    }
+
+    const commandUrl = getIciciCommandUrl();
+    console.log('================== [ICICI BANK STATUS INQUIRY REQUEST] ==================');
+    console.log('Timestamp (IST)   :', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }));
+    console.log('API URL           :', commandUrl);
+    console.log('merchantTxnNo     :', merchantTxnNo);
+    console.log('Payload           :', JSON.stringify(payload, null, 2));
+    console.log('========================================================================');
+
+    const res = await fetch(commandUrl, {
+      method: 'POST',
+      headers: {
+        'Origin': 'https://havocrcfunzone.in',
+        'Referer': 'https://havocrcfunzone.in/',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formParams.toString()
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    console.log('================== [ICICI BANK STATUS INQUIRY RESPONSE] ==================');
+    console.log('HTTP Status       :', res.status);
+    console.log('Response Payload  :', JSON.stringify(data, null, 2));
+    console.log('=========================================================================');
+
+    // ICICI status response evaluation
+    // Success response codes typically "0000", "000", or "R1000", or status "SUC"
+    const responseCode = data.responseCode || data.status || '';
+    const isPaid = responseCode === "0000" || responseCode === "000" || data.status === "SUC" || data.properties?.isSuccess === true;
+
+    return {
+      success: true,
+      isPaid,
+      responseCode: String(responseCode),
+      description: data.respDescription || data.responseDescription || data.statusDesc,
+      txnID: data.txnID || data.paymentID || data.originalTxnNo,
+      amount: data.amount ? Number(data.amount) : undefined,
+      data
+    };
+  } catch (error: any) {
+    console.error('[checkIciciPaymentStatus Error]', error);
+    return {
+      success: false,
+      isPaid: false,
+      description: error.message || 'Status query network error',
+      data: null
+    };
+  }
+}
+
+/**
  * Initiates a server-to-server refund request to ICICI Bank Direct PG (application/x-www-form-urlencoded).
  */
 export async function processIciciRefund(params: {

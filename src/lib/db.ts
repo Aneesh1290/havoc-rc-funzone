@@ -940,16 +940,17 @@ export function updateBookingScheduleAndContact(params: {
     }
     const cleanSlot = params.newTimeSlot ? params.newTimeSlot.trim() : null;
 
-    // Fetch existing records to track previous dates and count
+    // Fetch existing records to track previous dates, count and simulator slot locks
     const existingRows = isItemScope
-      ? (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags FROM bookings WHERE id = ?').all(params.bookingItemId) as any[])
-      : (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').all(targetOrderNum, targetOrderNum) as any[]);
+      ? (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags, simulator_name, simulator_slot FROM bookings WHERE id = ?').all(params.bookingItemId) as any[])
+      : (db.prepare('SELECT id, booking_date, time_slot, reschedule_count, reschedule_history, tags, simulator_name, simulator_slot FROM bookings WHERE order_number = ? OR (order_number IS NULL AND id = ?)').all(targetOrderNum, targetOrderNum) as any[]);
 
     const first = existingRows[0] || {};
     const fromDate = (first.booking_date || '').trim();
     const fromSlot = (first.time_slot || '').trim();
     const toDate = cleanDate || fromDate;
     const toSlot = cleanSlot || fromSlot;
+    const isDateChanged = cleanDate && cleanDate !== fromDate;
 
     // Guard: If neither the date nor the slot actually changed, do NOT record a reschedule
     if (toDate === fromDate && toSlot === fromSlot) {
@@ -1002,6 +1003,10 @@ export function updateBookingScheduleAndContact(params: {
         SET booking_date = COALESCE(?, booking_date),
             time_slot = COALESCE(?, time_slot),
             wristband_number = NULL, -- Reset slot wristband for new slot
+            simulator_slot = CASE 
+              WHEN ? = 1 AND simulator_name IS NOT NULL AND simulator_name != '' THEN '(Pending Re-assignment)'
+              ELSE simulator_slot
+            END,
             reschedule_count = ?,
             rescheduled_at = ?,
             reschedule_history = ?,
@@ -1010,13 +1015,17 @@ export function updateBookingScheduleAndContact(params: {
               ELSE tags || ' ' || ?
             END
         WHERE id = ?
-      `).run(cleanDate, cleanSlot, newCount, nowIso, historyJson, tagNote, tagNote, params.bookingItemId);
+      `).run(cleanDate, cleanSlot, isDateChanged ? 1 : 0, newCount, nowIso, historyJson, tagNote, tagNote, params.bookingItemId);
     } else {
       db.prepare(`
         UPDATE bookings 
         SET booking_date = COALESCE(?, booking_date),
             time_slot = COALESCE(?, time_slot),
             wristband_number = NULL, -- Reset slot wristband for new slot
+            simulator_slot = CASE 
+              WHEN ? = 1 AND simulator_name IS NOT NULL AND simulator_name != '' THEN '(Pending Re-assignment)'
+              ELSE simulator_slot
+            END,
             reschedule_count = ?,
             rescheduled_at = ?,
             reschedule_history = ?,
@@ -1025,7 +1034,7 @@ export function updateBookingScheduleAndContact(params: {
               ELSE tags || ' ' || ?
             END
         WHERE order_number = ? OR (order_number IS NULL AND id = ?)
-      `).run(cleanDate, cleanSlot, newCount, nowIso, historyJson, tagNote, tagNote, targetOrderNum, targetOrderNum);
+      `).run(cleanDate, cleanSlot, isDateChanged ? 1 : 0, newCount, nowIso, historyJson, tagNote, tagNote, targetOrderNum, targetOrderNum);
     }
   }
 

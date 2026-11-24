@@ -1006,6 +1006,27 @@ export async function updateBookingScheduleAndContactAction(params: {
 
   try {
     const isScheduleChange = Boolean(params.newDate || params.newTimeSlot);
+
+    // If date is changing, release any active simulator slot locks in Sim Podium so ghost locks are never left on the old date
+    if (params.newDate) {
+      try {
+        const targetRows = params.scope === 'item' && params.bookingItemId
+          ? [getBookingById(params.bookingItemId)].filter(Boolean)
+          : (getBookingsByOrderNumber(params.orderNumber) as any[]);
+
+        for (const row of targetRows) {
+          if (row && row.simulator_name && row.simulator_slot && row.booking_date !== params.newDate) {
+            const orderCode = formatOrderNumber(params.orderNumber, row.order_prefix);
+            await releaseSimulatorSlots(orderCode, row.id).catch(simErr => {
+              console.error(`[Reschedule Sim Release] Error releasing sim slot for order ${orderCode} on item ${row.id}:`, simErr);
+            });
+          }
+        }
+      } catch (checkSimErr) {
+        console.error('[Reschedule Sim Release Guard Error]', checkSimErr);
+      }
+    }
+
     const result = updateBookingScheduleAndContact(params);
     if (!result.success) {
       return result;

@@ -135,8 +135,9 @@ export async function POST(req: NextRequest) {
         const recoveredAmount = Number(body.amount || body.responseParams?.amount || 0);
         const recoveredPhone = body.customerMobileNo || body.responseParams?.customerMobileNo || '';
         const recoveredEmail = body.customerEmailID || body.responseParams?.customerEmailID || '';
+        const recoveredName = body.customerName || body.responseParams?.customerName || body.addlParam1 || body.responseParams?.addlParam1 || 'Online Guest';
 
-        console.log('[ICICI Callback] Triggering safety order recovery for paid transaction:', { baseOrderId, txnID, recoveredAmount });
+        console.log('[ICICI Callback] Triggering safety order recovery for paid transaction:', { baseOrderId, txnID, recoveredAmount, recoveredName });
 
         const defaultTicket = db.prepare('SELECT id, name FROM tickets WHERE active = 1 ORDER BY id ASC LIMIT 1').get() as { id: number; name: string } | undefined;
         const fallbackItems = [{
@@ -151,7 +152,7 @@ export async function POST(req: NextRequest) {
         holdRow = {
           id: 0,
           txn_id: baseOrderId,
-          customer_name: 'Online Guest',
+          customer_name: recoveredName,
           customer_email: recoveredEmail,
           customer_phone: recoveredPhone,
           amount: recoveredAmount || 0,

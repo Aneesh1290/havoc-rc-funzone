@@ -205,6 +205,18 @@ export function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS online_checkout_holds_archive (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      txn_id TEXT NOT NULL,
+      customer_name TEXT,
+      customer_email TEXT,
+      customer_phone TEXT,
+      amount REAL NOT NULL,
+      items_json TEXT NOT NULL,
+      whatsapp_consent INTEGER DEFAULT 1,
+      archived_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS addons (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -1243,11 +1255,11 @@ export function getBookedQuantities(date: string, timeSlot: string): { ticket_id
     bookedMap.set(b.ticket_id, (bookedMap.get(b.ticket_id) || 0) + Number(b.total_booked || 0));
   }
 
-  // Also include active online checkout holds (< 2 minutes old)
+  // Also include active online checkout holds (< 15 minutes old)
   try {
     const activeHolds = db.prepare(`
       SELECT items_json FROM online_checkout_holds
-      WHERE datetime(created_at) >= datetime('now', '-2 minutes')
+      WHERE datetime(created_at) >= datetime('now', '-15 minutes')
     `).all() as { items_json: string }[];
 
     for (const hold of activeHolds) {
@@ -1834,10 +1846,26 @@ export function createOnlineCheckoutHold(data: {
 }
 
 export function getOnlineCheckoutHold(txn_id: string): OnlineCheckoutHoldRow | undefined {
-  return db.prepare('SELECT * FROM online_checkout_holds WHERE txn_id = ?').get(txn_id) as OnlineCheckoutHoldRow | undefined;
+  const active = db.prepare('SELECT * FROM online_checkout_holds WHERE txn_id = ?').get(txn_id) as OnlineCheckoutHoldRow | undefined;
+  if (active) return active;
+  
+  // Check archive table so late callbacks/reconciliations retain complete customer name and cart items
+  try {
+    const archived = db.prepare('SELECT * FROM online_checkout_holds_archive WHERE txn_id = ? ORDER BY id DESC LIMIT 1').get(txn_id) as OnlineCheckoutHoldRow | undefined;
+    if (archived) return archived;
+  } catch (_) {}
+  return undefined;
 }
 
 export function deleteOnlineCheckoutHold(txn_id: string) {
+  try {
+    // Archive before deleting from active holds so customer name/cart are never permanently lost
+    db.prepare(`
+      INSERT INTO online_checkout_holds_archive (txn_id, customer_name, customer_email, customer_phone, amount, items_json, whatsapp_consent)
+      SELECT txn_id, customer_name, customer_email, customer_phone, amount, items_json, whatsapp_consent
+      FROM online_checkout_holds WHERE txn_id = ?
+    `).run(txn_id);
+  } catch (_) {}
   return db.prepare('DELETE FROM online_checkout_holds WHERE txn_id = ?').run(txn_id);
 }
 

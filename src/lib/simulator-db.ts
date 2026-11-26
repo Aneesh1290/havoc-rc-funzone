@@ -1,6 +1,6 @@
 import { Pool } from 'pg';
 
-let rawDbUrl = process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL || "";
+let rawDbUrl = process.env.SIMULATOR_INTERNAL_DATABASE_URL || process.env.SIMULATOR_DATABASE_URL || process.env.DATABASE_URL || "";
 
 // If deployment still has the old Render role credentials, replace with the active role
 if (rawDbUrl.includes("slots_db_yqvv_user:feguu4oTsGEZ2TVGok9U0ylcphlCftjh")) {

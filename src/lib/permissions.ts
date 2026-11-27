@@ -8,6 +8,7 @@ export interface PermissionDefinition {
 export const PERMISSION_GROUPS = {
   pages: [
     { key: "bookings", label: "Bookings", description: "Access the Bookings dashboard and order lists" },
+    { key: "payment-links", label: "Payment Links", description: "Generate and send custom payment links" },
     { key: "tickets", label: "Ticket Types", description: "Manage ticket pricing and inventory" },
     { key: "addons", label: "Add-ons", description: "Manage optional activities and add-ons" },
     { key: "vip-perks", label: "VIP Perks (Sims)", description: "Manage simulator perks and combos" },

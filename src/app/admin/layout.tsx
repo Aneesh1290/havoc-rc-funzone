@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users, Menu, Layers, PackagePlus } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Ticket, Tag, Settings, LogOut, X, Sparkles, Clock, Users, Menu, Layers, PackagePlus, Link2 } from "lucide-react";
 import { logoutAction } from "../login/actions";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
@@ -95,6 +95,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   const allNavLinks = [
     { href: "/admin/bookings", key: "bookings", label: "Bookings", icon: CalendarDays },
+    { href: "/admin/payment-links", key: "payment-links", label: "Payment Links", icon: Link2 },
     { href: "/admin/tickets", key: "tickets", label: "Ticket Types", icon: Ticket },
     { href: "/admin/addons", key: "addons", label: "Add-ons", icon: PackagePlus },
     { href: "/admin/vip-perks", key: "vip-perks", label: "VIP Perks (Sims)", icon: Sparkles },

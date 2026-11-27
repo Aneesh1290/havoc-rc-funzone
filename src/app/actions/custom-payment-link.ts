@@ -8,7 +8,8 @@ import {
   createDeskPaymentLink, 
   createOnlineCheckoutHold, 
   getNextOrderNumber,
-  getSiteSetting 
+  getSiteSetting,
+  getAllDeskPaymentLinks
 } from "@/lib/db";
 import { sendPaymentLinkWhatsApp } from "@/lib/whatsapp";
 import { formatOrderNumber } from "@/lib/order-utils";
@@ -193,6 +194,69 @@ export async function createCustomPaymentLinkAction(params: CreateCustomPaymentL
     return {
       success: false,
       error: err.message || "Failed to create custom payment link."
+    };
+  }
+}
+
+export async function fetchCustomPaymentLinksAction(limit: number = 100) {
+  try {
+    const session = await checkSessionAction();
+    if (!session) {
+      return { success: false, error: "Unauthorized", links: [] };
+    }
+
+    const returnBase = process.env.ICICI_RETURN_BASE 
+      || process.env.NEXT_PUBLIC_APP_URL 
+      || (process.env.NODE_ENV === "production" ? "https://havocrcfunzone.in" : "https://havocrcfunzone.in");
+
+    const rawLinks = getAllDeskPaymentLinks(limit);
+    const links = rawLinks.map(l => {
+      const orderCode = l.order_number ? formatOrderNumber(l.order_number, l.order_prefix || 'PAYDUE') : `#PL_${l.token.slice(0, 6).toUpperCase()}`;
+      const isPaid = l.status === 'completed' || (l.actual_payment_status && l.actual_payment_status.toLowerCase() === 'paid');
+      const paymentUrl = `${returnBase}/pay/${l.token}`;
+
+      // Clean phone for WhatsApp direct URL
+      const cleanDigits = (l.customer_phone || '').replace(/\D/g, '');
+      const countryDigits = (l.country_code || '+91').replace(/\D/g, '') || '91';
+      let phoneParam = '';
+      if (cleanDigits.length === 10) {
+        phoneParam = `${countryDigits}${cleanDigits}`;
+      } else if (cleanDigits.length > 10) {
+        phoneParam = cleanDigits;
+      }
+
+      const waText = `Hi ${l.customer_name || 'there'}! Here is your payment link for ₹${Number(l.total_amount).toFixed(2)} (${l.purpose || 'Custom Payment'}) from Havoc RC Fun Zone:\n${paymentUrl}`;
+      const waUrl = phoneParam ? `https://wa.me/${phoneParam}?text=${encodeURIComponent(waText)}` : `https://api.whatsapp.com/send?text=${encodeURIComponent(waText)}`;
+
+      return {
+        id: l.id,
+        token: l.token,
+        customer_name: l.customer_name,
+        customer_phone: l.customer_phone,
+        country_code: l.country_code,
+        amount: Number(l.total_amount),
+        status: isPaid ? 'PAID' : (l.status === 'expired' ? 'EXPIRED' : 'PENDING'),
+        created_at: l.created_at,
+        paid_at: l.paid_at,
+        payment_ref: l.payment_ref,
+        order_code: orderCode,
+        purpose: l.purpose,
+        notes: l.notes,
+        payment_url: paymentUrl,
+        wa_url: waUrl
+      };
+    });
+
+    return {
+      success: true,
+      links
+    };
+  } catch (err: any) {
+    console.error('[fetchCustomPaymentLinksAction Error]', err);
+    return {
+      success: false,
+      error: err.message || "Failed to load payment links",
+      links: []
     };
   }
 }

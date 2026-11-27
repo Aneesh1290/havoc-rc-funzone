@@ -1946,6 +1946,34 @@ export function getDeskPaymentLinkByToken(token: string): DeskPaymentLinkRow | u
   return db.prepare('SELECT * FROM desk_payment_links WHERE token = ?').get(token) as DeskPaymentLinkRow | undefined;
 }
 
+export function getAllDeskPaymentLinks(limit: number = 100): Array<DeskPaymentLinkRow & {
+  order_number?: number;
+  order_prefix?: string;
+  purpose?: string;
+  notes?: string;
+  actual_payment_status?: string;
+}> {
+  try {
+    const rows = db.prepare(`
+      SELECT 
+        d.*,
+        b.order_number,
+        COALESCE(b.order_prefix, 'PAYDUE') as order_prefix,
+        COALESCE(b.time_slot, 'Custom Payment') as purpose,
+        b.special_requests as notes,
+        b.payment_status as actual_payment_status
+      FROM desk_payment_links d
+      LEFT JOIN bookings b ON b.id = json_extract(d.booking_ids, '$[0]')
+      ORDER BY d.id DESC
+      LIMIT ?
+    `).all(limit) as any[];
+    return rows;
+  } catch (err) {
+    console.error('[getAllDeskPaymentLinks Error]', err);
+    return [];
+  }
+}
+
 export function markDeskPaymentLinkCompleted(token: string, paymentRef: string) {
   return db.prepare(`
     UPDATE desk_payment_links 
